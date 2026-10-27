@@ -10,9 +10,11 @@ import stats as ST
 import build as B
 import model_nba
 import model_nhl
+import model_nfl
+import model_cfb
 
 ALIAS = {"UTAH": "UTA", "GSW": "GS", "NOP": "NO", "SAS": "SA", "NYK": "NY", "WAS": "WSH", "UTH": "UTA"}
-SEASON = {"nba": ("2026-27", "2025-26"), "nhl": ("2026-27", "2025-26")}
+SEASON = {"nba": ("2026-27", "2025-26"), "nhl": ("2026-27", "2025-26"), "nfl": ("2026", "2025"), "cfb": ("2026", "2025")}
 
 
 def _phi(x):
@@ -43,14 +45,21 @@ def build_all(game_docs, prop_docs, data_dir, today):
     out = {}
     models = {}
     inj = {}
-    for lg, sport in (("nba", "basketball_nba"), ("nhl", "icehockey_nhl")):
+    for lg, sport in (("nba", "basketball_nba"), ("nhl", "icehockey_nhl"), ("nfl", "americanfootball_nfl"), ("cfb", "americanfootball_ncaaf")):
         if not any(g["sport"] == sport for g in game_docs):
             continue
         try:
             cur, pri = SEASON[lg]
             inj[lg] = (ST.load_json(data_dir, f"stats/{lg}/injuries.json") or {}).get("teams", {})
             cg, pg = ST.load_games(lg, cur, data_dir), ST.load_games(lg, pri, data_dir)
-            models[sport] = model_nba.NBA(cg, pg, inj[lg], today) if lg == "nba" else model_nhl.NHL(data_dir, cg, pg, inj[lg])
+            if lg == "nba":
+                models[sport] = model_nba.NBA(cg, pg, inj[lg], today)
+            elif lg == "nhl":
+                models[sport] = model_nhl.NHL(data_dir, cg, pg, inj[lg])
+            elif lg == "nfl":
+                models[sport] = model_nfl.NFL(data_dir, int(cur), cg, inj[lg])
+            else:
+                models[sport] = model_cfb.CFB(cg, pg)
         except Exception as e:  # a model failure never blocks the board
             print(f"model {lg} failed: {type(e).__name__}: {str(e)[:120]}")
     props_by_game = {}
@@ -62,7 +71,8 @@ def build_all(game_docs, prop_docs, data_dir, today):
             continue
         try:
             refs = R.load(g["sport"], data_dir)
-            doc = (_nba if g["sport"] == "basketball_nba" else _nhl)(g, m, props_by_game.get(g["id"], []), inj, refs)
+            fn = {"basketball_nba": _nba, "icehockey_nhl": _nhl, "americanfootball_nfl": _nfl, "americanfootball_ncaaf": _cfb}[g["sport"]]
+            doc = fn(g, m, props_by_game.get(g["id"], []), inj, refs)
             if doc:
                 out[g["id"]] = doc
         except Exception as e:
@@ -178,7 +188,7 @@ def _player_cards(players, refs, keys, n=9, minutes_key="projMin"):
             continue
         ref = refs.get("players", {}).get(R.norm(p["name"])) or {}
         out.append({"name": p["name"], "pos": p.get("pos"), "status": p.get("status"), "note": p.get("note"),
-                    "out": p.get("out"), "min": p.get(minutes_key), "headshot": ref.get("headshot"),
+                    "out": p.get("out"), "min": p.get(minutes_key), "headshot": ref.get("headshot") or p.get("headshotNfl"),
                     "proj": dict(p["proj"]), "last10": p.get("last10")})
     return out
 
@@ -326,3 +336,100 @@ def _nhl(g, m, pdocs, inj, refs):
             "statLabels": [model_nhl.LABEL[k] for k in keys],
             "players": {"home": _player_cards(pj["sides"]["home"]["players"], refs, keys, 9, "projToi"),
                         "away": _player_cards(pj["sides"]["away"]["players"], refs, keys, 9, "projToi")}}
+
+
+# ---------------------------------------------------------------------------
+# NFL
+
+def _line_probs(g, pj, m):
+    pH = 1 - _phi(-pj["margin"] / m.SD_MARGIN)
+
+    def probs(l):
+        if l["market"] == "h2h":
+            return {g["home"]: pH, g["away"]: 1 - pH}
+        if l["market"] in ("spreads", "alternate_spreads"):
+            ph = m.p_cover(pj["margin"], l["point"])
+            return {g["home"]: ph, g["away"]: 1 - ph}
+        if l["market"] in ("totals", "alternate_totals"):
+            po = m.p_over(pj["total"], l["point"])
+            return {"Over": po, "Under": 1 - po}
+    return pH, probs
+
+
+def _nfl(g, m, pdocs, inj, refs):
+    h, a = _abbr(g.get("homeRef"), m.teams), _abbr(g.get("awayRef"), m.teams)
+    pj = m.project_game(h, a)
+    if not pj:
+        return None
+    pH, probs = _line_probs(g, pj, m)
+    lines = _stamp_lines(g, probs)
+    _stamp_props(pdocs, pj["sides"], model_nfl.MARKETS, g["sport"])
+    for d in pdocs:     # anytime TD: Poisson on projected touchdowns
+        if d["market"] != "player_anytime_td":
+            continue
+        for r in d["rows"]:
+            p = _match_player(r["player"], pj["sides"]["home"]["players"] + pj["sides"]["away"]["players"])
+            if p and not p.get("out"):
+                py = 1 - math.exp(-p["proj"].get("td", 0))
+                r["model"] = {"mean": round(p["proj"].get("td", 0), 2), "Yes": round(py, 4), "No": round(1 - py, 4)}
+    th, ta = m.teams[h], m.teams[a]
+    pct = lambda v: None if v is None else round(v, 3)
+
+    def team(t, side, name):
+        return {"abbr": t["abbr"], "record": None, "gp": t["g"], "qb": t.get("qb"), "pts": pj[side]["pts"], "rank": t.get("rank", {}),
+                "injuries": _injuries(inj.get("nfl"), t["abbr"], name), "att": pj["sides"][side]["att"], "car": pj["sides"][side]["car"]}
+    compare = [
+        {"k": "Offense EPA/play", "h": th.get("offRaw"), "a": ta.get("offRaw"), "hr": th["rank"].get("offRaw"), "ar": ta["rank"].get("offRaw"), "hi": True, "d": 3},
+        {"k": "Defense EPA/play allowed", "h": th.get("defRaw"), "a": ta.get("defRaw"), "hr": th["rank"].get("defRaw"), "ar": ta["rank"].get("defRaw"), "hi": False, "d": 3},
+        {"k": "Success rate", "h": pct(th.get("succ")), "a": pct(ta.get("succ")), "hr": th["rank"].get("succ"), "ar": ta["rank"].get("succ"), "hi": True, "pct": True},
+        {"k": "Success rate allowed", "h": pct(th.get("dsucc")), "a": pct(ta.get("dsucc")), "hr": th["rank"].get("dsucc"), "ar": ta["rank"].get("dsucc"), "hi": False, "pct": True},
+        {"k": "Explosive play rate", "h": pct(th.get("expl")), "a": pct(ta.get("expl")), "hr": th["rank"].get("expl"), "ar": ta["rank"].get("expl"), "hi": True, "pct": True},
+        {"k": "Early-down EPA/play", "h": th.get("edEpa"), "a": ta.get("edEpa"), "hr": th["rank"].get("edEpa"), "ar": ta["rank"].get("edEpa"), "hi": True, "d": 3},
+        {"k": "Pass rate over expected", "h": pct(th.get("proe")), "a": pct(ta.get("proe")), "hr": th["rank"].get("proe"), "ar": ta["rank"].get("proe"), "hi": None, "pct": True},
+        {"k": "Plays per game", "h": th.get("plays"), "a": ta.get("plays"), "hr": th["rank"].get("plays"), "ar": ta["rank"].get("plays"), "hi": None, "d": 1},
+    ]
+    factors = []
+    for side, t in (("home", th), ("away", ta)):
+        if t.get("qbChanged"):
+            factors.append({"side": side, "tone": "info", "text": f"{t['abbr']} has a different starting QB ({t['qb']}) than last season; last season counts less"})
+        outs = [p for p in pj["sides"][side]["players"] if p["out"] and (p["proj"] or True)]
+        named = [p["name"] for p in outs][:4]
+        if named:
+            factors.append({"side": side, "tone": "neg", "text": f"{t['abbr']} out: {', '.join(named)} (targets and carries redistributed)"})
+    factors.append({"side": None, "tone": "info", "text": f"Model: {g['homeRef']['abbr'] if g.get('homeRef') else 'home'} {-pj['margin']:+.1f}, total {pj['total']:.1f} "
+                    f"({pj['away']['pts']}-{pj['home']['pts']})"})
+    keys = ["pass_yds", "rush_yds", "rec", "rec_yds"]
+    return {"id": g["id"], "league": "NFL", "home": g["home"], "away": g["away"], "commence": g["commence"],
+            "model": {"margin": pj["margin"], "total": pj["total"], "pHome": round(pH, 4), "lines": lines},
+            "teams": {"home": team(th, "home", g["home"]), "away": team(ta, "away", g["away"])},
+            "compare": compare, "factors": factors, "propEdges": [], "statKeys": keys, "statLabels": [model_nfl.LABEL[k] for k in keys],
+            "players": {"home": _player_cards(pj["sides"]["home"]["players"], refs, keys, 10, "projMin"),
+                        "away": _player_cards(pj["sides"]["away"]["players"], refs, keys, 10, "projMin")}}
+
+
+# ---------------------------------------------------------------------------
+# College football (team level)
+
+def _cfb(g, m, pdocs, inj, refs):
+    h, a = _abbr(g.get("homeRef"), m.teams), _abbr(g.get("awayRef"), m.teams)
+    pj = m.project_game(h, a)
+    if not pj:
+        return None
+    pH, probs = _line_probs(g, pj, m)
+    lines = _stamp_lines(g, probs)
+    th, ta = m.teams[h], m.teams[a]
+    compare = [
+        {"k": "Net rating (pts vs average)", "h": th["net"], "a": ta["net"], "hr": th["rank"]["net"], "ar": ta["rank"]["net"], "hi": True, "d": 1, "n": m.n},
+        {"k": "Offense (pts vs average)", "h": th["off"], "a": ta["off"], "hr": th["rank"]["off"], "ar": ta["rank"]["off"], "hi": True, "d": 1, "n": m.n},
+        {"k": "Defense (pts saved vs average)", "h": th["def"], "a": ta["def"], "hr": th["rank"]["def"], "ar": ta["rank"]["def"], "hi": True, "d": 1, "n": m.n},
+        {"k": "Yards per play (adj)", "h": th["ypp"], "a": ta["ypp"], "hr": th["rank"]["ypp"], "ar": ta["rank"]["ypp"], "hi": True, "d": 2, "n": m.n},
+        {"k": "Yards per play allowed (adj)", "h": th["dypp"], "a": ta["dypp"], "hr": th["rank"]["dypp"], "ar": ta["rank"]["dypp"], "hi": False, "d": 2, "n": m.n},
+    ]
+    factors = [{"side": None, "tone": "info", "text": f"Opponent-adjusted model: {g['homeRef']['abbr'] if g.get('homeRef') else 'home'} {-pj['margin']:+.1f}, "
+                f"total {pj['total']:.1f}; home edge worth {m.h:.1f} points this season"}]
+    return {"id": g["id"], "league": "NCAAF", "home": g["home"], "away": g["away"], "commence": g["commence"],
+            "model": {"margin": pj["margin"], "total": pj["total"], "pHome": round(pH, 4), "lines": lines},
+            "teams": {"home": {"abbr": th["abbr"], "record": th["record"], "pts": pj["home"]["pts"], "injuries": _injuries(inj.get("cfb"), th["abbr"], g["home"])},
+                      "away": {"abbr": ta["abbr"], "record": ta["record"], "pts": pj["away"]["pts"], "injuries": _injuries(inj.get("cfb"), ta["abbr"], g["away"])}},
+            "compare": compare, "factors": factors, "propEdges": [], "statKeys": [], "statLabels": [],
+            "players": {"home": [], "away": []}}

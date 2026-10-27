@@ -107,15 +107,23 @@ const fmtS = (v, d) => v == null ? "–" : `${v > 0 ? "+" : ""}${(+v).toFixed(d)
 const PSTATS = {
   NBA: [["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["fg3", "3PM"], ["stl", "STL"], ["blk", "BLK"], ["tov", "TOV"]],
   NHL: [["sog", "SOG"], ["pts", "PTS"], ["g", "G"], ["a", "A"], ["blk", "BLK"], ["hits", "HIT"]],
+  NFL: [["pass_yds", "PYD"], ["rush_yds", "RYD"], ["car", "CAR"], ["rec", "REC"], ["rec_yds", "RECYD"], ["td", "TD"]],
 };
-const MIN_KEY = { NBA: ["min", "MIN"], NHL: ["toi", "TOI"] };
+const MIN_KEY = { NBA: ["min", "MIN"], NHL: ["toi", "TOI"], NFL: ["targets", "TGT"] };
+// the stat and prop market that matter most for a player, for the sparkline and book line
+function keyStat(league, p) {
+  if (league === "NBA") return ["pts", "player_points"];
+  if (league === "NHL") return ["sog", "player_shots_on_goal"];
+  if (league === "NFL") return p.proj?.att ? ["pass_yds", "player_pass_yds"] : /RB|FB/.test(p.pos || "") ? ["rush_yds", "player_rush_yds"] : ["rec_yds", "player_reception_yds"];
+  return [null, null];
+}
 const openP = new Set();
 
 function players(mu, g) {
   const stats = PSTATS[mu.league] || [];
-  const mainMk = mu.league === "NBA" ? "player_points" : "player_shots_on_goal";
-  const pdoc = propsFor(g.id).find((d) => d.market === mainMk);
-  const lineFor = (name) => pdoc?.rows.find((r) => r.player === name && r.isMain);
+  if (!stats.length || !(mu.players?.home?.length || mu.players?.away?.length)) return "";
+  const docs = propsFor(g.id);
+  const lineFor = (name, mk) => docs.find((d) => d.market === mk)?.rows.find((r) => r.player === name && r.isMain);
   const [mk, ml] = MIN_KEY[mu.league] || ["min", "MIN"];
   const detail = (p) => {
     const L = p.last10 || {};
@@ -128,16 +136,17 @@ function players(mu, g) {
       <tr><td class="muted">proj</td><td class="num muted">${p.min != null ? (+p.min).toFixed(0) : "–"}</td>${stats.map(([k]) => `<td class="num muted">${p.proj?.[k] != null ? (+p.proj[k]).toFixed(1) : "–"}</td>`).join("")}</tr></tbody></table>`;
   };
   const col = (list, ref, name, side) => `<div><div class="side-h">${teamLogo(ref, name, 22)}<span>${esc(ref?.abbr || name)}</span>
-      <span class="tiny muted" style="margin-left:auto">${ml} · ${stats.slice(0, 4).map(([, h]) => h).join(" · ")} · last 10 ${stats[0][1]}</span></div>
+      <span class="tiny muted" style="margin-left:auto">${ml} · ${stats.slice(0, 4).map(([, h]) => h).join(" · ")} · last 10 key stat</span></div>
     ${list.map((p, i) => {
-      const ln = lineFor(p.name);
+      const [ks, kmk] = keyStat(mu.league, p);
+      const ln = lineFor(p.name, kmk);
       const key = `${g.id}|${side}|${p.name}`;
       return `<div class="pr ${p.out ? "out" : ""}" data-p="${esc(key)}">${headshot({ player: p.name, headshot: p.headshot }, 34)}
         <div class="col" style="gap:1px"><span class="small ellip"><b>${esc(p.name)}</b> <span class="tiny muted">${esc(p.pos || "")}</span>
           ${p.status && p.status !== "Active" ? `<span class="pill ${p.out ? "neg" : "s"}">${esc(p.status)}</span>` : ""}</span>
           <span class="tiny muted num">${p.out ? "out" : (p.min ?? 0).toFixed(0)} · ${stats.slice(0, 4).map(([k]) => (p.proj?.[k] ?? 0).toFixed(1)).join(" · ")}
           ${ln ? ` · line ${ln.point}${ln.model ? ` <span class="${ln.model.Over - (ln.fair?.Over ?? 0.5) > 0.04 ? "pos" : ln.model.Over - (ln.fair?.Over ?? 0.5) < -0.04 ? "neg" : ""}">model O ${prob(ln.model.Over)}</span>` : ""}` : ""}</span></div>
-        ${spark2(p.last10?.[stats[0][0]], ln?.point ?? p.proj?.[stats[0][0]])}
+        ${spark2(p.last10?.[ks], ln?.point ?? p.proj?.[ks])}
         ${openP.has(key) ? `<div class="pr-detail">${detail(p)}</div>` : ""}</div>`;
     }).join("")}</div>`;
   return `<div class="card"><b>Players</b> <span class="tiny muted">our projections · tap a player for the last 10 games · dashed line = book line (or projection)</span>

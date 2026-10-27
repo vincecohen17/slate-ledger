@@ -389,7 +389,9 @@ def main():
 def run_stats(backfill=False):
     import stats
     log(f"nflverse: {stats.nflverse(DATA_DIR)}")
-    for lg in ("nba", "nhl", "nfl", "cfb"):
+    log(f"tennis: {stats.tennis(DATA_DIR)}")
+    log(f"mlb: {stats.mlb(DATA_DIR)}")
+    for lg in ("nba", "nhl", "nfl", "cfb", "epl", "ucl", "mls"):
         n = stats.collect(lg, DATA_DIR, backfill=backfill)
         inj = stats.injuries(lg, DATA_DIR)
         log(f"stats {lg}: {n} games fetched, injuries for {len(inj or {})} teams")
@@ -442,9 +444,11 @@ def publish(game_docs, prop_docs, status, stamp):
     if MODE != "rebuild" or os.environ.get("REFRESH_STATS"):
         try:
             import stats
-            for lg in ("nba", "nhl", "nfl", "cfb"):
+            for lg in ("nba", "nhl", "nfl", "cfb", "epl", "ucl", "mls"):
                 stats.collect(lg, DATA_DIR)
-                stats.injuries(lg, DATA_DIR)
+                if lg in ("nba", "nhl", "nfl", "cfb"):
+                    stats.injuries(lg, DATA_DIR)
+            stats.mlb(DATA_DIR)
             stats.moneypuck(DATA_DIR)
             nv = os.path.join(DATA_DIR, "stats", "nfl", "nflverse", "team_week_2026.json")
             if not os.path.exists(nv) or (NOW.timestamp() - os.path.getmtime(nv)) > 12 * 3600:
