@@ -21,6 +21,19 @@ SPORTS = {
     "mma_mixed_martial_arts": "UFC",
 }
 
+def label(sport):
+    """Short league label; tennis tournaments come and go, so they are labelled by tour."""
+    if sport in SPORTS:
+        return SPORTS[sport]
+    if sport.startswith("tennis_"):
+        return "ATP" if "_atp_" in sport else "WTA"
+    return sport
+
+
+def wanted(sport):
+    return sport in SPORTS or sport.startswith("tennis_atp") or sport.startswith("tennis_wta")
+
+
 # Game-line pulls: one request per sport covers every game.
 GAME_MARKETS = ["h2h", "spreads", "totals"]
 GAME_REGIONS = ["us", "us2", "us_ex", "eu"]

@@ -12,9 +12,12 @@ import model_nba
 import model_nhl
 import model_nfl
 import model_cfb
+import model_extra as MX
 
 ALIAS = {"UTAH": "UTA", "GSW": "GS", "NOP": "NO", "SAS": "SA", "NYK": "NY", "WAS": "WSH", "UTH": "UTA"}
-SEASON = {"nba": ("2026-27", "2025-26"), "nhl": ("2026-27", "2025-26"), "nfl": ("2026", "2025"), "cfb": ("2026", "2025")}
+SEASON = {"nba": ("2026-27", "2025-26"), "nhl": ("2026-27", "2025-26"), "nfl": ("2026", "2025"), "cfb": ("2026", "2025"),
+          "epl": ("2026-27", "2025-26"), "ucl": ("2026-27", "2025-26"), "mls": ("2026", "2025")}
+SOCCER = {"soccer_epl": "epl", "soccer_uefa_champs_league": "ucl", "soccer_usa_mls": "mls"}
 
 
 def _phi(x):
@@ -62,6 +65,26 @@ def build_all(game_docs, prop_docs, data_dir, today):
                 models[sport] = model_cfb.CFB(cg, pg)
         except Exception as e:  # a model failure never blocks the board
             print(f"model {lg} failed: {type(e).__name__}: {str(e)[:120]}")
+    for sport, lg in SOCCER.items():
+        if any(g["sport"] == sport for g in game_docs):
+            try:
+                cur, pri = SEASON[lg]
+                models[sport] = MX.Soccer(ST.load_games(lg, cur, data_dir), ST.load_games(lg, pri, data_dir))
+            except Exception as e:
+                print(f"model {lg} failed: {type(e).__name__}")
+    if any(g["sport"] == "baseball_mlb" for g in game_docs):
+        try:
+            models["baseball_mlb"] = MX.MLB(data_dir)
+        except Exception as e:
+            print(f"model mlb failed: {type(e).__name__}")
+    if any(g["sport"].startswith("tennis_") for g in game_docs):
+        try:
+            tm = MX.Tennis(data_dir)
+            for g in game_docs:
+                if g["sport"].startswith("tennis_"):
+                    models[g["sport"]] = tm
+        except Exception as e:
+            print(f"model tennis failed: {type(e).__name__}")
     props_by_game = {}
     for p in prop_docs:
         props_by_game.setdefault(p["id"], []).append(p)
@@ -71,7 +94,10 @@ def build_all(game_docs, prop_docs, data_dir, today):
             continue
         try:
             refs = R.load(g["sport"], data_dir)
-            fn = {"basketball_nba": _nba, "icehockey_nhl": _nhl, "americanfootball_nfl": _nfl, "americanfootball_ncaaf": _cfb}[g["sport"]]
+            fn = {"basketball_nba": _nba, "icehockey_nhl": _nhl, "americanfootball_nfl": _nfl, "americanfootball_ncaaf": _cfb,
+                  "baseball_mlb": _mlb}.get(g["sport"]) or (_soccer if g["sport"] in SOCCER else _tennis if g["sport"].startswith("tennis_") else None)
+            if not fn:
+                continue
             doc = fn(g, m, props_by_game.get(g["id"], []), inj, refs)
             if doc:
                 out[g["id"]] = doc
@@ -433,3 +459,96 @@ def _cfb(g, m, pdocs, inj, refs):
                       "away": {"abbr": ta["abbr"], "record": ta["record"], "pts": pj["away"]["pts"], "injuries": _injuries(inj.get("cfb"), ta["abbr"], g["away"])}},
             "compare": compare, "factors": factors, "propEdges": [], "statKeys": [], "statLabels": [],
             "players": {"home": [], "away": []}}
+
+
+# ---------------------------------------------------------------------------
+# Soccer, tennis, MLB (first versions)
+
+def _soccer(g, m, pdocs, inj, refs):
+    h, a = _abbr(g.get("homeRef"), m.teams), _abbr(g.get("awayRef"), m.teams)
+    pj = m.project_game(h, a)
+    if not pj:
+        return None
+
+    def probs(l):
+        if l["market"] == "h2h" and "Draw" in l["outcomes"]:
+            return {g["home"]: pj["pHome"], g["away"]: pj["pAway"], "Draw": pj["pDraw"]}
+        if l["market"] in ("totals", "alternate_totals"):
+            po = m.p_over(l["point"])
+            return {"Over": po, "Under": 1 - po}
+        if l["market"] in ("spreads", "alternate_spreads"):
+            ph = m.p_home_cover(l["point"])
+            return {g["home"]: ph, g["away"]: 1 - ph}
+        if l["market"] == "btts":
+            return {"Yes": pj["btts"], "No": 1 - pj["btts"]}
+    lines = _stamp_lines(g, probs)
+    th, ta = m.teams[h], m.teams[a]
+    compare = [{"k": "Attack (goals vs average)", "h": th["att"], "a": ta["att"], "hr": th["rank"]["att"], "ar": ta["rank"]["att"], "hi": True, "d": 2, "n": m.n},
+               {"k": "Defense (goals saved vs average)", "h": th["def"], "a": ta["def"], "hr": th["rank"]["def"], "ar": ta["rank"]["def"], "hi": True, "d": 2, "n": m.n}]
+    factors = [{"side": None, "tone": "info", "text": f"Model: {pj['home']['goals']:.2f}-{pj['away']['goals']:.2f} expected goals · home {pj['pHome']:.0%}, draw {pj['pDraw']:.0%}, "
+                f"away {pj['pAway']:.0%} · both score {pj['btts']:.0%}. First version: goals-based ratings; xG and lineups come next."}]
+    return {"id": g["id"], "league": g["league"], "home": g["home"], "away": g["away"], "commence": g["commence"],
+            "model": {"pHome": round(pj["pHome"], 4), "total": pj["total"], "lines": lines},
+            "teams": {"home": {"abbr": th["abbr"], "record": th["record"], "goals": pj["home"]["goals"], "injuries": []},
+                      "away": {"abbr": ta["abbr"], "record": ta["record"], "goals": pj["away"]["goals"], "injuries": []}},
+            "compare": compare, "factors": factors, "propEdges": [], "statKeys": [], "statLabels": [], "players": {"home": [], "away": []}}
+
+
+def _tennis(g, m, pdocs, inj, refs):
+    p = m.p_win(g["home"], g["away"])
+    if p is None:
+        return None
+    lines = _stamp_lines(g, lambda l: {g["home"]: p, g["away"]: 1 - p} if l["market"] == "h2h" else None)
+    ka, kb = m.find(g["home"]), m.find(g["away"])
+    form = lambda k: m.form.get(k, [])[-10:]
+    compare = [{"k": "Elo (overall + surface)", "h": m.rating(ka), "a": m.rating(kb), "hi": True, "d": 0},
+               {"k": "Tour-level matches", "h": m.n.get(ka), "a": m.n.get(kb), "hi": None, "d": 0},
+               {"k": "Wins in last 10", "h": sum(form(ka)), "a": sum(form(kb)), "hi": True, "d": 0}]
+    return {"id": g["id"], "league": g["league"], "home": g["home"], "away": g["away"], "commence": g["commence"],
+            "model": {"pHome": round(p, 4), "lines": lines},
+            "teams": {"home": {"abbr": g["home"].split()[-1][:3].upper(), "record": None, "injuries": []},
+                      "away": {"abbr": g["away"].split()[-1][:3].upper(), "record": None, "injuries": []}},
+            "compare": compare, "factors": [{"side": None, "tone": "info", "text": f"Elo model: {g['home']} {p:.0%}. First version: surface Elo; serve/return and fatigue come next."}],
+            "propEdges": [], "statKeys": [], "statLabels": [], "players": {"home": [], "away": []}}
+
+
+def _mlb(g, m, pdocs, inj, refs):
+    pj = m.project_game(g["home"], g["away"])
+    if not pj:
+        return None
+    sd = 4.3
+
+    def probs(l):
+        if l["market"] == "h2h":
+            return {g["home"]: pj["pHome"], g["away"]: 1 - pj["pHome"]}
+        if l["market"] in ("totals", "alternate_totals"):
+            po = 1 - _phi((l["point"] - pj["total"]) / 3.3)
+            return {"Over": po, "Under": 1 - po}
+        if l["market"] in ("spreads", "alternate_spreads"):
+            ph = 1 - _phi((-l["point"] - pj["margin"]) / sd)
+            return {g["home"]: ph, g["away"]: 1 - ph}
+    lines = _stamp_lines(g, probs)
+    for d in pdocs:
+        if d["market"] != "pitcher_strikeouts":
+            continue
+        for r in d["rows"]:
+            for side in ("home", "away"):
+                sp = pj["sp"].get(side)
+                if sp and R.norm(sp["name"] or "") == R.norm(r["player"]) and r.get("point") is not None:
+                    po = B.p_over("pitcher_strikeouts", sp["kProj"], r["point"], "baseball_mlb")
+                    r["model"] = {"mean": sp["kProj"], "raw": sp["kProj"], "Over": round(po, 4), "Under": round(1 - po, 4)}
+    sp = pj["sp"]
+    fmt = lambda x, k, d=2: None if not x or x.get(k) is None else round(x[k], d)
+    compare = [{"k": "Starter FIP", "h": fmt(sp.get("home"), "fip"), "a": fmt(sp.get("away"), "fip"), "hi": False, "d": 2},
+               {"k": "Starter K rate", "h": fmt(sp.get("home"), "kRate", 3), "a": fmt(sp.get("away"), "kRate", 3), "hi": True, "pct": True},
+               {"k": "Starter innings per start", "h": fmt(sp.get("home"), "ipPerStart", 1), "a": fmt(sp.get("away"), "ipPerStart", 1), "hi": True, "d": 1},
+               {"k": "Offense runs per game", "h": round(m.off[g["home"]]["rpg"], 2), "a": round(m.off[g["away"]]["rpg"], 2), "hi": True, "d": 2},
+               {"k": "Offense OPS", "h": m.off[g["home"]]["ops"], "a": m.off[g["away"]]["ops"], "hi": True, "d": 3}]
+    factors = [{"side": s, "tone": "info", "text": f"Probable starter: {sp[s]['name']} (FIP {sp[s]['fip']:.2f}, projected {sp[s]['kProj']} strikeouts)"}
+               for s in ("away", "home") if sp.get(s)]
+    factors.append({"side": None, "tone": "info", "text": f"Model runs {pj['away']['runs']}-{pj['home']['runs']}, total {pj['total']}. First version: starters, bullpen ERA and team offense; Statcast and lineups come next."})
+    return {"id": g["id"], "league": "MLB", "home": g["home"], "away": g["away"], "commence": g["commence"],
+            "model": {"pHome": round(pj["pHome"], 4), "total": pj["total"], "margin": pj["margin"], "lines": lines},
+            "teams": {"home": {"abbr": (g.get("homeRef") or {}).get("abbr"), "record": None, "runs": pj["home"]["runs"], "injuries": []},
+                      "away": {"abbr": (g.get("awayRef") or {}).get("abbr"), "record": None, "runs": pj["away"]["runs"], "injuries": []}},
+            "compare": compare, "factors": factors, "propEdges": [], "statKeys": [], "statLabels": [], "players": {"home": [], "away": []}}

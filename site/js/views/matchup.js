@@ -180,7 +180,7 @@ function preview(g) {
 export function renderMatchup(el, g) {
   const mu = S.matchups.get(g.id);
   if (!mu) {
-    el.insertAdjacentHTML("beforeend", `${preview(g)}<div class="empty"><h3>No model for this game yet</h3>The matchup model covers NBA and NHL now; NFL and college are next.</div>`);
+    el.insertAdjacentHTML("beforeend", `${preview(g)}<div class="empty"><h3>No model for this game yet</h3>Models cover NBA, NHL, NFL, college football, MLB, soccer and tennis; this game is missing team data or a name match.</div>`);
     return;
   }
   el.insertAdjacentHTML("beforeend", `<div class="col" style="gap:12px">${preview(g)}

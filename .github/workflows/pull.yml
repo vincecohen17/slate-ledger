@@ -25,7 +25,7 @@ jobs:
           path: data
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -q firebase-admin
+      - run: pip install -q firebase-admin openpyxl
       - name: Engine self-test
         run: python engine/tests/test_build.py
       - name: Pull, build, publish

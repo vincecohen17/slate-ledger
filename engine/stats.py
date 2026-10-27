@@ -334,23 +334,38 @@ def read_nfl_players(data_dir, y):
 
 
 # ---------------------------------------------------------------------------
-# Tennis: Jeff Sackmann's ATP/WTA match files (GitHub)
+# Tennis: tennis-data.co.uk results (every ATP/WTA tour match, with Pinnacle closing odds)
 
-SACKMANN = "https://raw.githubusercontent.com/JeffSackmann/tennis_{tour}/master/{tour}_matches_{y}.csv"
+TENNISDATA = {"atp": "http://www.tennis-data.co.uk/{y}/{y}.xlsx", "wta": "http://www.tennis-data.co.uk/{y}w/{y}.xlsx"}
 
 
 def tennis(data_dir, years=(2025, 2026)):
     out = {}
     d = os.path.join(data_dir, "stats", "tennis")
     os.makedirs(d, exist_ok=True)
-    for tour in ("atp", "wta"):
+    for tour, url in TENNISDATA.items():
         for y in years:
             fn = os.path.join(d, f"{tour}_{y}.csv")
-            if os.path.exists(fn) and y != max(years):
+            if os.path.exists(fn) and os.path.getsize(fn) > 0 and y != max(years):
                 continue
             try:
-                open(fn, "wb").write(_get(SACKMANN.format(tour=tour, y=y), raw=True))
-                out[f"{tour}_{y}"] = "ok"
+                import openpyxl
+                body = _get(url.format(y=y), raw=True)
+                ws = openpyxl.load_workbook(io.BytesIO(body), read_only=True).active
+                rows = list(ws.iter_rows(values_only=True))
+                head = [str(h) for h in rows[0]]
+                with open(fn, "w", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow(["tourney_date", "tournament", "surface", "round", "winner_name", "loser_name", "wrank", "lrank", "psw", "psl"])
+                    ix = {h: i for i, h in enumerate(head)}
+                    for r in rows[1:]:
+                        if not r or r[ix["Winner"]] is None:
+                            continue
+                        dt = r[ix["Date"]]
+                        w.writerow([dt.strftime("%Y%m%d") if hasattr(dt, "strftime") else dt, r[ix.get("Tournament", 0)], r[ix.get("Surface", 0)],
+                                    r[ix.get("Round", 0)], r[ix["Winner"]], r[ix["Loser"]], r[ix.get("WRank", 0)], r[ix.get("LRank", 0)],
+                                    r[ix["PSW"]] if "PSW" in ix else "", r[ix["PSL"]] if "PSL" in ix else ""])
+                out[f"{tour}_{y}"] = len(rows) - 1
             except Exception as e:
                 out[f"{tour}_{y}"] = type(e).__name__
     return out

@@ -85,10 +85,10 @@ def load_cache(keep_hours=6):
         events[ev["id"]] = ev
     game_docs, prop_docs = [], []
     for gid, (sport, ev) in games.items():
-        g = build.build_game(ev, C.SPORTS.get(sport, sport))
+        g = build.build_game(ev, C.label(sport))
         if gid in events:
             build.add_extra_lines(events[gid], g)
-            prop_docs += list(build.build_props(events[gid], C.SPORTS.get(sport, sport)).values())
+            prop_docs += list(build.build_props(events[gid], C.label(sport)).values())
         game_docs.append(g)
     return game_docs, prop_docs
 
@@ -170,7 +170,7 @@ def auto():
         return
     api = OddsAPI(key, max_credits=min(P["run_cap"], room))
     act = {s["key"] for s in api.sports() if s.get("active")}
-    sports = [s for s in C.SPORTS if s in act]
+    sports = [s for s in C.SPORTS if s in act] + sorted(s for s in act if s.startswith("tennis_") and C.wanted(s))
     errors, pulled = [], []
     horizon = iso(NOW + timedelta(days=7))
     soon = {}
@@ -197,7 +197,7 @@ def auto():
         cache_put(f"lines_{s}.json", data)
         save_raw(s, "lines", data)
         st["lines"][s] = iso(NOW)
-        pulled.append(f"{C.SPORTS[s]} lines")
+        pulled.append(f"{C.label(s)} lines")
     # event markets (alternates, periods, every prop): paid plan only
     if P["props"]:
         queue = []
@@ -281,17 +281,18 @@ def rebuild():
     game_docs, prop_docs = [], []
     for f in files:
         name = os.path.basename(f)[len(stamp) + 1:-8]
-        sport = next((s for s in C.SPORTS if name.startswith(s + "_")), None)
+        sport = next((s for s in list(C.SPORTS) if name.startswith(s + "_")), None) or (
+            "_".join(name.split("_")[:3]) if name.startswith("tennis_") else None)
         if not sport:
             continue
         data = json.load(gzip.open(f))
         if name.endswith("_lines"):
             cache_put(f"lines_{sport}.json", data)
-            game_docs += [build.build_game(ev, C.SPORTS[sport]) for ev in data if ev.get("bookmakers")]
+            game_docs += [build.build_game(ev, C.label(sport)) for ev in data if ev.get("bookmakers")]
         else:
             if data.get("id"):
                 cache_put(f"event_{data['id']}.json", data)
-            prop_docs += list(build.build_props(data, C.SPORTS[sport]).values())
+            prop_docs += list(build.build_props(data, C.label(sport)).values())
     prev = {}
     try:
         prev = json.load(open(os.path.join(DATA_DIR, "latest", "board.json")))["status"]
@@ -320,7 +321,7 @@ def main():
     errors = []
 
     active = {s["key"] for s in api.sports() if s.get("active")}
-    sports = [s for s in C.SPORTS if s in active]
+    sports = [s for s in C.SPORTS if s in active] + sorted(s for s in active if s.startswith("tennis_") and C.wanted(s))
     log(f"mode={MODE} sports active={len(sports)}")
 
     to = iso(NOW + timedelta(hours=horizon))
@@ -334,7 +335,7 @@ def main():
         try:
             data = api.odds(s, C.GAME_MARKETS, C.GAME_REGIONS, commenceTimeTo=to)
         except BudgetExceeded as e:
-            errors.append(f"budget stop before {C.SPORTS[s]} lines ({e})")
+            errors.append(f"budget stop before {C.label(s)} lines ({e})")
             break
         except RuntimeError as e:
             errors.append(str(e))
@@ -344,8 +345,8 @@ def main():
         raw_by_sport[s] = data
         for ev in data:
             if ev.get("bookmakers"):
-                game_docs.append(build.build_game(ev, C.SPORTS[s]))
-        log(f"{C.SPORTS[s]}: {len(data)} games, run credits {api.used_run}")
+                game_docs.append(build.build_game(ev, C.label(s)))
+        log(f"{C.label(s)}: {len(data)} games, run credits {api.used_run}")
 
     # props: soonest games first, across sports, until the budget says stop
     cutoff = NOW + timedelta(hours=prop_win)
@@ -370,7 +371,7 @@ def main():
             continue
         save_raw(s, f"props_{ev['id']}", data)
         cache_put(f"event_{ev['id']}.json", data)
-        docs = build.build_props(data, C.SPORTS[s])
+        docs = build.build_props(data, C.label(s))
         prop_docs.extend(docs.values())
         n_props += 1
     log(f"props: {n_props} games, {len(prop_docs)} market docs, run credits {api.used_run}")
@@ -379,7 +380,7 @@ def main():
         "updated": iso(NOW), "mode": MODE,
         "creditsRemaining": api.remaining, "creditsUsedTotal": api.used_total,
         "creditsThisRun": api.used_run,
-        "games": {C.SPORTS[s]: sum(1 for g in game_docs if g["sport"] == s) for s in sports},
+        "games": {lg: sum(1 for g in game_docs if g["league"] == lg) for lg in sorted({g["league"] for g in game_docs})},
         "propGames": n_props, "errors": errors,
     }
     publish(game_docs, prop_docs, status, stamp=NOW.strftime("%Y-%m-%dT%H%M%S"))
