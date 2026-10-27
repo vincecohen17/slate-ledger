@@ -23,7 +23,7 @@ const paras = (t) => String(t || "").split(/\n\s*\n/).filter(Boolean).map((x) =>
 
 export function pickCard(p) {
   const st = p.status || "pending";
-  const stPill = st === "won" ? `<span class="pill pos">won</span>` : st === "lost" ? `<span class="pill neg">lost</span>` : `<span class="pill">${esc(st)}</span>`;
+  const stPill = st === "won" ? `<span class="pill pos">won</span>` : st === "lost" ? `<span class="pill neg">lost</span>` : st === "void" ? `<span class="pill neg">withdrawn</span>` : `<span class="pill">${esc(st)}</span>`;
   const tier = p.tier === "floor" ? `<span class="pill">floor</span>` : p.tier === "likely" ? `<span class="pill">likely</span>` : `<span class="pill s">bet</span>`;
   const pillars = PILLARS.map(([k, t]) => {
     const v = p.pillars?.[k]; if (!v) return "";
@@ -33,7 +33,8 @@ export function pickCard(p) {
       <span>${bookTag(v.venue, v.name || v.venue, 15)}${v.line ? ` <span class="tiny muted">${esc(v.line)}</span>` : ""}</span>
       <span class="px">${esc(typeof v.price === "number" ? am(v.price) : v.price || "–")}</span>
       <span class="${v.inRange ? "pos" : "faint"}">${v.inRange ? "✓ in range" : "wait"}</span></div>`).join("");
-  return `<div class="card col" style="gap:10px">
+  return `<div class="card col ${st === "void" ? "pk-void" : ""}" style="gap:10px">
+    ${st === "void" && p.voidReason ? `<div class="pk-vbar">Withdrawn: ${esc(p.voidReason)}</div>` : ""}
     <div class="bet">${betImage({ gameId: p.gameId, label: p.selection, player: p.player, headshot: p.headshot, league: p.league })}
       <div class="col"><span class="what">${esc(p.selection)}</span><span class="sub">${esc(p.matchup || "")}${p.commence ? ` · ${fmtTime(p.commence)}` : ""}</span></div>
       <div class="col" style="align-items:flex-end">${units(p.units)}<span class="tiny muted">${p.units ?? "–"}u</span></div></div>
@@ -58,7 +59,7 @@ export function renderPicks(el) {
   const all = [...S.picks.values()].sort((a, b) => (b.date || "").localeCompare(a.date || "") || (a.commence || "").localeCompare(b.commence || ""));
   const days = [...new Set(all.map((p) => p.date))].filter(Boolean);
   if (!day) day = days.includes(todayPT()) ? todayPT() : days[0];
-  const shown = all.filter((p) => p.date === day);
+  const shown = all.filter((p) => p.date === day).sort((a, b) => (a.status === "void") - (b.status === "void"));
   const graded = all.filter((p) => ["won", "lost", "push"].includes(p.status));
   const w = graded.filter((p) => p.status === "won").length, l = graded.filter((p) => p.status === "lost").length;
   const units_ = graded.reduce((s, p) => s + (p.profit ?? 0), 0);
@@ -67,7 +68,7 @@ export function renderPicks(el) {
     <div class="kpi"><div class="k">Record</div><div class="v">${w}-${l}</div><div class="s">${graded.length} graded</div></div>
     <div class="kpi"><div class="k">Units</div><div class="v ${units_ >= 0 ? "pos" : "neg"}">${units_ >= 0 ? "+" : ""}${units_.toFixed(2)}</div><div class="s">all picks</div></div>
     <div class="kpi"><div class="k">Avg CLV</div><div class="v">${clvs.length ? pct(clvs.reduce((s, p) => s + p.clv, 0) / clvs.length) : "–"}</div><div class="s">${clvs.length} with a close</div></div>
-    <div class="kpi"><div class="k">Today</div><div class="v">${all.filter((p) => p.date === todayPT()).length}</div><div class="s">picks posted</div></div></div>`;
+    <div class="kpi"><div class="k">Today</div><div class="v">${all.filter((p) => p.date === todayPT()).length}</div><div class="s">picks posted${all.some((p) => p.date === todayPT() && p.status === "void") ? ` · ${all.filter((p) => p.date === todayPT() && p.status === "void").length} withdrawn` : ""}</div></div></div>`;
   h += `<div class="bar">${days.slice(0, 10).map((d) => `<button class="chip ${d === day ? "on" : ""}" data-day="${d}">${d === todayPT() ? "Today" : fmtShortDay(d + "T12:00:00")}</button>`).join("")}</div>`;
   h += shown.length ? `<div class="grid">${shown.map(pickCard).join("")}</div>`
     : `<div class="empty"><h3>No picks posted yet</h3>Claude's daily run posts picks here with the full case, the six pillars and play-to prices at each venue.</div>`;

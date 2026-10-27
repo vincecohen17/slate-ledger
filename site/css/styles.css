@@ -406,3 +406,5 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .bt-roi { position: relative; height: 8px; background: var(--panel-3); border-radius: 4px; display: inline-block; width: 90px; vertical-align: middle; margin-right: 6px; }
 .bt-roi .bt-mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
 .bt-roi i { position: absolute; top: 0; bottom: 0; border-radius: 4px; } .bt-roi i.pos { background: var(--pos); } .bt-roi i.neg { background: var(--neg); }
+.pk-void > :not(.pk-vbar):not(.pcase.risk) { opacity: .55; }
+.pk-vbar { font-size: 12.5px; font-weight: 600; color: var(--neg); border: 1px solid var(--neg); border-radius: 8px; padding: 6px 9px; }
