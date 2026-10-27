@@ -102,9 +102,9 @@ function goalies(mu, g) {
     const rankPill = (lab, v, d, rk) => `<span class="gpill" title="${lab}${rk ? `: rank ${rk} of ${pool} goalies` : ""}"><b class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${fmtS(v, d)}</b><span>${lab}</span>${rk ? `<i style="width:${Math.max(6, (pool + 1 - rk) / pool * 100)}%"></i>` : ""}</span>`;
     const gsaxSum = (L.gsax || []).reduce((a, b) => a + b, 0);
     const rows = (gl.starts || []).map((s) => `<tr class="${s.name === gl.name ? "" : "dim"}">
-        <td>${esc(s.date.slice(5).replace("-", "/"))}</td><td>${esc(s.opp || "")}</td><td class="ellip" style="max-width:110px">${esc((s.name || "").split(" ").slice(-1)[0])}</td>
+        <td>${esc(s.date.slice(5).replace("-", "/"))}</td><td>${esc(s.opp || "")}</td><td class="ellip" style="max-width:72px">${esc((s.name || "").split(" ").slice(-1)[0])}</td>
         <td class="num">${s.sv}/${s.sa}</td><td class="num ${s.svp >= 0.915 ? "pos" : s.svp != null && s.svp < 0.88 ? "neg" : ""}">${s.svp != null ? s.svp.toFixed(3).replace(/^0/, "") : "–"}</td>
-        <td class="num">${s.xga != null ? s.xga.toFixed(2) : "–"}</td><td class="num ${s.gsax > 0.2 ? "pos" : s.gsax < -0.2 ? "neg" : ""}"><b>${s.gsax != null ? fmtS(s.gsax, 2) : "–"}</b></td></tr>`).join("");
+        <td class="num ${s.gsax > 0.2 ? "pos" : s.gsax < -0.2 ? "neg" : ""}"><b>${s.gsax != null ? fmtS(s.gsax, 2) : "–"}</b></td><td class="num">${s.xga != null ? s.xga.toFixed(2) : "–"}</td></tr>`).join("");
     return `<div class="col" style="gap:8px">
       <div class="side-h">${headshot({ player: gl.name, headshot: gl.headshot }, 34)}<span>${esc(gl.name || "Unknown")}</span><span class="tiny muted">${esc(ref?.abbr || name)} · likely</span></div>
       <div class="gpills">${rankPill("GSAx/60 all", gl.gsax60, 2, r.gsax60)}${rankPill("GSAx/60 even", gl.ev60, 2, r.ev60)}${rankPill("GSAx per 2 PK min", gl.pk2, 3, r.pk2)}
@@ -112,11 +112,38 @@ function goalies(mu, g) {
       ${L.gsax?.length ? `<div class="gviz"><div><div class="tiny muted">GSAx per game, last ${L.gsax.length} <b class="${gsaxSum >= 0 ? "pos" : "neg"}">${fmtS(gsaxSum, 1)} total</b></div>${gsaxBars(L.gsax)}</div>
         <div><div class="tiny muted">Saves last ${L.sv.length} vs ${gl.proj?.saves ?? "–"} proj · ${hitRate(L.sv, gl.proj?.saves)}</div>${spark2(L.sv, gl.proj?.saves, { w: 150, h: 34 })}</div></div>`
         : L.sv?.length ? `<div class="l10">${spark2(L.sv, gl.proj?.saves)}<span>saves last ${L.sv.length}: ${hitRate(L.sv, gl.proj?.saves)} the projection</span></div>` : ""}
-      ${rows ? `<div style="overflow-x:auto"><table class="l10t gtab"><thead><tr><th>Date</th><th>Opp</th><th>Goalie</th><th>SV/SA</th><th>SV%</th><th>xGA</th><th>GSAx</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${rows ? `<div style="overflow-x:auto"><table class="l10t gtab"><thead><tr><th>Date</th><th>Opp</th><th>Goalie</th><th>SV/SA</th><th>SV%</th><th>GSAx</th><th>xGA</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div class="tiny muted">Team's last ${gl.starts.length} games; faded rows were started by another goalie</div>` : ""}</div>`;
   };
   return `<div class="card"><b>Likely goalies</b> <span class="tiny muted">from recent starts · confirm before betting</span>
     <div class="sides" style="margin-top:10px">${card(mu.teams.away, g.awayRef, g.away)}${card(mu.teams.home, g.homeRef, g.home)}</div></div>`;
+}
+
+// ---------- MLB starting pitchers (Statcast)
+function starters(mu, g) {
+  if (mu.league !== "MLB" || !mu.starters) return "";
+  const pc = (v, d = 1) => v == null ? "–" : `${(+v).toFixed(d)}%`;
+  const card = (sp, ref, name) => {
+    if (!sp) return `<div><div class="side-h">${teamLogo(ref, name, 22)}<span>Starter TBA</span></div><div class="tiny muted">No probable posted yet.</div></div>`;
+    const r = sp.rank || {}, pool = sp.pool || "";
+    const pill = (lab, v, rk) => `<span class="pill">${lab} ${v}${rk ? ` · #${rk}/${pool}` : ""}</span>`;
+    const ars = (sp.arsenal || []).map((a) => `<div class="ars"><span class="ellip">${esc(a.name || a.type)}</span>
+        <div class="ars-bar"><i style="width:${Math.min(100, a.usage || 0)}%"></i></div><span class="num tiny">${(a.usage || 0).toFixed(0)}%</span>
+        <span class="num tiny muted">whiff ${a.whiff != null ? a.whiff.toFixed(0) + "%" : "–"}</span>
+        <span class="num tiny ${a.rv100 != null && a.rv100 > 0.5 ? "pos" : a.rv100 != null && a.rv100 < -0.5 ? "neg" : "muted"}" title="run value per 100 pitches (pitcher's view)">${a.rv100 != null ? (a.rv100 > 0 ? "+" : "") + a.rv100.toFixed(1) : "–"}</span></div>`).join("");
+    const st = (sp.starts || []).map((x) => `<div class="gstart"><span class="tiny muted">${esc((x.date || "").slice(5).replace("-", "/"))}</span>
+        <span class="who"><span class="ellip tiny">vs ${esc(x.opp || "")}</span></span><span class="num">${esc(x.ip ?? "–")} IP</span>
+        <span class="num">${x.k ?? "–"} K · ${x.er ?? "–"} ER</span></div>`).join("");
+    const L = sp.last10 || {};
+    return `<div class="col" style="gap:6px"><div class="side-h">${headshot({ player: sp.name, headshot: sp.headshot }, 34)}<span>${esc(sp.name)}</span><span class="tiny muted">${esc(sp.hand || "")}HP${sp.velo ? ` · ${sp.velo.toFixed(1)} mph` : ""}</span></div>
+      <div class="row tiny" style="flex-wrap:wrap;gap:6px">${pill("xERA", sp.xera ?? "–", r.xera)}${pill("K", pc(sp.k), r.k_percent)}${pill("BB", pc(sp.bb), r.bb_percent)}${pill("whiff", pc(sp.whiff), r.whiff_percent)}${pill("barrel", pc(sp.barrel), r.barrel_batted_rate)}</div>
+      ${sp.proj ? `<div class="row tiny" style="flex-wrap:wrap;gap:6px"><span class="pill s">proj ${sp.proj.k} K</span><span class="pill s">${(sp.proj.outs / 3).toFixed(1)} IP</span><span class="pill s">${sp.proj.h} H · ${sp.proj.bb} BB · ${sp.proj.er} ER</span></div>` : ""}
+      ${L.k?.length ? `<div class="l10">${spark2(L.k, sp.proj?.k)}<span>strikeouts last ${L.k.length}: ${hitRate(L.k, sp.proj?.k)} the projection</span></div>` : ""}
+      ${ars ? `<div class="tiny muted" style="margin-top:4px">Arsenal · usage · whiff · run value/100</div>${ars}` : ""}
+      ${st ? `<div class="tiny muted" style="margin-top:4px">Recent starts</div>${st}` : ""}</div>`;
+  };
+  return `<div class="card"><b>Starting pitchers</b> <span class="tiny muted">Statcast · ranks among ${mu.starters.home?.pool || mu.starters.away?.pool || ""} pitchers with 50+ IP</span>
+    <div class="sides" style="margin-top:10px">${card(mu.starters.away, g.awayRef, g.away)}${card(mu.starters.home, g.homeRef, g.home)}</div></div>`;
 }
 
 // ---------- lineups
@@ -252,7 +279,8 @@ export function renderMatchup(el, g) {
     <div class="mu-grid">${modelVsMarket(mu, g)}${factors(mu, g)}</div>
     ${tape(mu, g)}
     ${starters(mu, g)}
-    <div class="mu-grid">${injuries(mu, g)}${goalies(mu, g) || ""}</div>
+    ${goalies(mu, g)}
+    ${injuries(mu, g)}
     ${lineups(mu, g)}
     ${players(mu, g)}
     ${propGaps(mu)}</div>`);

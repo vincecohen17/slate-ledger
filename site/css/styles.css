@@ -329,4 +329,4 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .gpill i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--pos); border-radius: 0 2px 2px 0; }
 .gviz { display: flex; flex-wrap: wrap; gap: 14px; }
 .gbars .gb-pos { fill: var(--pos); } .gbars .gb-neg { fill: var(--neg, #e9824a); }
-.gtab td, .gtab th { padding: 3px 6px; } .gtab tr.dim td { opacity: .45; }
+.gtab { font-size: 12px; } .gtab td, .gtab th { padding: 3px 4px; } .gtab tr.dim td { opacity: .45; }
