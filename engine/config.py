@@ -180,6 +180,8 @@ EXTENDED_SLOWER = 3      # alternates, quarters/periods/innings and specials ref
 
 # Monthly pacing on the 5M plan: the billing cycle restarts on this day of the month; part of each cycle is kept for
 # historical-odds backtests; the rest is spread over the days left, weighted toward big slates.
+LIVE_DAY_CAP = 30_000     # credits a day for in-play prices (lines for every live game, props for the one being watched)
+LIVE_PROP_EVERY_MIN = 2   # live props for the watched game refresh at most this often
 CYCLE_DAY = 27
 HISTORY_RESERVE = 500_000
 DAY_WEIGHT = {0: 1.0, 1: 0.85, 2: 0.85, 3: 1.1, 4: 0.9, 5: 1.6, 6: 1.7}   # Mon..Sun

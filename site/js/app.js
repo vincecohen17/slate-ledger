@@ -1,5 +1,5 @@
 import { auth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut } from "./fb.js";
-import { S, start, stop, onChange, startPresence, stopPresence, requestRefresh } from "./store.js";
+import { S, start, stop, onChange, startPresence, stopPresence, requestRefresh, setView } from "./store.js";
 import { $, $$, esc, ago } from "./util.js";
 import { renderBoard } from "./views/board.js";
 import { renderGame } from "./views/game.js";
@@ -9,9 +9,10 @@ import { renderLab } from "./views/lab.js";
 import { renderPromos } from "./views/promos.js";
 import { renderLedger } from "./views/ledger.js";
 import { renderReports } from "./views/reports.js";
+import { renderLive } from "./views/live.js";
 
 const app = $("#app");
-const ROUTES = { "": renderBoard, edges: renderEdges, picks: renderPicks, lab: renderLab, promos: renderPromos, ledger: renderLedger, reports: renderReports };
+const ROUTES = { "": renderBoard, live: renderLive, edges: renderEdges, picks: renderPicks, lab: renderLab, promos: renderPromos, ledger: renderLedger, reports: renderReports };
 
 async function doSignIn() {
   const p = new GoogleAuthProvider();
@@ -57,12 +58,18 @@ function route() {
   renderStatus();
   const h = (location.hash || "#/").slice(2);
   const [base, a, b] = h.split("/");
+  // in play: the Live screen, or a game that started in the last five hours
+  const gm = base === "game" ? S.games.get(a) : null;
+  const inPlay = gm && new Date(gm.commence) < new Date() && Date.now() - new Date(gm.commence) < 5 * 3600000;
+  setView(base || "board", a || null, base === "live" || !!inPlay);
+  const nLive = S.live?.games?.length || 0;
+  const ln = $("#nav a[data-r=live]"); if (ln) ln.innerHTML = nLive ? `Live <span class="pill live">${nLive}</span>` : "Live";
   $$("#nav a").forEach((x) => x.classList.toggle("on", x.dataset.r === (base === "game" ? "" : base)));
   const key = h;
   if (key !== lastRoute) { scrollKeep[lastRoute] = scrollY; }
   // keep focus/scroll when live data re-renders the same screen
   const y = key === lastRoute ? scrollY : (scrollKeep[key] || 0);
-  if (base === "game") renderGame(app, a, b || "overview");
+  if (base === "game") renderGame(app, a, b);
   else (ROUTES[base] || renderBoard)(app);
   if (key !== lastRoute) scrollTo(0, y); 
   lastRoute = key;

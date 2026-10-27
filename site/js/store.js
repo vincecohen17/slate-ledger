@@ -4,6 +4,7 @@ import { db, doc, collection, onSnapshot, query, where, setDoc, deleteDoc } from
 export const S = {
   games: new Map(), status: null, edges: [], reports: null,
   picks: new Map(), bets: new Map(), promos: new Map(), matchups: new Map(), previews: new Map(),
+  live: null, liveGames: new Map(),   // in-play: board/live summary + live/{gameId} docs
   props: new Map(),            // docId -> prop doc
   propsLoadedFor: new Set(),   // gameIds subscribed
   allProps: false,
@@ -30,6 +31,8 @@ export function start() {
   subs.push(onSnapshot(doc(db, "board", "status"), (d) => { S.status = d.exists() ? d.data() : null; changed(); }, onErr));
   subs.push(onSnapshot(doc(db, "board", "edges"), (d) => { S.edges = d.exists() ? parse(d).items : []; changed(); }, onErr));
   subs.push(onSnapshot(doc(db, "board", "reports"), (d) => { S.reports = d.exists() ? parse(d) : null; changed(); }, onErr));
+  subs.push(onSnapshot(doc(db, "board", "live"), (d) => { S.live = d.exists() ? parse(d) : null; changed(); }, onErr));
+  watchCol("live", S.liveGames);
   watchCol("games", S.games);
   watchCol("picks", S.picks);
   watchCol("matchups", S.matchups);
@@ -73,15 +76,32 @@ let beat = null;
 let dispatchToken = null, lastDispatch = 0;
 onSnapshot(doc(db, "private", "dispatch"), (d) => { dispatchToken = d.exists() ? (d.data().token || "").trim() : null; S.instant = !!dispatchToken; if (dispatchToken) kick(); changed(); },
   () => { S.instant = false; });
+function dispatch(mode) {
+  return fetch("https://api.github.com/repos/vincecohen17/slate-ledger/actions/workflows/pull.yml/dispatches", {
+    method: "POST", headers: { Authorization: `Bearer ${dispatchToken}`, Accept: "application/vnd.github+json" },
+    body: JSON.stringify({ ref: "main", inputs: { mode } }),
+  }).then((r) => { S.dispatch = r.ok ? "ok" : `GitHub said ${r.status}`; changed(); }).catch(() => { S.dispatch = "could not reach GitHub"; changed(); });
+}
 function kick(force = false) {
   if (!dispatchToken || document.visibilityState !== "visible" || (!force && Date.now() - lastDispatch < 290000)) return;
   lastDispatch = Date.now();
-  fetch("https://api.github.com/repos/vincecohen17/slate-ledger/actions/workflows/pull.yml/dispatches", {
-    method: "POST", headers: { Authorization: `Bearer ${dispatchToken}`, Accept: "application/vnd.github+json" },
-    body: JSON.stringify({ ref: "main", inputs: { mode: force ? "refresh" : "auto" } }),
-  }).then((r) => { S.dispatch = r.ok ? "ok" : `GitHub said ${r.status}`; changed(); }).catch(() => { S.dispatch = "could not reach GitHub"; changed(); });
+  dispatch(force ? "refresh" : "auto");
 }
-const ping = (extra = {}) => setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), ...extra }, { merge: true })
+// live: while the Live screen or a game in play is open, ask for in-play prices every minute
+let view = { view: "board", game: null }, lastLive = 0, liveTimer = null;
+function liveKick() {
+  if (!dispatchToken || document.visibilityState !== "visible" || !view.live || Date.now() - lastLive < 55000) return;
+  lastLive = Date.now();
+  setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), view: view.view, game: view.game }, { merge: true })
+    .then(() => dispatch("live")).catch(() => {});
+}
+export function setView(v, game, isLive) {
+  const was = view.live;
+  view = { view: v, game: game || null, live: !!isLive };
+  if (isLive && !was) { liveKick(); clearInterval(liveTimer); liveTimer = setInterval(liveKick, 60000); }
+  if (!isLive && was) { clearInterval(liveTimer); liveTimer = null; }
+}
+const ping = (extra = {}) => setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), view: view.view, game: view.game, ...extra }, { merge: true })
   .then(() => kick(!!extra.force)).catch(() => {});
 export function startPresence() {
   const on = () => { if (document.visibilityState === "visible") { ping(); clearInterval(beat); beat = setInterval(ping, 120000); } else { clearInterval(beat); beat = null; } };

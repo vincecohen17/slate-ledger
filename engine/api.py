@@ -73,10 +73,16 @@ class OddsAPI:
         return self._get(f"/sports/{sport}/events", kw)
 
     # paid endpoints
-    def odds(self, sport, markets, regions, **kw):
-        p = {"markets": ",".join(markets), "regions": ",".join(regions), "oddsFormat": "decimal"}
+    def odds(self, sport, markets, regions, bookmakers=None, **kw):
+        p = {"markets": ",".join(markets), "oddsFormat": "decimal"}
+        if bookmakers:
+            p["bookmakers"] = ",".join(bookmakers)
+            units = -(-len(bookmakers) // 10)
+        else:
+            p["regions"] = ",".join(regions)
+            units = len(regions)
         p.update(kw)
-        return self._get(f"/sports/{sport}/odds", p, est_cost=len(markets) * len(regions))
+        return self._get(f"/sports/{sport}/odds", p, est_cost=len(markets) * units)
 
     def event_odds(self, sport, event_id, markets, regions=None, bookmakers=None):
         p = {"markets": ",".join(markets), "oddsFormat": "decimal"}

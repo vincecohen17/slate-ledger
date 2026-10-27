@@ -119,6 +119,151 @@ def firestore_db():
     return _DB
 
 
+def presence_doc():
+    db = firestore_db()
+    try:
+        return (db.document("presence/owner").get().to_dict() or {}) if db else {}
+    except Exception:
+        return {}
+
+
+def _live_pre(s, g, mu, games):
+    """pre-game starting point for the live model: our model, else the sharp pre-game market"""
+    m = (mu or {}).get("model") or {}
+    if mu:
+        if s == "icehockey_nhl":
+            pre = {"home": mu["teams"]["home"].get("goals"), "away": mu["teams"]["away"].get("goals")}
+        elif s == "baseball_mlb":
+            pre = {"home": mu["teams"]["home"].get("runs"), "away": mu["teams"]["away"].get("runs")}
+        else:
+            pre = {"margin": m.get("margin"), "total": m.get("total")}
+        if all(v is not None for v in pre.values()):
+            return pre
+    pg = next((x for x in games if x["id"] == g["id"]), None) or {}
+    sp = next((l for l in pg.get("lines", []) if l["market"] == "spreads" and l.get("fair")), None)
+    tt = next((l for l in pg.get("lines", []) if l["market"] == "totals" and l.get("fair")), None)
+    if not (sp and tt):
+        return None
+    if s == "icehockey_nhl":
+        return {"home": tt["point"] / 2 + 0.1, "away": tt["point"] / 2 - 0.1}
+    if s == "baseball_mlb":
+        return {"home": tt["point"] / 2, "away": tt["point"] / 2}
+    return {"margin": -sp["point"], "total": tt["point"]}
+
+
+def live():
+    """In-play: live prices for every game in progress, our live projection, live edges; live props for the game
+    being watched. Writes Firestore live/{gameId} and board/live. Runs only while the site is open."""
+    import live as LV
+    import refs
+    key = os.environ.get("ODDS_API_KEY")
+    if not key:
+        raise RuntimeError("ODDS_API_KEY secret is missing or empty")
+    pres = presence_doc()
+    at = pres.get("at")
+    if not at or (NOW - datetime.fromisoformat(at.replace("Z", "+00:00"))).total_seconds() > C.ACTIVE_MINUTES * 60:
+        log("site closed: no live pull")
+        return
+    fn = os.path.join(DATA_DIR, "latest", "live_state.json")
+    try:
+        ls = json.load(open(fn))
+    except Exception:
+        ls = {}
+    today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
+    if ls.get("day") != today:
+        ls = {"day": today, "used": 0, "props": {}}
+    room = C.LIVE_DAY_CAP - ls.get("used", 0)
+    if room <= 0:
+        log("live credit cap reached for today")
+        return
+    games, _ = load_cache(keep_hours=6)
+    started = [g for g in games if NOW - timedelta(hours=5) <= datetime.fromisoformat(g["commence"].replace("Z", "+00:00")) <= NOW]
+    sports = sorted({g["sport"] for g in started})
+    states = LV.scoreboards(sports)
+    try:
+        mups = json.load(open(os.path.join(DATA_DIR, "latest", "matchups.json")))
+    except Exception:
+        mups = {}
+    api = OddsAPI(key, max_credits=min(2000, room))
+    docs, edges_all = [], []
+    for s in sports:
+        try:
+            data = api.odds(s, C.GAME_MARKETS, None, bookmakers=C.EVENT_BOOKS)
+        except Exception as e:
+            log(f"live odds failed for {C.label(s)}: {type(e).__name__}")
+            continue
+        Rf = refs.load(s, DATA_DIR)
+        for ev in data:
+            if datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00")) > NOW or not ev.get("bookmakers"):
+                continue
+            g = build.build_game(ev, C.label(s))
+            refs.decorate_game(g, Rf)
+            LV.stale_after(g, 120)
+            ha, aa = (g.get("homeRef") or {}).get("abbr"), (g.get("awayRef") or {}).get("abbr")
+            st = states.get((s, refs.norm(ha or ""), refs.norm(aa or "")))
+            mu = mups.get(g["id"]) or {}
+            pre = _live_pre(s, g, mu, games)
+            pj = LV.project(s, st, pre) if st and pre else None
+            if pj:
+                f = LV.line_probs(s, g, pj)
+                for l in g["lines"]:
+                    try:
+                        p = f(l)
+                    except Exception:
+                        p = None
+                    if p:
+                        l["model"] = {o: round(v, 4) for o, v in p.items()}
+            props = []
+            want = pres.get("game") == g["id"]
+            if want and st and s in ("basketball_nba", "basketball_wnba", "icehockey_nhl", "americanfootball_nfl") \
+                    and _age_min(ls["props"].get(g["id"])) >= C.LIVE_PROP_EVERY_MIN:
+                try:
+                    pm = [m for m in C.core_markets(s) if build.is_player_market(m)]
+                    ed, _ = api.event_odds_all(s, g["id"], pm, C.EVENT_BOOKS)
+                    props = list(build.build_props(ed, C.label(s)).values()) if ed else []
+                    for p in props:
+                        refs.decorate_props(p, Rf)
+                    bx, _wp = LV.box(s, st["espnId"])
+                    LV.live_props(s, props, bx, mu, pj or {})
+                    ls["props"][g["id"]] = iso(NOW)
+                except Exception as e:
+                    log(f"live props failed: {type(e).__name__}")
+            E = build.edges([g], props, min_edge=0.015)
+            for e in E:
+                e["live"] = True
+            edges_all += E
+            docs.append({"id": g["id"], "league": g["league"], "sport": s, "home": g["home"], "away": g["away"], "commence": g["commence"],
+                         "homeRef": g.get("homeRef"), "awayRef": g.get("awayRef"), "state": st,
+                         "model": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in (pj or {}).items()},
+                         "lines": g["lines"], "props": props, "edges": E[:40], "updated": iso(NOW)})
+    ls["used"] = ls.get("used", 0) + api.used_run
+    os.makedirs(os.path.dirname(fn), exist_ok=True)
+    json.dump(ls, open(fn, "w"))
+    db = firestore_db()
+    if db:
+        batch, size = db.batch(), 0
+        for d in docs:
+            sdoc = _payload(d)
+            if size + len(sdoc) > 6_000_000:
+                batch.commit()
+                batch, size = db.batch(), 0
+            batch.set(db.document(f"live/{d['id']}"), {"payload": sdoc, "league": d["league"], "updated": d["updated"]})
+            size += len(sdoc)
+        summary = [{"id": d["id"], "league": d["league"], "home": d["home"], "away": d["away"], "homeRef": d["homeRef"], "awayRef": d["awayRef"],
+                    "state": d["state"], "pHome": (d["model"] or {}).get("pHome"),
+                    "mkt": next(((l.get("fair") or {}).get(d["home"]) for l in d["lines"] if l["market"] == "h2h"), None),
+                    "edges": len(d["edges"])} for d in docs]
+        edges_all.sort(key=lambda e: -e["score"])
+        batch.set(db.document("board/live"), {"payload": json.dumps({"games": summary, "edges": edges_all[:150], "updated": iso(NOW),
+                                                                      "creditsToday": ls["used"]}, separators=(",", ":"))})
+        keep = {d["id"] for d in docs}
+        for snap in db.collection("live").stream():
+            if snap.id not in keep:
+                batch.delete(snap.reference)
+        batch.commit()
+    log(f"live: {len(docs)} games, {len(edges_all)} edges, credits {api.used_run} (today {ls['used']})")
+
+
 def presence():
     """(active, force_at): the site writes presence/owner {at, force?} while it is open."""
     db = firestore_db()
@@ -386,7 +531,9 @@ def main():
         return run_stats(backfill="backfill" in open(os.path.join(os.path.dirname(__file__), "run-request")).read())
     if MODE == "rebuild":
         return rebuild()
-    if MODE in ("auto", "live", "refresh"):     # refresh = a forced pull (Claude's pick runs ask for one first)
+    if MODE == "live":
+        return live()
+    if MODE in ("auto", "refresh"):     # refresh = a forced pull (Claude's pick runs ask for one first)
         return auto()
     key = os.environ.get("ODDS_API_KEY")
     if not key:

@@ -2,14 +2,15 @@ name: pull-odds
 on:
   workflow_dispatch:
     inputs:
-      mode: { description: "mock, live or rebuild", default: "mock" }
+      mode: { description: "auto, refresh, live, rebuild, stats", default: "auto" }
   push:
     branches: [main]
     paths: ["engine/run-request"]
   schedule:
     # app-driven refresh: every 5 minutes the engine checks whether the site is open and what is stale
     - cron: "*/5 * * * *"
-concurrency: { group: pull, cancel-in-progress: false }
+# in-play pulls run in their own lane so a long pre-game pull never holds them up
+concurrency: { group: "pull-${{ github.event.inputs.mode == 'live' && 'live' || 'main' }}", cancel-in-progress: false }
 jobs:
   pull:
     runs-on: ubuntu-latest

@@ -3,6 +3,7 @@ import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wp
 import { edgeCard, ladder, bindLog } from "./common.js";
 import { pickCard } from "./picks.js";
 import { renderMatchup } from "./matchup.js";
+import { renderGameLive } from "./live.js";
 
 const open = new Set();
 let propMarket = null;
@@ -127,12 +128,14 @@ function props(g) {
     <div class="grid tight">${players.map(([p, rows]) => propCard(p, rows, propMarket)).join("")}</div>`;
 }
 
-export function renderGame(el, id, tab = "matchup") {
+export function renderGame(el, id, tab) {
   const g = S.games.get(id);
+  const isLive = S.liveGames.has(id) || (g && new Date(g.commence) < new Date() && Date.now() - new Date(g.commence) < 5 * 3600000);
+  tab = tab || (isLive ? "live" : "matchup");
   if (!g) { el.innerHTML = `<div class="empty"><h3>Game not on the board</h3><a href="#/">Back to the board</a></div>`; return; }
   loadProps(id);
   const picks = [...S.picks.values()].filter((p) => p.gameId === id);
-  const tabs = [["matchup", "Matchup"], ["overview", "Best bets"], ["lines", "Lines"], ["props", "Props"], ...(picks.length ? [["pick", `Pick${picks.length > 1 ? "s" : ""}`]] : [])];
+  const tabs = [...(isLive ? [["live", "● Live"]] : []), ["matchup", "Matchup"], ["overview", "Best bets"], ["lines", "Lines"], ["props", "Props"], ...(picks.length ? [["pick", `Pick${picks.length > 1 ? "s" : ""}`]] : [])];
   let h = `<a class="back" href="#/">← Board</a>${hero(g)}
     <div class="bar">${tabs.map(([k, t]) => `<a class="chip ${k === tab ? "on" : ""}" href="#/game/${id}/${k}">${t}</a>`).join("")}
     <span class="spacer"></span><span class="tiny muted">Bars: edge vs sharp fair · <span class="pos">teal</span> = value, <span class="neg">orange</span> = overpriced</span></div>`;
@@ -142,6 +145,7 @@ export function renderGame(el, id, tab = "matchup") {
   else if (tab === "overview") h += overview(g);
   el.innerHTML = h;
   if (tab === "matchup") renderMatchup(el, g);
+  if (tab === "live") renderGameLive(el, g);
   $$("[data-all]", el).forEach((b) => b.onclick = () => { open.has(b.dataset.all) ? open.delete(b.dataset.all) : open.add(b.dataset.all); renderGame(el, id, tab); });
   $$("[data-pm]", el).forEach((b) => b.onclick = () => { propMarket = b.dataset.pm; renderGame(el, id, tab); });
   bindLog(el); bindTips(el);
