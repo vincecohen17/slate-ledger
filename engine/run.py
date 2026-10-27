@@ -388,7 +388,8 @@ def main():
 
 def run_stats(backfill=False):
     import stats
-    for lg in ("nba", "nhl", "nfl"):
+    log(f"nflverse: {stats.nflverse(DATA_DIR)}")
+    for lg in ("nba", "nhl", "nfl", "cfb"):
         n = stats.collect(lg, DATA_DIR, backfill=backfill)
         inj = stats.injuries(lg, DATA_DIR)
         log(f"stats {lg}: {n} games fetched, injuries for {len(inj or {})} teams")
@@ -441,10 +442,13 @@ def publish(game_docs, prop_docs, status, stamp):
     if MODE != "rebuild" or os.environ.get("REFRESH_STATS"):
         try:
             import stats
-            for lg in ("nba", "nhl", "nfl"):
+            for lg in ("nba", "nhl", "nfl", "cfb"):
                 stats.collect(lg, DATA_DIR)
                 stats.injuries(lg, DATA_DIR)
             stats.moneypuck(DATA_DIR)
+            nv = os.path.join(DATA_DIR, "stats", "nfl", "nflverse", "team_week_2026.json")
+            if not os.path.exists(nv) or (NOW.timestamp() - os.path.getmtime(nv)) > 12 * 3600:
+                stats.nflverse(DATA_DIR)
         except Exception as e:
             log(f"stats refresh failed: {type(e).__name__}")
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")

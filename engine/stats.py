@@ -14,11 +14,13 @@ from datetime import date, datetime, timedelta, timezone
 
 ESPN = "https://site.api.espn.com/apis/site/v2/sports"
 UA = {"User-Agent": "Mozilla/5.0 (slate-ledger)"}
-PATHS = {"nba": "basketball/nba", "nhl": "hockey/nhl", "nfl": "football/nfl"}
+PATHS = {"nba": "basketball/nba", "nhl": "hockey/nhl", "nfl": "football/nfl", "cfb": "football/college-football"}
+EXTRA = {"cfb": "&groups=80"}       # FBS only
 SEASONS = {   # (label, scan from, scan to or None = through yesterday PT)
     "nba": [("2025-26", "2025-10-15", "2026-04-20"), ("2026-27", "2026-10-01", None)],
     "nhl": [("2025-26", "2025-10-01", "2026-04-20"), ("2026-27", "2026-10-01", None)],
     "nfl": [("2025", "2025-09-01", "2026-01-10"), ("2026", "2026-09-01", None)],
+    "cfb": [("2025", "2025-08-20", "2026-01-20"), ("2026", "2026-08-20", None)],
 }
 MONEYPUCK = "https://moneypuck.com/moneypuck/playerData/seasonSummary/{y}/regular/{kind}.csv"
 
@@ -102,7 +104,7 @@ def parse_summary(lg, s, event):
     for t in s["boxscore"].get("teams", []):
         side = "home" if t["team"]["abbreviation"] == teams["home"]["abbr"] else "away"
         teams[side]["stats"] = _team_stats(lg, t)
-    ot = (event.get("status", {}).get("period") or 0) > {"nba": 4, "nhl": 3, "nfl": 4}[lg]
+    ot = (event.get("status", {}).get("period") or 0) > {"nba": 4, "nhl": 3, "nfl": 4, "cfb": 4}[lg]
     return {"id": event["id"], "date": comp.get("date"), "home": teams["home"], "away": teams["away"],
             "ot": ot, "players": _players(lg, s["boxscore"])}
 
@@ -115,7 +117,7 @@ def fetch_day(lg, season, d, data_dir, force=False):
                 return 0
         except Exception:
             pass
-    sb = _get(f"{ESPN}/{PATHS[lg]}/scoreboard?dates={d.replace('-', '')}&limit=100")
+    sb = _get(f"{ESPN}/{PATHS[lg]}/scoreboard?dates={d.replace('-', '')}&limit=300{EXTRA.get(lg, '')}")
     events = [e for e in sb.get("events", []) if (e.get("season") or {}).get("type") in (2, 3)]
     games, final = [], True
     for e in events:
@@ -233,3 +235,87 @@ def load_json(data_dir, rel):
         return json.load(open(os.path.join(data_dir, rel)))
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# nflverse (NFL): weekly player stats + team efficiency from play-by-play
+
+NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
+NFL2ESPN = {"LA": "LAR", "WAS": "WSH"}
+
+
+def nflverse(data_dir, seasons=(2025, 2026)):
+    out = {}
+    d = os.path.join(data_dir, "stats", "nfl", "nflverse")
+    os.makedirs(d, exist_ok=True)
+    for y in seasons:
+        cur = y == max(seasons)
+        fn = os.path.join(d, f"player_week_{y}.csv")
+        if cur or not os.path.exists(fn):
+            try:
+                open(fn, "wb").write(_get(f"{NFLVERSE}/stats_player/stats_player_week_{y}.csv", raw=True))
+                out[f"players_{y}"] = "ok"
+            except Exception as e:
+                out[f"players_{y}"] = type(e).__name__
+        tfn = os.path.join(d, f"team_week_{y}.json")
+        if cur or not os.path.exists(tfn):
+            try:
+                import gzip as _gz
+                raw = _gz.decompress(_get(f"{NFLVERSE}/pbp/play_by_play_{y}.csv.gz", raw=True)).decode()
+                json.dump(_nfl_team_weeks(raw), open(tfn, "w"), separators=(",", ":"))
+                out[f"pbp_{y}"] = "ok"
+            except Exception as e:
+                out[f"pbp_{y}"] = type(e).__name__
+    return out
+
+
+def _nfl_team_weeks(csv_text):
+    """Per team per game: plays, EPA, success, pass rate vs expected, explosives, early-down EPA, red-zone TDs."""
+    agg = {}
+    for r in csv.DictReader(io.StringIO(csv_text)):
+        if r.get("season_type") != "REG" and r.get("season_type") != "POST":
+            continue
+        if r.get("play_type") not in ("pass", "run") or r.get("qb_kneel") == "1" or r.get("qb_spike") == "1":
+            continue
+        try:
+            epa = float(r["epa"]) if r.get("epa") not in ("", "NA", None) else None
+        except ValueError:
+            epa = None
+        if epa is None:
+            continue
+        gid, off, de = r["game_id"], NFL2ESPN.get(r["posteam"], r["posteam"]), NFL2ESPN.get(r["defteam"], r["defteam"])
+        is_pass = r.get("pass") == "1"
+        yds = float(r.get("yards_gained") or 0)
+        xp = r.get("xpass")
+        down = r.get("down")
+        for team, side in ((off, "o"), (de, "d")):
+            a = agg.setdefault((gid, team), {"game": gid, "week": int(r.get("week") or 0), "team": team,
+                                             "opp": de if side == "o" else off})
+            k = lambda n: f"{side}_{n}"
+            a[k("plays")] = a.get(k("plays"), 0) + 1
+            a[k("epa")] = a.get(k("epa"), 0.0) + epa
+            a[k("succ")] = a.get(k("succ"), 0) + (1 if r.get("success") == "1" else 0)
+            a[k("pass")] = a.get(k("pass"), 0) + (1 if is_pass else 0)
+            if xp not in ("", "NA", None):
+                a[k("xpass")] = a.get(k("xpass"), 0.0) + float(xp)
+                a[k("xn")] = a.get(k("xn"), 0) + 1
+            a[k("expl")] = a.get(k("expl"), 0) + (1 if (is_pass and yds >= 20) or (not is_pass and yds >= 12) else 0)
+            if down in ("1", "2"):
+                a[k("ed_epa")] = a.get(k("ed_epa"), 0.0) + epa
+                a[k("ed_n")] = a.get(k("ed_n"), 0) + 1
+            if is_pass:
+                a[k("pass_epa")] = a.get(k("pass_epa"), 0.0) + epa
+            else:
+                a[k("rush_epa")] = a.get(k("rush_epa"), 0.0) + epa
+    return list(agg.values())
+
+
+def read_nfl_players(data_dir, y):
+    fn = os.path.join(data_dir, "stats", "nfl", "nflverse", f"player_week_{y}.csv")
+    if not os.path.exists(fn):
+        return []
+    rows = list(csv.DictReader(io.StringIO(open(fn).read())))
+    for r in rows:
+        r["team"] = NFL2ESPN.get(r.get("team"), r.get("team"))
+        r["opponent_team"] = NFL2ESPN.get(r.get("opponent_team"), r.get("opponent_team"))
+    return rows
