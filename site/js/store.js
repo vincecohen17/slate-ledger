@@ -67,7 +67,22 @@ export const deletePromo = (id) => deleteDoc(doc(db, "promos", id));
 
 // ---------- presence: tells the engine the site is open, so it refreshes prices only while you use it
 let beat = null;
-const ping = (extra = {}) => setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), ...extra }, { merge: true }).catch(() => {});
+// Instant refresh (Vince's call): he keeps a GitHub token that can only run this repo's workflows in the Firestore doc
+// private/dispatch (field "token"), which only his signed-in account can read. With it, the site starts an engine run
+// when it opens, every 5 minutes while it stays open, and right away on the refresh button. Without it, nothing changes.
+let dispatchToken = null, lastDispatch = 0;
+onSnapshot(doc(db, "private", "dispatch"), (d) => { dispatchToken = d.exists() ? (d.data().token || "").trim() : null; S.instant = !!dispatchToken; if (dispatchToken) kick(); changed(); },
+  () => { S.instant = false; });
+function kick(force = false) {
+  if (!dispatchToken || document.visibilityState !== "visible" || (!force && Date.now() - lastDispatch < 290000)) return;
+  lastDispatch = Date.now();
+  fetch("https://api.github.com/repos/vincecohen17/slate-ledger/actions/workflows/pull.yml/dispatches", {
+    method: "POST", headers: { Authorization: `Bearer ${dispatchToken}`, Accept: "application/vnd.github+json" },
+    body: JSON.stringify({ ref: "main", inputs: { mode: force ? "refresh" : "auto" } }),
+  }).then((r) => { S.dispatch = r.ok ? "ok" : `GitHub said ${r.status}`; changed(); }).catch(() => { S.dispatch = "could not reach GitHub"; changed(); });
+}
+const ping = (extra = {}) => setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), ...extra }, { merge: true })
+  .then(() => kick(!!extra.force)).catch(() => {});
 export function startPresence() {
   const on = () => { if (document.visibilityState === "visible") { ping(); clearInterval(beat); beat = setInterval(ping, 120000); } else { clearInterval(beat); beat = null; } };
   document.addEventListener("visibilitychange", on);
