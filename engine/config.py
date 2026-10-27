@@ -176,6 +176,13 @@ LINES_STALE = [(3, 5), (12, 15), (36, 60), (9999, 240)]
 PROPS_STALE = [(3, 10), (12, 30), (36, 180)]          # no props beyond 36h
 CLOSE_WINDOW_MIN = 25    # always capture prices for games starting this soon (CLV / grading)
 CLOSE_STALE_MIN = 8
+EXTENDED_SLOWER = 3      # alternates, quarters/periods/innings and specials refresh 3x less often than core markets
+
+# Monthly pacing on the 5M plan: the billing cycle restarts on this day of the month; part of each cycle is kept for
+# historical-odds backtests; the rest is spread over the days left, weighted toward big slates.
+CYCLE_DAY = 27
+HISTORY_RESERVE = 500_000
+DAY_WEIGHT = {0: 1.0, 1: 0.85, 2: 0.85, 3: 1.1, 4: 0.9, 5: 1.6, 6: 1.7}   # Mon..Sun
 
 # Books for event-level pulls: naming books costs 1 unit per 10 books, cheaper than whole regions.
 EVENT_BOOKS = ["pinnacle", "betfair_ex_eu", "novig", "prophetx", "kalshi", "polymarket_us", "polymarket", "draftkings",
@@ -259,6 +266,17 @@ EVENT_MARKETS = {
 for _s in SPORTS:
     if _s.startswith("soccer_"):
         EVENT_MARKETS[_s] = _SOCCER
+
+
+def core_markets(sport):
+    """main player props and full-game alternates/team totals: the markets refreshed at full pace"""
+    period = ("_q1", "_q2", "_q3", "_q4", "_h1", "_h2", "_p1", "_p2", "_p3", "_innings", "_s1", "_s2", "_corners", "_cards")
+    out = []
+    for m in event_markets(sport):
+        if m.endswith("_alternate") or any(p in m for p in period) or m in ("correct_score", "halftime_fulltime", "player_method_of_first_basket"):
+            continue
+        out.append(m)
+    return out
 
 
 def event_markets(sport):

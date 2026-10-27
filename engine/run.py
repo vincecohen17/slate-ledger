@@ -147,6 +147,34 @@ def _limit(table, hours_to_start):
     return None
 
 
+def _paced_cap(P, st, plan_key):
+    """Daily credit allowance: what is left this billing cycle (minus the history reserve) spread over the days left,
+    weighted toward the weekend slates. Free plan: its fixed cap."""
+    if plan_key == "free" or st.get("remaining") is None:
+        return P["day_cap"]
+    today = (NOW - timedelta(hours=7)).date()
+    reset = today.replace(day=min(C.CYCLE_DAY, 28))
+    while reset <= today:
+        reset = (reset.replace(day=1) + timedelta(days=32)).replace(day=min(C.CYCLE_DAY, 28))
+    days = [(today + timedelta(days=i)).weekday() for i in range((reset - today).days)]
+    w = [C.DAY_WEIGHT[d] for d in days] or [1.0]
+    spendable = max(0, st["remaining"] + st.get("usedToday", 0) - st.get("historyLeft", C.HISTORY_RESERVE))
+    return int(min(P["day_cap"], max(4000, spendable * w[0] / sum(w))))
+
+
+def _merge_event(old, new):
+    """keep markets from the last pull that this pull did not ask for (core vs extended tiers)"""
+    if not old:
+        return new
+    out = dict(new)
+    books = {b["key"]: {m["key"]: m for m in b.get("markets", [])} for b in old.get("bookmakers", [])}
+    for b in new.get("bookmakers", []):
+        books.setdefault(b["key"], {}).update({m["key"]: m for m in b.get("markets", [])})
+    titles = {b["key"]: b for b in old.get("bookmakers", []) + new.get("bookmakers", [])}
+    out["bookmakers"] = [dict(titles[k], markets=list(ms.values())) for k, ms in books.items()]
+    return out
+
+
 def auto():
     """App-driven refresh: spend credits only while the site is open (plus close capture on the paid
     plan), and only on what is stale for how soon it starts."""
@@ -162,7 +190,7 @@ def auto():
     active, force_at = presence()
     force = (bool(force_at) and force_at != st.get("lastForce") and _age_min(force_at) < 15) or MODE == "refresh"
     paid = plan_key != "free"
-    room = max(0, P["day_cap"] - st.get("usedToday", 0))
+    room = max(0, _paced_cap(P, st, plan_key) - st.get("usedToday", 0))
     if not (active or force or paid) and C.PLAN == "auto" and _age_min(st.get("planCheck")) > 60:
         probe = OddsAPI(key, max_credits=0)          # /sports is free: read the quota to notice an upgrade
         try:
@@ -171,7 +199,7 @@ def auto():
             if probe.remaining is not None and probe.used_total is not None and probe.remaining + probe.used_total > 50_000:
                 st["plan"] = plan_key = "5m"
                 P, paid = C.PLANS["5m"], True
-                room = max(0, P["day_cap"] - st.get("usedToday", 0))
+                room = max(0, _paced_cap(P, st, plan_key) - st.get("usedToday", 0))
             save_state(st)
         except Exception:
             pass
@@ -189,8 +217,11 @@ def auto():
             log(f"plan detected from quota: {detected}")
             plan_key, P, paid = detected, C.PLANS[detected], detected != "free"
             st["plan"] = detected
-            room = max(0, P["day_cap"] - st.get("usedToday", 0))
-            api.max_credits = min(P["run_cap"], room)
+    if api.remaining is not None:
+        st["remaining"] = api.remaining
+        room = max(0, _paced_cap(P, st, plan_key) - st.get("usedToday", 0))
+        api.max_credits = min(P["run_cap"], room)
+        st["dayCap"] = _paced_cap(P, st, plan_key)
     sports = [s for s in C.SPORTS if s in act] + sorted(s for s in act if s.startswith("tennis_") and C.wanted(s))
     errors, pulled = [], []
     horizon = iso(NOW + timedelta(days=7))
@@ -228,16 +259,21 @@ def auto():
             for ev in evs:
                 hrs = (datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00")) - NOW).total_seconds() / 3600
                 age = _age_min(st["events"].get(ev["id"]))
+                age_x = _age_min(st.setdefault("eventsX", {}).get(ev["id"]))
                 lim = _limit(C.PROPS_STALE, hrs)
                 close = hrs * 60 <= C.CLOSE_WINDOW_MIN and age > C.CLOSE_STALE_MIN
-                if close or ((active or force) and lim is not None and age > lim):
-                    queue.append((hrs, s, ev))
+                core = close or ((active or force) and lim is not None and age > lim)
+                # alternates, periods and specials move less: refreshed at a third of the pace
+                ext = (active or force) and lim is not None and age_x > lim * C.EXTENDED_SLOWER and not close
+                if core or ext:
+                    queue.append((hrs, s, ev, ext, close))
         queue.sort(key=lambda x: x[0])
         n_events = 0
-        for _, s, ev in queue:
+        for _, s, ev, ext, close in queue:
             try:
                 bad = st.setdefault("badMarkets", {}).get(s, [])
-                data, rejected = api.event_odds_all(s, ev["id"], [m for m in C.event_markets(s) if m not in bad], C.EVENT_BOOKS)
+                mk = C.event_markets(s) if ext else C.core_markets(s)
+                data, rejected = api.event_odds_all(s, ev["id"], [m for m in mk if m not in bad], C.EVENT_BOOKS)
                 if rejected:
                     st["badMarkets"][s] = sorted(set(bad) | set(rejected))
                 if data is None:
@@ -249,12 +285,25 @@ def auto():
                 errors.append(str(e))
                 st["events"][ev["id"]] = iso(NOW)     # do not retry a failing event until it is stale again
                 continue
+            try:
+                prev = json.load(open(RAW(f"event_{ev['id']}.json")))
+            except Exception:
+                prev = None
+            data = _merge_event(prev, data)
             cache_put(f"event_{ev['id']}.json", data)
-            save_raw(s, f"event_{ev['id']}", data)
+            if close or ev["id"] not in st.setdefault("savedEv", {}):
+                save_raw(s, f"event_{ev['id']}", data)     # history: first full view and the close, not every refresh
+                st["savedEv"][ev["id"]] = iso(NOW)
             st["events"][ev["id"]] = iso(NOW)
+            if ext:
+                st["eventsX"][ev["id"]] = iso(NOW)
             n_events += 1
         pulled.append(f"{n_events} events")
     st["usedToday"] = st.get("usedToday", 0) + api.used_run
+    if api.remaining is not None:
+        st["remaining"] = api.remaining
+    for k in ("events", "eventsX", "savedEv"):      # forget finished events
+        st[k] = {i: t for i, t in st.get(k, {}).items() if _age_min(t) < 36 * 60}
     if force:
         st["lastForce"] = force_at
     stale_stats = _age_min(st.get("stats")) > 20
