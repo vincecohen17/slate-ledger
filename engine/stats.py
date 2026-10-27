@@ -7,6 +7,7 @@ A date is fetched once it is final, so a daily run only touches yesterday and to
 import csv
 import io
 import json
+import time
 import os
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -296,52 +297,94 @@ MP_ASOF = None          # backtests: "YYYY-MM-DD" -> current-season MoneyPuck nu
 _MP_GAMES = {}
 
 
-def moneypuck_games(data_dir, seasons=(2025, 2026)):
-    """game-by-game team and goalie lines (all, 5on5, 5on4, 4on5) so backtests can rebuild ratings as of any date"""
+def _get_gentle(url, tries=4):
+    """MoneyPuck throttles bursts: one request at a time, backing off on 403/429/5xx; a 404 means no file"""
+    import urllib.error
+    for i in range(tries):
+        try:
+            b = _get(url, raw=True)
+            time.sleep(0.35)
+            return b
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            time.sleep(4 * (i + 1) ** 2)
+        except Exception:
+            time.sleep(4 * (i + 1) ** 2)
+    raise RuntimeError("throttled")
+
+
+def moneypuck_games(data_dir, seasons=(2025, 2026), budget_s=900):
+    """game-by-game team and goalie lines (all, 5on5, 5on4, 4on5) so backtests can rebuild ratings as of any date.
+    Sequential and resumable: teams and goalies already saved are skipped, so a throttled run finishes on the next one."""
     d = os.path.join(data_dir, "stats", "nhl", "moneypuck")
     out = {}
+    t_end = time.time() + budget_s
     keep_t = ("iceTime", "xGoalsFor", "xGoalsAgainst", "goalsFor", "goalsAgainst", "shotsOnGoalFor", "shotsOnGoalAgainst")
     teams = sorted({r["team"] for y in seasons for r in read_moneypuck(data_dir, "teams", y)})
-    tg = {}
+    tfn = os.path.join(d, "team_games.json")
+    day = str(today_pt())
+    tg = load_json(data_dir, "stats/nhl/moneypuck/team_games.json") or {}
+    tg = {k: v for k, v in tg.items() if v and not k.startswith("_")} if tg.get("_day") == day else {}   # resume within a day, refetch daily
 
     def team(t):
         rows = []
         for kind in ("regular", "playoffs"):
-            try:
-                body = _get(MP_TEAM_GAMES.format(kind=kind, team=t), raw=True).decode("utf-8", "ignore")
-            except Exception:
+            body = _get_gentle(MP_TEAM_GAMES.format(kind=kind, team=t))
+            if not body:
                 continue
-            for g in csv.DictReader(io.StringIO(body)):
+            for g in csv.DictReader(io.StringIO(body.decode("utf-8", "ignore"))):
                 if int(g.get("season") or 0) in seasons and g.get("situation") in ("all", "5on5", "5on4", "4on5"):
                     rows.append({"s": int(g["season"]), "d": g.get("gameDate"), "sit": g["situation"], **{k: float(g.get(k) or 0) for k in keep_t}})
         return t, rows
-    with ThreadPoolExecutor(6) as ex:
-        for t, rows in ex.map(team, teams):
-            tg[t] = rows
-    json.dump(tg, open(os.path.join(d, "team_games.json"), "w"), separators=(",", ":"))
-    out["teams"] = sum(1 for v in tg.values() if v)
-    goalies = {(r["playerId"], r["name"], r["team"]) for y in seasons for r in read_moneypuck(data_dir, "goalies", y)}
-    gg = {}
+    for t in teams:
+        if t in tg or time.time() > t_end:
+            continue
+        try:
+            tg[t] = team(t)[1]
+        except Exception:
+            out["throttled"] = True
+            break
+    tg["_day"] = day
+    json.dump(tg, open(tfn, "w"), separators=(",", ":"))
+    out["teams"] = sum(1 for k, v in tg.items() if v and not k.startswith("_"))
+    out["teamsMissing"] = len([t for t in teams if not tg.get(t)])
+    goalies = sorted({(r["playerId"], r["name"], r["team"]) for y in seasons for r in read_moneypuck(data_dir, "goalies", y)
+                      if float(r.get("games_played") or 0) >= 3})
+    gfn = os.path.join(d, "goalie_games_all.json")
+    gg = load_json(data_dir, "stats/nhl/moneypuck/goalie_games_all.json") or {}
+    if gg.get("_day") != day:
+        gg = {}
+    seen = set(gg.pop("_ids", []))
+    gg.pop("_day", None)
 
     def goalie(x):
         pid, name, team_ = x
         rows = []
         for kind in ("regular", "playoffs"):
-            try:
-                body = _get(MP_GOALIE_GAMES.format(kind=kind, pid=pid), raw=True).decode("utf-8", "ignore")
-            except Exception:
+            body = _get_gentle(MP_GOALIE_GAMES.format(kind=kind, pid=pid))
+            if not body:
                 continue
-            for g in csv.DictReader(io.StringIO(body)):
+            for g in csv.DictReader(io.StringIO(body.decode("utf-8", "ignore"))):
                 if int(g.get("season") or 0) in seasons and g.get("situation") in ("all", "5on5", "4on5"):
                     rows.append({"s": int(g["season"]), "d": g.get("gameDate"), "sit": g["situation"], "team": g.get("playerTeam") or team_,
                                  "icetime": float(g.get("icetime") or 0), "xGoals": float(g.get("xGoals") or 0), "goals": float(g.get("goals") or 0)})
         return name, rows
-    with ThreadPoolExecutor(6) as ex:
-        for name, rows in ex.map(goalie, goalies):
-            if rows:
-                gg.setdefault(name, []).extend(rows)
-    json.dump(gg, open(os.path.join(d, "goalie_games_all.json"), "w"), separators=(",", ":"))
+    for x in goalies:
+        if x[0] in seen or out.get("throttled") or time.time() > t_end:
+            continue
+        try:
+            name, rows = goalie(x)
+        except Exception:
+            out["throttled"] = True
+            break
+        if rows:
+            gg.setdefault(name, []).extend(rows)
+        seen.add(x[0])
     out["goalies"] = len(gg)
+    gg["_ids"], gg["_day"] = sorted(seen), day
+    json.dump(gg, open(gfn, "w"), separators=(",", ":"))
+    out["goaliesMissing"] = len([x for x in goalies if x[0] not in seen])
     return out
 
 
@@ -353,6 +396,8 @@ def _mp_asof(data_dir, kind, y, situation):
     cut = MP_ASOF.replace("-", "")
     rows = []
     for name, games in _MP_GAMES[key].items():
+        if name.startswith("_"):
+            continue
         gs = [g for g in games if g["s"] == y and g["sit"] == situation and str(g["d"]) < cut]
         if not gs:
             continue
