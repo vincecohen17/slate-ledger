@@ -538,7 +538,7 @@ def build_props(ev, label):
                         gap = abs(l["point"] - main["point"])
                         if d["book"] not in std or gap < std[d["book"]][0]:
                             std[d["book"]] = (gap, id(l))
-            tol = lambda pt: max(1.5, 0.12 * abs(pt or 0))
+            tol = lambda pt: 0.5 if abs(pt or 0) <= 3 else max(1.0, 0.08 * abs(pt))
             for l in plines:
                 # judge every pick'em line and every thin alt line from the main line's sharp fair
                 if mean is not None and l["point"] is not None:
@@ -555,6 +555,9 @@ def build_props(ev, label):
                             continue
                         side = "Over" if po >= 0.5 else "Under"
                         pside = max(po, 1 - po)
+                        if pside > 0.8:
+                            d["alt"] = True         # a lopsided "standard" line is really a discounted/boosted one
+                            continue
                         d["side"], d["p"] = side, _r(pside)
                         d["edge"] = _r(pside - C.DFS_BREAKEVEN)
                 rows.append(l)
