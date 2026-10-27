@@ -436,17 +436,19 @@ def _one_sided_fair(plines, mk, margins):
                 out[id(l)] = (acc / ws, ws)
         return out
     for l in lines:
-        acc = ws = 0.0
+        # median of each book's margin-stripped price: one stale or mismatched book cannot drag the fair around
+        vals = []
         for q in l["quotes"]:
             pe = q["prices"].get("Yes")
             if not pe or q["stale"]:
                 continue
             m = margins.get(q["book"], ONE_SIDED_MARGIN.get(q["kind"], 0.08))
-            w = C.book(q["book"])["weight"] or 0.25
-            acc += w * min(0.99, (1 / pe["dec"]) / (1 + 1.5 * m))
-            ws += w
-        if ws and len([q for q in l["quotes"] if "Yes" in q["prices"]]) >= 2:
-            out[id(l)] = (acc / ws, ws * 0.5)
+            vals.append(min(0.99, (1 / pe["dec"]) / (1 + 1.5 * m)))
+        if len(vals) >= 3:
+            vals.sort()
+            k = len(vals)
+            med = vals[k // 2] if k % 2 else (vals[k // 2 - 1] + vals[k // 2]) / 2
+            out[id(l)] = (med, 0.75 * k)
     return out
 
 
