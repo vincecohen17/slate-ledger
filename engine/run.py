@@ -583,13 +583,31 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
                                   "status": pk.get("status", "pending")}, pk)
     writes.append(("board/status", status))
 
-    batch, n = db.batch(), 0
+    # Spark plan: 20k writes a day. Past 14k, prop docs only for games starting within 2 hours; past 19k, none.
+    day = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
+    used = old.get("_writes", {}) if isinstance(old.get("_writes"), dict) else {}
+    used_today = used.get("n", 0) if used.get("day") == day else 0
+    soon = iso(NOW + timedelta(hours=2))
+    kept = []
     for path, data in writes:
+        if path.startswith("props/") and (used_today + len(kept) > 19000 or (used_today + len(kept) > 14000 and data.get("commence", "") > soon)):
+            new.pop(path, None)         # not written: leave the hash unset so it is written later
+            continue
+        kept.append((path, data))
+    if len(kept) < len(writes):
+        log(f"firestore write budget: deferred {len(writes) - len(kept)} prop docs")
+    writes = kept
+
+    # batches stay well under Firestore's request size limit
+    batch, n, size = db.batch(), 0, 0
+    for path, data in writes:
+        sz = len(data.get("payload", "")) + 500 if isinstance(data, dict) else 500
+        if n and (size + sz > 6_000_000 or n % 400 == 0):
+            batch.commit()
+            batch, size = db.batch(), 0
         batch.set(db.document(path), data)
         n += 1
-        if n % 400 == 0:
-            batch.commit()
-            batch = db.batch()
+        size += sz
     # remove docs for games that ended more than 6 hours ago
     gone_before = iso(NOW - timedelta(hours=6))
     for col in ("games", "props", "matchups"):
@@ -598,6 +616,7 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
             new.pop(f"{col}/{snap.id}", None)
             n += 1
     batch.commit()
+    new["_writes"] = {"day": day, "n": used_today + n}
     with open(hash_file, "w") as f:
         json.dump(new, f)
     return n
