@@ -357,8 +357,49 @@ def _nb_cdf_tail(mean, k, t):
     return max(0.0, min(1.0, 1 - cdf))
 
 
+def _gammainc_upper(a, x):
+    """regularized upper incomplete gamma Q(a, x) (series below a+1, continued fraction above)"""
+    if x <= 0:
+        return 1.0
+    gl = math.lgamma(a)
+    if x < a + 1:
+        term = s_ = 1.0 / a
+        ap = a
+        for _ in range(500):
+            ap += 1
+            term *= x / ap
+            s_ += term
+            if abs(term) < abs(s_) * 1e-12:
+                break
+        return 1 - s_ * math.exp(-x + a * math.log(x) - gl)
+    b_ = x + 1 - a
+    c, d = 1e300, 1 / b_
+    h = d
+    for i in range(1, 500):
+        an = -i * (i - a)
+        b_ += 2
+        d = an * d + b_
+        d = 1e-300 if abs(d) < 1e-300 else d
+        c = b_ + an / c
+        c = 1e-300 if abs(c) < 1e-300 else c
+        d = 1 / d
+        h *= d * c
+        if abs(d * c - 1) < 1e-12:
+            break
+    return math.exp(-x + a * math.log(x) - gl) * h
+
+
+# yardage is right-skewed (a typical receiver game sits well below his average), so a symmetric curve around the mean
+# overstates the over. Gamma with the same mean and sd; passing yards are close to symmetric and stay normal.
+SKEWED_YDS = ("player_reception_yds", "player_rush_yds", "player_rush_reception_yds")
+
+
 def p_over(market, mean, line, sport=""):
     """Fair P(over) at `line`, pushes removed on whole-number lines."""
+    if market in SKEWED_YDS and mean > 0:
+        sd = _sd_normal(market, mean)
+        shape, scale = (mean / sd) ** 2, sd * sd / mean
+        return _gammainc_upper(shape, max(line, 0) / scale)
     if _is_normal(market):
         return 1 - _phi((line - mean) / _sd_normal(market, mean))
     k = DISPERSION.get(sport, {}).get(market, 1.3)

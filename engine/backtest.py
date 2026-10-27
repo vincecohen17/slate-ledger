@@ -7,6 +7,7 @@ For every game in history/ (closing sharp fairs from The Odds API):
   * rows go to track/graded/bt_<sport>.jsonl, which the tracker fits (calibration a, b and model trust w per market),
     and calib/backtest.json summarizes how the model did against the close.
 """
+import gzip
 import json
 import math
 import os
@@ -229,7 +230,7 @@ def _game_rows(sport, model, hg, eg, day, data_dir, lg):
                 else:
                     y = float(v > r["point"])
                 out.append({"d": day, "g": T.group(sport, "prop", d["market"]), "p": mdl[side], "f": r["fair"][side], "y": y, "src": "bt",
-                            "main": bool(r.get("main"))})
+                            "main": bool(r.get("main")), "mu": mdl.get("mean"), "v": v, "pt": r.get("point")})
     return out
 
 
@@ -269,7 +270,10 @@ def main(data_dir):
         except Exception as e:
             print(f"backtest {sport} failed: {type(e).__name__}: {str(e)[:120]}")
             continue
-        with open(os.path.join(data_dir, "track", "graded", f"bt_{sport}.jsonl"), "w") as f:
+        old = os.path.join(data_dir, "track", "graded", f"bt_{sport}.jsonl")
+        if os.path.exists(old):
+            os.remove(old)
+        with gzip.open(old + ".gz", "wt") as f:
             for r in rows:
                 f.write(json.dumps(r, separators=(",", ":")) + "\n")
         allrows += [dict(r, sport=sport) for r in rows]

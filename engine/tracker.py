@@ -14,6 +14,7 @@ Files in the data repo:
   calib/params.json             fitted a, b, w per group (plus pooled fallbacks)
 """
 import glob
+import gzip
 import json
 import math
 import os
@@ -316,12 +317,26 @@ def _fit_ab(xs, ys, lam=20.0):
     return a, max(0.2, min(1.5, b))
 
 
-def fit(data_dir):
+def fit(data_dir, force=False):
+    """refits only when the graded files changed (the backtest files are large); otherwise returns the saved fit"""
+    files = sorted(glob.glob(os.path.join(data_dir, "track", "graded", "*.jsonl")) + glob.glob(os.path.join(data_dir, "track", "graded", "*.jsonl.gz")))
+    sig = [[os.path.basename(f), os.path.getsize(f)] for f in files]
+    sp = os.path.join(data_dir, "calib", "fit_sig.json")
+    if not force and ST.load_json(data_dir, "calib/fit_sig.json") == sig:
+        params, report = load_params(data_dir), ST.load_json(data_dir, "calib/report.json")
+        if params and report is not None:
+            return params, report
+    params, report = _fit(data_dir, files)
+    json.dump(sig, open(sp, "w"))
+    return params, report
+
+
+def _fit(data_dir, files):
     rows = []
-    for fn in glob.glob(os.path.join(data_dir, "track", "graded", "*.jsonl")):
-        sport = os.path.basename(fn)[:-6]
-        sport = sport[3:] if sport.startswith("bt_") else sport      # backtest rows
-        for line in open(fn):
+    for fn in files:
+        sport = os.path.basename(fn).split(".")[0]
+        sport = sport[3:] if sport.startswith("bt_") else sport      # backtest rows (gzipped)
+        for line in (gzip.open(fn, "rt") if fn.endswith(".gz") else open(fn)):
             try:
                 r = json.loads(line)
                 r["sport"] = sport

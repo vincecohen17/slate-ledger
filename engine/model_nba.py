@@ -66,6 +66,7 @@ class NBA:
     min_override = {}           # {normalized name: minutes} from verified news
     GAME_MIN, OT_MIN, HCA, SD_MARGIN, SD_TOTAL = 48, 5, HCA, SD_MARGIN, SD_TOTAL
     K_TEAM, MAX_MIN, ROT_MIN, LG_GAMES = K_TEAM, 42.0, 10, 150
+    INJ_PTS = 0.07              # share of an out player's points the team loses (fit by backtest)
 
     def __init__(self, cur_games, prior_games, injuries, today):
         self.today = today
@@ -279,7 +280,8 @@ class NBA:
                 if q.get("team") == abbr and q["g"] >= 10:
                     latest[pid] = {"name": q["name"], "pos": q["pos"]}
         st = self.status_map(abbr)
-        team_games = sum(1 for g in self.cur if abbr in (g["home"]["abbr"], g["away"]["abbr"]))
+        tg = [g["date"][:10] for g in self.cur if abbr in (g["home"]["abbr"], g["away"]["abbr"])]
+        team_games, recent = len(tg), set(tg[-5:])
         players = []
         for pid, last in latest.items():
             inj = st.get(pid) or st.get("name:" + last["name"])
@@ -287,26 +289,43 @@ class NBA:
             m = self.proj_minutes(pid)
             gp = len(self.logs.get(pid, []))
             out = status in ("Out", "Doubtful", "Suspension") or (inj and "out" in status.lower())
+            # share of the team's last 5 games he played: a player already missing for a while has had his minutes
+            # absorbed in everyone else's recent minutes, so his absence frees (and costs) little more
+            rshare = sum(1 for r in self.logs.get(pid, []) if r["date"] in recent and r["min"] > 0) / max(1, len(recent))
             players.append({"id": pid, "name": last["name"], "pos": last.get("pos"), "status": status,
                             "starter": bool(last.get("starter")),
                             "note": (inj or {}).get("note"), "baseMin": round(m, 1), "out": bool(out),
-                            "gp": gp, "teamGames": team_games})
-        # redistribute minutes of players who are out (only if they have been playing)
-        freed = sum(p["baseMin"] for p in players if p["out"] and p["gp"] >= max(1, team_games // 2))
+                            "gp": gp, "teamGames": team_games, "recentShare": round(rshare, 2)})
+        # redistribute minutes of players who are out, in proportion to how much they had been playing lately
+        freed = sum(p["baseMin"] * p["recentShare"] for p in players if p["out"])
         rot = [p for p in players if not p["out"] and p["baseMin"] >= self.ROT_MIN]
         tot = sum(p["baseMin"] for p in rot) or 1
         for p in players:
             if p["out"]:
                 p["projMin"] = 0.0
             elif p in rot:
-                p["projMin"] = round(min(self.MAX_MIN, p["baseMin"] + freed * p["baseMin"] / tot), 1)
+                p["projMin"] = min(self.MAX_MIN, p["baseMin"] + freed * p["baseMin"] / tot)
             else:
-                p["projMin"] = p["baseMin"]
-            if p["status"] == "Questionable":
-                p["projMin"] = round(p["projMin"] * 0.8, 1)
-            cap = self.min_override.get(_nm(p["name"]))
-            if cap is not None and not p["out"]:
-                p["projMin"] = round(float(cap), 1)       # verified minutes (restriction or bigger role)
+                # out of the rotation lately: minutes from recent games only
+                p["projMin"] = p["baseMin"] * p["recentShare"]
+        # a team plays 240 minutes (200 in the WNBA): scale the available players to that, keeping verified minutes fixed
+        fixed = {id(p): float(self.min_override[_nm(p["name"])]) for p in players
+                 if not p["out"] and self.min_override.get(_nm(p["name"])) is not None}
+        target = self.GAME_MIN * 5 - sum(fixed.values())
+        for _ in range(3):
+            free = [p for p in players if not p["out"] and id(p) not in fixed and p["projMin"] > 0]
+            have = sum(p["projMin"] for p in free)
+            if have <= 0:
+                break
+            k = target / have
+            for p in free:
+                p["projMin"] = min(self.MAX_MIN, p["projMin"] * k)
+        for p in players:
+            if id(p) in fixed:
+                p["projMin"] = fixed[id(p)]       # verified minutes (restriction or bigger role)
+            elif p["status"] == "Questionable":
+                p["projMin"] *= 0.8
+            p["projMin"] = round(p["projMin"], 1)
         players.sort(key=lambda p: -p["projMin"])
         return players, freed
 
@@ -351,9 +370,11 @@ class NBA:
                     pa -= 1.2
         # injuries: points of out players not yet reflected in ratings (they played most games)
         for side in ("home", "away"):
-            lost = sum(self.rates(p["id"], p["pos"])["pts"] * p["baseMin"]
-                       for p in sides[side]["players"] if p["out"] and p["gp"] >= max(1, p["teamGames"] // 2))
-            adj = 0.3 * lost
+            # only a new absence costs points: a player already missing lately is reflected in the team's recent form and
+            # the minutes have gone to others; weighted by his share of the season (how much the ratings contain him)
+            lost = sum(self.rates(p["id"], p["pos"])["pts"] * p["baseMin"] * min(1.0, p["gp"] / max(1, p["teamGames"])) * p["recentShare"]
+                       for p in sides[side]["players"] if p["out"])
+            adj = self.INJ_PTS * lost
             if side == "home":
                 ph -= adj
             else:

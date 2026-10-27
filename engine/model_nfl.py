@@ -25,6 +25,7 @@ MARKETS = {"player_pass_yds": ["pass_yds"], "player_pass_attempts": ["att"], "pl
            "player_anytime_td": ["td"], "player_tds_over": ["td"], "player_rush_reception_tds": ["td"],
            "player_reception_tds": ["rectd"], "player_rush_tds": ["rushtd"],
            "player_pass_rush_reception_yds": ["pass_yds", "rush_yds", "rec_yds"]}
+ATT_PER_DROPBACK, CAR_PER_RUSH, TGT_PER_ATT = 0.878, 1.12, 0.953      # measured on 2025 nflverse weekly data
 LABEL = {"pass_yds": "PYD", "rush_yds": "RYD", "rec": "REC", "rec_yds": "RECYD", "td": "TD", "att": "ATT", "car": "CAR"}
 
 
@@ -159,6 +160,15 @@ class NFL:
             t["targets"] += _f(r, "targets"); t["carries"] += _f(r, "carries"); t["att"] += _f(r, "attempts")
         self.lg = {"ypt": 7.6, "catch": 0.65, "ypc": 4.3, "ypa": 6.8, "cmp": 0.645, "ptd": 0.045, "int": 0.022,
                    "rectd": 0.045, "rushtd": 0.03}
+        # league rates from the data (what each player's own rate shrinks toward)
+        rows = self.cur_p + self.pri_p
+        S_ = lambda k: sum(_f(r, k) for r in rows)
+        if S_("attempts") > 2000 and S_("targets") > 2000 and S_("carries") > 2000:
+            self.lg.update(ypa=S_("passing_yards") / S_("attempts"), cmp=S_("completions") / S_("attempts"),
+                           ptd=S_("passing_tds") / S_("attempts"), int=S_("passing_interceptions") / S_("attempts"),
+                           ypt=S_("receiving_yards") / S_("targets"), catch=S_("receptions") / S_("targets"),
+                           rectd=S_("receiving_tds") / S_("targets"), ypc=S_("rushing_yards") / S_("carries"),
+                           rushtd=S_("rushing_tds") / S_("carries"))
 
     def _player_rates(self, rows):
         """recent-weighted shares and per-opportunity rates for one player (current team only)."""
@@ -210,15 +220,15 @@ class NFL:
             st = (inj or {}).get("status") or "Active"
             pr.update(status=st, note=(inj or {}).get("note"), out=st in ("Out", "Doubtful", "Injured Reserve") or "reserve" in st.lower())
             out.append(pr)
-        # redistribute shares of players who are out within their position group
+        # Shares come from the weeks each player played, so they overlap (a returning starter and his fill-in both hold
+        # the role) and an out player's share is already in his teammates' recent numbers. Scale the available players
+        # so the team's targets and carries add up to the whole (2% left for players we don't list).
         for key in ("tgtShare", "carShare"):
-            for grp in (("WR", "TE"), ("RB", "FB"), ("QB",)):
-                ps = [p for p in out if p["pos"] in grp]
-                lost = sum(p[key] for p in ps if p["out"])
-                live = [p for p in ps if not p["out"]]
-                tot = sum(p[key] for p in live) or 1
+            live = [p for p in out if not p["out"]]
+            tot = sum(p[key] for p in live)
+            if tot > 0:
                 for p in live:
-                    p[key] += lost * p[key] / tot
+                    p[key] *= 0.98 / tot
         qb = max([p for p in out if p["pos"] == "QB" and not p["out"]], key=lambda p: p["attShare"], default=None)
         for p in out:
             p["attShare"] = 1.0 if p is qb else 0.0
@@ -236,13 +246,14 @@ class NFL:
         margin = ph - pa
         sides = {}
         for side, team, me, op, m in (("home", home, th, ta, margin), ("away", away, ta, th, -margin)):
-            att = me["plays"] * me["passRate"] * (1 - 0.008 * m)          # trailing teams throw more
-            car = me["plays"] * (1 - me["passRate"]) * (1 + 0.012 * m)
+            # dropbacks include sacks and scrambles: 88% become pass attempts (2025 nflverse); scrambles add QB carries
+            att = me["plays"] * me["passRate"] * ATT_PER_DROPBACK * (1 - 0.008 * m)          # trailing teams throw more
+            car = me["plays"] * (1 - me["passRate"]) * CAR_PER_RUSH * (1 + 0.012 * m)
             pf = min(1.15, max(0.85, math.exp(1.5 * op["dPass"])))
             rf = min(1.15, max(0.85, math.exp(1.5 * op["dRush"])))
             players = []
             for p in self.roster(team):
-                tg, cr = att * p["tgtShare"], car * p["carShare"]
+                tg, cr = att * TGT_PER_ATT * p["tgtShare"], car * p["carShare"]
                 proj = {"targets": tg, "rec": tg * p["catch"], "rec_yds": tg * p["ypt"] * pf, "car": cr, "rush_yds": cr * p["ypc"] * rf}
                 if p["attShare"]:
                     proj.update(att=att, cmp=att * p["cmp"], pass_yds=att * p["ypa"] * pf, ptd=att * p["ptd"] * pf, int=att * p["int"])
