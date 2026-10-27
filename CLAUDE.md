@@ -6,6 +6,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - `engine/` Python. `run.py` pulls The Odds API, `build.py` computes sharp no-vig fair per line/prop,
   all-in venue costs (Kalshi/Polymarket fees), edges, stale flags, pick'em line judgments.
   `config.py` holds sports, markets, book weights, venues, budgets. Tests: `python engine/tests/test_build.py`.
+- Models: `model_nba.py`, `model_nhl.py` (MoneyPuck + goalie GSAx), `model_nfl.py` (nflverse EPA + player shares),
+  `model_cfb.py` (opponent-adjusted ridge ratings), `model_extra.py` (soccer Poisson, tennis Elo, MLB starters).
+  `matchup.py` builds matchup docs, stamps model probabilities on lines/props, calibrates prop levels to market,
+  and builds projected lineups. `stats.py` collects ESPN box scores/injuries, MoneyPuck, nflverse, MLB StatsAPI, ESPN tennis.
+- `run.py` modes: auto (every 5 min, app-driven: presence/owner heartbeat from the site, staleness tiers, close
+  capture on the paid plan; config.PLAN = free|5m), mock, rebuild (raw cache in latest/raw), stats, probe.
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,

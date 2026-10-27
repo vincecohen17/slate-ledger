@@ -406,7 +406,15 @@ def load_tennis(data_dir):
                     rows += json.load(open(os.path.join(p, f)))
                 except Exception:
                     pass
-    return rows
+    # a tournament scoreboard repeats finished matches on later days: keep each match once, at its first date
+    rows.sort(key=lambda r: r["date"])
+    seen, out = set(), []
+    for r in rows:
+        k = (r.get("event"), r["winner_name"], r["loser_name"])
+        if k not in seen:
+            seen.add(k)
+            out.append(r)
+    return out
 
 
 # ---------------------------------------------------------------------------
