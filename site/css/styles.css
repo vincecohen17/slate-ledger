@@ -454,3 +454,4 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .fpl { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); min-width: 0; }
 .fbox td.b { font-weight: 700; } .fbox tr.tot td { border-top: 1px solid var(--line); font-weight: 600; }
 .fbox td:first-child { white-space: nowrap; }
+.pr-sug { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; } .pr-sug li { display: list-item; } .pr-sug li > b { float: right; margin-left: 8px; }

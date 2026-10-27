@@ -67,9 +67,14 @@ function form(p) {
   const tgt = F.has("target") ? findTarget(p.target) : null;
   const preview = (() => {
     try {
-      const o = optimize({ ...p, id: "draft" }, 1)[0];
-      if (!o) return `<span class="muted">Nothing on the board fits yet</span>`;
-      return `Worth about <b class="${o.ev >= 0 ? "pos" : "neg"}">${money(o.ev)}</b> · best: ${esc(o.legs.map((c) => c.leg.label).join(" + ").slice(0, 120))}`;
+      const opts = optimize({ ...p, id: "draft" }, 3);
+      if (!opts.length) return `<span class="muted">Nothing on the board fits yet</span>`;
+      const tg = kind.key === "discounted_line" ? findTarget(p.target) : null;
+      const same = tg && p.promoLine != null && +p.promoLine === +tg.point;
+      return `${same ? `<div class="tiny neg" style="margin-bottom:6px">The promo line is the same as the regular line (${tg.point}). Type the discounted number the app shows.</div>` : ""}
+        <div>Worth about <b class="${opts[0].ev >= 0 ? "pos" : "neg"}">${money(opts[0].ev)}</b>. Suggested plays:</div>
+        <ol class="pr-sug">${opts.map((o) => `<li><span class="grow">${esc(o.legs.map((c) => `${c.leg.label} (${prob(c.P)})`).join(" + "))}</span>
+          <b class="${o.ev >= 0 ? "pos" : "neg"}">${money(o.ev)}</b></li>`).join("")}</ol>`;
     } catch (e) { return ""; }
   })();
   return `<div class="card col pr-form" style="gap:12px;margin-top:12px">
