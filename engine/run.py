@@ -687,6 +687,24 @@ def run_stats(backfill=False):
         log(f"moneypuck games failed: {type(e).__name__}")
 
 
+def _backtest_summary():
+    """historical backfill progress (history/state.json) and walk-forward results (calib/backtest.json) for the Reports page"""
+    out = {}
+    try:
+        st = json.load(open(os.path.join(DATA_DIR, "history", "state.json")))
+        import history
+        out["history"] = {"games": st.get("games", 0), "spent": st.get("spent", 0), "budget": history.BUDGET, "complete": st.get("complete"),
+                          "at": st.get("at"), "days": {k: len(v) for k, v in st.get("done", {}).items()}}
+    except Exception:
+        pass
+    try:
+        bt = json.load(open(os.path.join(DATA_DIR, "calib", "backtest.json")))
+        out.update(at=bt.get("at"), rows=bt.get("rows"), markets=bt.get("markets", [])[:60])
+    except Exception:
+        pass
+    return out
+
+
 def load_picks(days=14):
     """Claude's picks live in the data repo as picks/<YYYY-MM-DD>.json (a list)."""
     import glob
@@ -771,6 +789,7 @@ def publish(game_docs, prop_docs, status, stamp):
     if isinstance(rep, dict):
         rep["models"] = [r for r in card if r.get("llModel") is not None][:80]
         rep["modelsPending"] = [r for r in card if r.get("llModel") is None][:80]
+        rep["backtest"] = _backtest_summary()
     picks = load_picks()
     previews = load_previews()
     write_data_repo(game_docs, prop_docs, edge_list, status)

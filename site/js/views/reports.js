@@ -35,6 +35,32 @@ function modelCard(R) {
       <td class="num">${r.b.toFixed(2)}</td><td class="num">${Math.round(r.w * 100)}%</td></tr>`).join("")}</tbody></table></div></div>`;
 }
 
+// walk-forward backtests: the model rebuilt each morning from data before that day, scored against the closing sharp fair
+const SPORTN = { basketball_nba: "NBA", icehockey_nhl: "NHL", americanfootball_nfl: "NFL", americanfootball_ncaaf: "NCAAF", baseball_mlb: "MLB" };
+function backtestCard(B) {
+  const h = B?.history;
+  const prog = h ? `<div class="card"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px"><b>Historical odds collected</b>
+      <span class="tiny muted">${h.complete ? "done" : "still collecting"}${h.at ? ` · ${ago(h.at)}` : ""}</span></div>
+      <div class="kpis" style="margin-top:8px"><div class="kpi"><div class="k">Games</div><div class="v">${(h.games || 0).toLocaleString()}</div><div class="s">closing lines + main props</div></div>
+      <div class="kpi"><div class="k">Credits used</div><div class="v">${Math.round((h.spent || 0) / 1000)}k</div><div class="s">of ${Math.round(h.budget / 1000)}k set aside</div></div></div>
+      <div class="bt-prog"><i style="width:${Math.min(100, (h.spent || 0) / h.budget * 100).toFixed(1)}%"></i></div>
+      <div class="tiny muted" style="margin-top:6px">${Object.entries(h.days || {}).map(([k, n]) => { const [sp, se] = k.split("|"); return `${SPORTN[sp] || sp} ${esc(se)}: ${n} days`; }).join(" · ")}</div></div>`
+    : `<div class="card note">Historical odds collection hasn't started yet.</div>`;
+  const ms = (B?.markets || []).filter((m) => m.n >= 30);
+  if (!ms.length) return prog + `<div class="card note" style="margin-top:10px">Results show here after the first backtest run over the collected games.</div>`;
+  const name = (g) => { const [sp, kind, mk] = g.split("|"); return `${SPORTN[sp] || sp} ${kind === "prop" ? mk.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " ") : mk.replace(/_/g, " ")}`; };
+  const maxR = Math.max(0.05, ...ms.map((m) => Math.abs(m.roiAtClose || 0)));
+  return prog + `<div class="card" style="margin-top:10px"><b>Model vs the closing line</b>
+    <p class="note">Each row replays every collected game: the model is rebuilt from data before that morning, then scored against the closing sharp fair and the result.
+      <b>Skill</b> is how much better (green) or worse than the closing market the model's log loss was. <b>Bets</b> takes the side the model likes by 4+ points at the closing fair; beating the close there is very hard, so a green bar is a strong sign.</p>
+    <div style="overflow-x:auto"><table class="l10t bt-t" style="width:100%"><thead><tr><th style="text-align:left">Market</th><th>Games</th><th>Skill</th><th>Bets</th><th>Won / expected</th><th style="min-width:140px">Return at close</th></tr></thead><tbody>
+    ${ms.map((m) => { const sk = (m.llMarket - m.llModel) / m.llMarket; const r = m.roiAtClose;
+      return `<tr><td style="text-align:left">${esc(name(m.group))}</td><td class="num">${m.n}</td><td class="num ${sk > 0 ? "pos" : "neg"}">${sk > 0 ? "+" : ""}${(sk * 100).toFixed(1)}%</td>
+        <td class="num">${m.bets}</td><td class="num">${m.won} / ${m.expected}</td>
+        <td>${r == null ? "–" : `<div class="bt-roi"><span class="bt-mid"></span><i class="${r > 0 ? "pos" : "neg"}" style="${r > 0 ? "left:50%" : `right:50%`};width:${(Math.abs(r) / maxR * 50).toFixed(1)}%"></i></div><span class="num tiny ${r > 0 ? "pos" : "neg"}">${r > 0 ? "+" : ""}${(r * 100).toFixed(1)}%</span>`}</td></tr>`; }).join("")}
+    </tbody></table></div><div class="tiny muted" style="margin-top:6px">${B.rows?.toLocaleString() || 0} graded results · run ${B.at ? ago(B.at) : ""}. These results also feed the model report card above.</div></div>`;
+}
+
 export function renderReports(el) {
   const R = S.reports, st = S.status;
   const rows = R ? (span === "now" ? R.now : R.total) || [] : [];
@@ -62,13 +88,7 @@ export function renderReports(el) {
     <div class="sec-title">Model report card<span class="line"></span></div>
     ${modelCard(R)}
     <div class="sec-title">Backtests<span class="line"></span></div>
-    <div class="grid">
-      ${[["Sharp-gap bets", "Bet any venue price 2, 3 or 5 points off Pinnacle's no-vig fair. Did it beat the close, and did it win?"],
-         ["Pick'em lines vs books", "Take pick'em sides where the sportsbook line has moved past the app's line. Hit rate vs the 57.7% break-even."],
-         ["Prop projections", "Rebuild projections with only pre-game data. Calibration and closing line value by stat."],
-         ["Promo strategies", "Which bets get the most value from each boost type, using past prices."]]
-        .map(([t, d]) => `<div class="card"><b>${t}</b><p class="note">${d}</p><span class="pill">unlocks with historical odds (paid plan)</span></div>`).join("")}
-    </div>`;
+    ${backtestCard(R?.backtest)}`;
   $$("[data-span]", el).forEach((b) => b.onclick = () => { span = b.dataset.span; renderReports(el); });
   $$("[data-book]", el).forEach((b) => b.onclick = () => { focus = focus === b.dataset.book ? null : b.dataset.book; renderReports(el); });
   bindTips(el);
