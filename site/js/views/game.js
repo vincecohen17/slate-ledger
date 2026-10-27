@@ -1,5 +1,5 @@
 import { S, loadProps, propsFor } from "../store.js";
-import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wpBar, signPt, mktName, edgeCls, bindTips, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wpBar, signPt, mktName, edgeCls, bindTips, spark, hitRate, both, $$ } from "../util.js";
 import { edgeCard, ladder, bindLog } from "./common.js";
 import { pickCard } from "./picks.js";
 import { renderMatchup } from "./matchup.js";
@@ -81,9 +81,10 @@ function propCard(player, rows, market) {
       ${po != null && pu != null ? `<div class="ou"><i style="width:${po * 100}%"></i><i style="width:${pu * 100}%"></i></div>
       <div class="pl-b tiny muted"><span>Over ${prob(po)}</span><span>Under ${prob(pu)}</span></div>` : po != null ? `<div class="tiny muted">Yes ${prob(po)}</div>` : ""}
       <div class="pl-b" style="margin-top:4px">
-        <span class="mini ${edgeCls(bo?.edge)}">O ${bo ? `${am(bo.am)} <span class="tiny">${esc(bo.name)} ${pct(bo.edge)}</span>` : "–"}</span>
-        <span class="mini ${edgeCls(bu?.edge)}">U ${bu ? `${am(bu.am)} <span class="tiny">${esc(bu.name)} ${pct(bu.edge)}</span>` : "–"}</span>
-      </div>${pk ? `<div class="row" style="flex-wrap:wrap;gap:4px;margin-top:6px">${pk}</div>` : ""}</div>`;
+        <span class="mini ${edgeCls(bo?.edge)}">O ${bo ? `${both(bo.am)} <span class="tiny">${esc(bo.name)} ${pct(bo.edge)}</span>` : "–"}</span>
+        <span class="mini ${edgeCls(bu?.edge)}">U ${bu ? `${both(bu.am)} <span class="tiny">${esc(bu.name)} ${pct(bu.edge)}</span>` : "–"}</span>
+      </div>
+      ${r.last10?.length ? `<div class="l10" style="margin-top:6px">${spark(r.last10, r.point)}<span>last ${r.last10.length}: ${hitRate(r.last10, r.point)} · avg ${(r.last10.reduce((a, b) => a + b, 0) / r.last10.length).toFixed(1)}</span></div>` : ""}${pk ? `<div class="row" style="flex-wrap:wrap;gap:4px;margin-top:6px">${pk}</div>` : ""}</div>`;
   };
   return `<div class="card pc"><div class="pc-top">${headshot(main, 54)}<div class="col"><b>${esc(player)}</b><span class="tiny muted">${esc(info || mktName(market))}</span></div></div>
     <div class="pc-lines">${shown.map(lineHtml).join("")}</div></div>`;

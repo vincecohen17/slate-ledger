@@ -1,5 +1,5 @@
 import { S, saveBet } from "../store.js";
-import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, todayPT, $ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, todayPT, both, bothP, spark, hitRate, $ } from "../util.js";
 import { VENUES } from "../lab.js";
 
 // image for a bet: player headshot for props, team logo for team sides, league logo otherwise
@@ -21,11 +21,12 @@ export function edgeCard(e) {
       ${betImage(e)}
       <div class="col"><a class="what" href="${href}" style="text-decoration:none">${esc(e.label)}</a>
         <span class="sub ellip">${esc(e.matchup)} · ${fmtTime(e.commence)}</span></div>
-      <div class="price"><div class="big">${e.pickem ? "pick'em" : am(e.am)}</div><div class="tiny muted">${esc(e.bookName)}</div></div>
+      <div class="price"><div class="big">${e.pickem ? "pick'em" : am(e.am)}</div><div class="tiny muted">${e.pickem ? "" : prob(1 / decFromAm(e.am), 1) + " · "}${esc(e.bookName)}</div></div>
     </div>
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
-        <span class="tiny muted">fair ${e.fairAm != null ? am(e.fairAm) : prob(e.fair, 1)} · <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill">alt line</span>` : ""}</span>
+        <span class="tiny muted">fair ${bothP(e.fair)} · edge <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill">alt line</span>` : ""}</span>
+        ${e.last10?.length ? `<span class="l10">${spark(e.last10, e.point, { side: (e.label.match(/ (Over|Under) /) || [])[1] })}<span>last ${e.last10.length}: ${hitRate(e.last10, e.point, (e.label.match(/ (Over|Under) /) || [])[1])}</span></span>` : ""}
         ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model: ${prob(e.modelP, 1)}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · ${prob(e.modelP)}</span>` : ""}</div>
       <button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair }))}'>Log</button>
     </div>

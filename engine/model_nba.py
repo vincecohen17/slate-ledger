@@ -321,7 +321,7 @@ class NBA:
                 proj = {k: round(r[k] * p["projMin"] * (of.get(k, 1.0) ** 0.6) * pf, 2) for k in r}
                 logs = self.logs.get(p["id"], [])[-10:]
                 teamp.append({**p, "proj": proj,
-                              "last10": {k: [round(x[k], 1) for x in logs] for k in ("pts", "reb", "ast", "fg3", "min")}})
+                              "last10": {k: [round(x[k], 1) for x in logs] for k in ("pts", "reb", "ast", "fg3", "stl", "blk", "tov", "min")}})
             sides[side] = {"players": teamp, "freedMin": round(freed, 1)}
         # expected points
         ph = self.lg_ppg * th["relO"] * ta["relD"] * pace_rel + HCA / 2

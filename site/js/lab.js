@@ -61,7 +61,8 @@ export function catalog() {
       for (const o of Object.keys(r.fair)) {
         const label = `${r.player} ${o} ${r.point ?? ""} ${mktName(p.market)}`.replace(/\s+/g, " ");
         const leg = mkLeg(g || p, matchup, r, o, label, { kind: "prop", market: p.market, player: r.player,
-          ou: o === "Over" || o === "Yes" ? 1 : -1, pside: sideOfPlayer(r, g), main: !!r.isMain, headshot: r.headshot, model: !!r.modelFair });
+          ou: o === "Over" || o === "Yes" ? 1 : -1, pside: sideOfPlayer(r, g), main: !!r.isMain, headshot: r.headshot, model: !!r.modelFair,
+          last10: r.last10, ourModel: r.model?.[o] ?? null });
         legs.push(leg);
         for (const d of r.dfs || []) {
           if (d.side === o && d.p != null) legs.push({ ...leg, key: leg.key + "|" + d.book, pickem: d.book, pickemName: d.name, label: `${label} (${d.name})` });

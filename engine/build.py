@@ -418,7 +418,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
             n0 = len(out)
             scan(p, l, lambda o, l=l, p=p: f"{l['player']} {o} {l['point']} {p['market'].replace('player_', '').replace('_', ' ')}")
             for x in out[n0:]:
-                x["player"], x["headshot"] = l["player"], l.get("headshot")
+                x["player"], x["headshot"], x["last10"], x["point"] = l["player"], l.get("headshot"), l.get("last10"), l.get("point")
             for d in l.get("dfs", []):
                 if d.get("edge") is not None and d["edge"] >= 0.02:
                     mp = (l.get("model") or {}).get(d["side"])
@@ -428,7 +428,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "matchup": f"{p['away']} @ {p['home']}", "market": p["market"],
                         "label": f"{l['player']} {d['side']} {d['point']} {p['market'].replace('player_', '').replace('_', ' ')}",
                         "book": d["book"], "bookName": d["name"], "am": None, "pickem": True,
-                        "player": l["player"], "headshot": l.get("headshot"),
+                        "player": l["player"], "headshot": l.get("headshot"), "last10": l.get("last10"), "point": d["point"],
                         "fair": d["p"], "edge": d["edge"], "fairWeight": l.get("fairWeight"),
                     })
     # rank: model-derived fairs (alt lines, pick'em lines) count half until backtests earn them more trust

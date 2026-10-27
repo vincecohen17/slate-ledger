@@ -1,5 +1,5 @@
 import { S, loadAllProps } from "../store.js";
-import { esc, am, pct, prob, fmtTime, amFromDec, decFromAm, amFromProb, $, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, amFromDec, decFromAm, amFromProb, both, bothP, spark, hitRate, $, $$ } from "../util.js";
 import { catalog, parlay, priceAt, evPerDollar } from "../lab.js";
 import { betImage, logSheet } from "./common.js";
 
@@ -37,8 +37,8 @@ function result() {
   const pairs = r.pairs.map((p) => `<span class="pill ${p.r > 0 ? "pos" : "neg"}" title="estimated correlation">${esc(legs[p.i].label.slice(0, 22))} ↔ ${esc(legs[p.j].label.slice(0, 22))} ${p.r > 0 ? "+" : ""}${p.r.toFixed(2)}</span>`).join("");
   return `<div class="big-out">
       <div class="kpi"><div class="k">Fair chance</div><div class="v">${prob(r.joint, 1)}</div><div class="s">${r.pairs.length ? `independent ${prob(r.indep, 1)}` : "legs independent"}</div></div>
-      <div class="kpi"><div class="k">Fair odds</div><div class="v">${am(amFromProb(r.joint))}</div><div class="s">break-even price</div></div>
-      <div class="kpi"><div class="k">Your price</div><div class="v">${dec ? am(amFromDec(dec)) : "–"}</div><div class="s">${!isNaN(custom) ? "entered" : "legs multiplied"}${L.boost ? ` · +${L.boost}% boost` : ""}</div></div>
+      <div class="kpi"><div class="k">Fair odds</div><div class="v">${am(amFromProb(r.joint))}</div><div class="s">break-even · ${prob(r.joint, 1)}</div></div>
+      <div class="kpi"><div class="k">Your price</div><div class="v">${dec ? am(amFromDec(dec)) : "–"}</div><div class="s">${dec ? prob(1 / dec, 1) + " implied · " : ""}${!isNaN(custom) ? "entered" : "legs multiplied"}${L.boost ? ` · +${L.boost}% boost` : ""}</div></div>
       <div class="kpi"><div class="k">EV</div><div class="v ${ev > 0 ? "pos" : ev < 0 ? "neg" : ""}">${ev != null ? pct(ev) : "–"}</div><div class="s">${ev != null ? `${ev >= 0 ? "+" : ""}$${(ev * L.stake).toFixed(2)} on $${L.stake}` : ""}</div></div>
       <div class="kpi"><div class="k">Kelly ¼</div><div class="v">$${(kelly / 4 * bankroll).toFixed(0)}</div><div class="s">of $${bankroll} bankroll</div></div>
     </div>
@@ -71,7 +71,7 @@ export function renderLab(el) {
       <div class="tiny muted" style="margin-top:8px">${L.q ? `${res.length} matches` : "Best values right now"} · tap to add</div>
       <div class="results">${res.map((l) => `<button class="res" data-add="${esc(l.key)}">${betImage({ gameId: l.gameId, label: l.label, player: l.player, headshot: l.headshot, league: l.league }, 30)}
         <span class="col"><span class="ellip" style="font-weight:500">${esc(l.label)}</span><span class="tiny muted ellip">${esc(l.matchup)} · ${fmtTime(l.commence)}${l.model ? " · model fair" : ""}</span></span>
-        <span class="col" style="align-items:flex-end"><span class="num">${l.pickem ? "pick'em" : am(l.best?.am)}</span><span class="tiny ${l.best?.edge > 0.005 ? "pos" : "muted"}">fair ${prob(l.fair)}</span></span></button>`).join("")}</div>
+        <span class="col" style="align-items:flex-end"><span class="num small">${l.pickem ? "pick'em" : both(l.best?.am)}</span><span class="tiny ${l.best?.edge > 0.005 ? "pos" : "muted"}">fair ${bothP(l.fair)}</span></span></button>`).join("")}</div>
     </div>
     <div class="card">
       <div class="row" style="justify-content:space-between"><b>Your bet</b><span class="tiny muted">${L.legs.length} leg${L.legs.length === 1 ? "" : "s"} · up to 20</span></div>
@@ -79,7 +79,8 @@ export function renderLab(el) {
         const pr = legPrice(x);
         const opts = x.leg.venues.filter((v) => !v.stale).sort((a, b) => a.cost - b.cost);
         return `<div class="leg">${betImage({ gameId: x.leg.gameId, label: x.leg.label, player: x.leg.player, headshot: x.leg.headshot }, 30)}
-          <span class="col"><span class="ellip" style="font-weight:500">${esc(x.leg.label)}</span><span class="tiny muted">fair ${prob(x.leg.fair, 1)} · ${pr ? `${esc(pr.name)} ${am(pr.am)}` : "no price"}</span></span>
+          <span class="col"><span class="ellip" style="font-weight:500">${esc(x.leg.label)}</span><span class="tiny muted">fair ${bothP(x.leg.fair)} · ${pr ? `${esc(pr.name)} ${both(pr.am)}` : "no price"}${x.leg.ourModel != null ? ` · our model ${prob(x.leg.ourModel)}` : ""}</span>
+            ${x.leg.last10?.length ? `<span class="l10">${spark(x.leg.last10, x.leg.point, { side: x.leg.side, w: 70, h: 20 })}${hitRate(x.leg.last10, x.leg.point, x.leg.side)}</span>` : ""}</span>
           <select data-ven="${i}" style="padding:5px 6px;font-size:12px">${opts.map((v) => `<option value="${v.book}" ${v.book === x.venue ? "selected" : ""}>${esc(v.name)} ${am(v.am)}</option>`).join("")}
             <option value="any" ${x.venue === "any" ? "selected" : ""}>best yours</option><option value="custom" ${x.venue === "custom" ? "selected" : ""}>custom…</option></select>
           <button class="x" data-rm="${i}" aria-label="remove">×</button></div>

@@ -92,24 +92,53 @@ class NHL:
             if ab in pk_c:
                 t["pkXga60"] = pk_c[ab]["xga"]
             self.teams[ab] = t
-        for key, asc in (("off", False), ("def", True), ("xgfPct", False), ("ppXgf60", False), ("pkXga60", True)):
+        # ranks on the numbers shown (this season); the model itself uses the blended values
+        for key, asc in (("off", False), ("def", True), ("xgfPct", False), ("xgf60", False), ("xga60", True), ("ppXgf60", False), ("pkXga60", True)):
             ranked = sorted([t for t in self.teams.values() if t.get(key) is not None], key=lambda t: t[key], reverse=not asc)
             for i, t in enumerate(ranked):
                 t.setdefault("rank", {})[key] = i + 1
 
     # ---------------- goalies
     def _goalies(self, d, y):
-        G = defaultdict(lambda: {"gsax": 0.0, "min": 0.0, "name": None, "team": None})
-        for yr, w in ((y, 1.0), (y - 1, 0.5)):
-            for r in ST.read_moneypuck(d, "goalies", yr):
-                g = G[r["name"]]
-                g["gsax"] += (_f(r, "xGoals") - _f(r, "goals")) * w
-                g["min"] += _f(r, "icetime") / 60 * w
-                g["name"] = r["name"]
-                if yr == y:
-                    g["team"] = MP2ESPN.get(r["team"], r["team"])
-        self.goalie = {n: {"name": n, "team": g["team"], "gsax60": g["gsax"] / (g["min"] + 1500) * 60, "min": g["min"]}
-                       for n, g in G.items()}
+        """GSAx (expected goals minus goals allowed) by situation, current season plus half of last
+        season, shrunk toward zero with K minutes so a hot week does not look like a star."""
+        K = {"all": 1500, "5on5": 1200, "4on5": 250}
+        G = {}
+        for sit in ("all", "5on5", "4on5"):
+            acc = defaultdict(lambda: {"gsax": 0.0, "min": 0.0, "team": None})
+            for yr, w in ((y, 1.0), (y - 1, 0.5)):
+                for r in ST.read_moneypuck(d, "goalies", yr, sit):
+                    a = acc[r["name"]]
+                    a["gsax"] += (_f(r, "xGoals") - _f(r, "goals")) * w
+                    a["min"] += _f(r, "icetime") / 60 * w
+                    if yr == y:
+                        a["team"] = MP2ESPN.get(r["team"], r["team"])
+            for n, a in acc.items():
+                g = G.setdefault(n, {"name": n, "team": a["team"]})
+                g[sit] = a["gsax"] / (a["min"] + K[sit]) * 60
+                g[sit + "_min"] = a["min"]
+                g["team"] = g["team"] or a["team"]
+        for g in G.values():
+            g["gsax60"] = g.get("all", 0.0)
+            g["ev60"] = g.get("5on5")
+            g["pk2"] = g["4on5"] * 2 / 60 if g.get("4on5") is not None else None
+        # ranks among goalies with real workload this season or last
+        pool = [g for g in G.values() if g.get("all_min", 0) >= 600]
+        for key, desc in (("ev60", True), ("pk2", True), ("gsax60", True)):
+            ranked = sorted([g for g in pool if g.get(key) is not None], key=lambda g: g[key], reverse=desc)
+            for i, g in enumerate(ranked):
+                g.setdefault("rank", {})[key] = i + 1
+        self.goalie_pool = len(pool)
+        self.goalie = G
+        # per-start logs from box scores
+        self.glogs = defaultdict(list)
+        for gm in self.cur:
+            for p in gm["players"]:
+                if p.get("goalie") and (p.get("timeOnIce") or 0) >= 30:
+                    opp = gm["away"]["abbr"] if p["team"] == gm["home"]["abbr"] else gm["home"]["abbr"]
+                    sa, sv = p.get("shotsAgainst") or 0, p.get("saves") or 0
+                    self.glogs[p["name"]].append({"date": gm["date"][:10], "opp": opp, "sa": sa, "sv": sv,
+                                                  "ga": p.get("goalsAgainst") or 0, "svp": round(sv / sa, 3) if sa else None})
 
     def likely_goalie(self, abbr):
         starts = []
@@ -118,16 +147,19 @@ class NHL:
                 continue
             gs = [p for p in g["players"] if p.get("goalie") and p["team"] == abbr and (p.get("timeOnIce") or 0) >= 30]
             if gs:
-                starts.append(gs[0]["name"])
+                p = gs[0]
+                opp = g["away"]["abbr"] if g["home"]["abbr"] == abbr else g["home"]["abbr"]
+                sa, sv = p.get("shotsAgainst") or 0, p.get("saves") or 0
+                starts.append({"name": p["name"], "date": g["date"][:10], "opp": opp, "sa": sa, "sv": sv,
+                               "ga": p.get("goalsAgainst") or 0, "svp": round(sv / sa, 3) if sa else None})
             if len(starts) >= 5:
                 break
         if not starts:
             return None, []
-        counts = defaultdict(int)
-        for i, n in enumerate(starts):
-            counts[n] += 1 + (0.1 if i == 0 else 0)
-        best = max(counts, key=counts.get)
-        return best, starts
+        counts = defaultdict(float)
+        for i, s_ in enumerate(starts):
+            counts[s_["name"]] += 1 + (0.1 if i == 0 else 0)
+        return max(counts, key=counts.get), starts
 
     # ---------------- players
     def _players(self):
@@ -236,12 +268,18 @@ class NHL:
                         "blk": r["blk"] * t * (op["sf"] ** 0.5), "hits": r["hits"] * t}
                 logs = self.logs.get(p["id"], [])[-10:]
                 players.append({**p, "proj": {k: round(v, 2) for k, v in proj.items()},
-                                "last10": {k: [x[k] for x in logs] for k in ("sog", "pts", "g", "toi")}})
+                                "last10": {k: [round(x[k], 1) for x in logs] for k in ("sog", "pts", "g", "a", "blk", "hits", "toi", "pp")}})
             sog_against = self.lg_sog * op["sf"] * me["sa"]
             gname = gh if side == "home" else ga
-            sides[side] = {"players": players, "goalie": {"name": gname, "starts": gh_starts if side == "home" else ga_starts,
-                                                          "gsax60": round((self.goalie.get(gname) or {}).get("gsax60", 0), 3),
-                                                          "proj": {"saves": round(max(0.0, sog_against - mu_op), 1), "sogA": round(sog_against, 1)}}}
+            G = self.goalie.get(gname) or {}
+            logs = self.glogs.get(gname, [])[-10:]
+            sides[side] = {"players": players, "goalie": {
+                "name": gname, "starts": gh_starts if side == "home" else ga_starts,
+                "gsax60": round(G.get("gsax60", 0), 3), "ev60": None if G.get("ev60") is None else round(G["ev60"], 3),
+                "pk2": None if G.get("pk2") is None else round(G["pk2"], 3), "rank": G.get("rank", {}), "pool": self.goalie_pool,
+                "last10": {"sv": [x["sv"] for x in logs], "sa": [x["sa"] for x in logs], "ga": [x["ga"] for x in logs],
+                           "svp": [x["svp"] for x in logs], "date": [x["date"] for x in logs], "opp": [x["opp"] for x in logs]},
+                "proj": {"saves": round(max(0.0, sog_against - mu_op), 1), "sogA": round(sog_against, 1)}}}
         return {"home": {"goals": round(mu_h, 2)}, "away": {"goals": round(mu_a, 2)},
                 "pHomeWin": win + tie * 0.52, "pTie": tie, "total": round(mu_h + mu_a + tie, 2),
                 "margin": round(mu_h - mu_a, 2), "sides": sides}

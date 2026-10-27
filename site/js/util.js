@@ -105,3 +105,28 @@ export function sheet(html, onMount) {
 }
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// American odds and implied % together, e.g. "+130 · 43.5%"
+export const both = (a) => a == null || isNaN(a) ? "–" : `${am(a)} · ${(probFromAm(a) * 100).toFixed(1)}%`;
+export const bothP = (p) => p == null || isNaN(p) ? "–" : `${am(amFromProb(p))} · ${(p * 100).toFixed(1)}%`;
+
+// last-N sparkline with the bet line; returns "" when there is nothing to draw
+export function spark(vals, line, opts = {}) {
+  const v = (vals || []).filter((x) => x != null);
+  if (v.length < 1) return "";
+  const W = opts.w || 86, H = opts.h || 26;
+  const max = Math.max(...v, line || 0) * 1.12 || 1;
+  const X = (i) => v.length === 1 ? W / 2 : 3 + i * (W - 6) / (v.length - 1), Y = (x) => H - 3 - x / max * (H - 6);
+  const side = opts.side === "Under" ? -1 : 1;
+  const hit = (x) => line == null ? null : side > 0 ? x > line : x < line;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="spark" aria-label="last ${v.length}">
+    ${line != null ? `<line x1="0" x2="${W}" y1="${Y(line)}" y2="${Y(line)}" class="sp-ref"/>` : ""}
+    ${v.length > 1 ? `<polyline points="${v.map((x, i) => `${X(i).toFixed(1)},${Y(x).toFixed(1)}`).join(" ")}" class="sp-line"/>` : ""}
+    ${v.map((x, i) => `<circle cx="${X(i)}" cy="${Y(x)}" r="2.4" class="${hit(x) === true ? "sp-hi" : hit(x) === false ? "sp-miss" : "sp-lo"}"/>`).join("")}</svg>`;
+}
+export function hitRate(vals, line, side = "Over") {
+  const v = (vals || []).filter((x) => x != null);
+  if (!v.length || line == null) return "";
+  const n = v.filter((x) => side === "Under" ? x < line : x > line).length;
+  return `${n}/${v.length} ${side === "Under" ? "under" : "over"}`;
+}

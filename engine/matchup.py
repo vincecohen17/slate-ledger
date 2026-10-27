@@ -108,12 +108,19 @@ def _stamp_props(pdocs, sides, markets, sport, goalie_fn=None):
             continue
         for r in d["rows"]:
             if d["market"] == "player_total_saves" and goalie_fn:
-                mean = goalie_fn(r["player"])
-                if mean is None:
+                gl = goalie_fn(r["player"])
+                if gl is None:
                     continue
+                mean = gl["proj"]["saves"]
+                r["last10"] = gl.get("last10", {}).get("sv")
             else:
                 p = _match_player(r["player"], allp)
-                if not p or p.get("out"):
+                if not p:
+                    continue
+                l10 = p.get("last10") or {}
+                if all(k in l10 for k in keys):
+                    r["last10"] = [round(sum(v), 1) for v in zip(*[l10[k] for k in keys])]
+                if p.get("out"):
                     continue
                 mean = sum(p["proj"].get(k, 0) for k in keys)
             if r.get("point") is None:
@@ -172,7 +179,7 @@ def _player_cards(players, refs, keys, n=9, minutes_key="projMin"):
         ref = refs.get("players", {}).get(R.norm(p["name"])) or {}
         out.append({"name": p["name"], "pos": p.get("pos"), "status": p.get("status"), "note": p.get("note"),
                     "out": p.get("out"), "min": p.get(minutes_key), "headshot": ref.get("headshot"),
-                    "proj": {k: p["proj"].get(k) for k in keys}, "last10": p.get("last10")})
+                    "proj": dict(p["proj"]), "last10": p.get("last10")})
     return out
 
 
@@ -271,10 +278,14 @@ def _nhl(g, m, pdocs, inj, refs):
         for side in ("home", "away"):
             gl = pj["sides"][side]["goalie"]
             if gl.get("name") and R.norm(gl["name"]) == R.norm(name):
-                return gl["proj"]["saves"]
+                return gl
         return None
     _stamp_props(pdocs, pj["sides"], model_nhl.MARKETS, g["sport"], goalie_mean)
     th, ta = m.teams[h], m.teams[a]
+    gh, ga = pj["sides"]["home"]["goalie"], pj["sides"]["away"]["goalie"]
+
+    def per2(v):
+        return None if v is None else round(v * 2 / 60, 3)
 
     def team(t, side, name):
         gl = pj["sides"][side]["goalie"]
@@ -284,11 +295,13 @@ def _nhl(g, m, pdocs, inj, refs):
                 "goalie": gl, "goals": pj[side]["goals"], "injuries": _injuries(inj.get("nhl"), t["abbr"], name)}
     compare = [
         {"k": "xGoals share", "h": th.get("xgfPct"), "a": ta.get("xgfPct"), "hr": th["rank"].get("xgfPct"), "ar": ta["rank"].get("xgfPct"), "hi": True, "pct": True},
-        {"k": "xGoals for /60", "h": th.get("xgf60"), "a": ta.get("xgf60"), "hr": th["rank"].get("off"), "ar": ta["rank"].get("off"), "hi": True, "d": 2},
-        {"k": "xGoals against /60", "h": th.get("xga60"), "a": ta.get("xga60"), "hr": th["rank"].get("def"), "ar": ta["rank"].get("def"), "hi": False, "d": 2},
-        {"k": "Power play xG /60", "h": th.get("ppXgf60"), "a": ta.get("ppXgf60"), "hr": th["rank"].get("ppXgf60"), "ar": ta["rank"].get("ppXgf60"), "hi": True, "d": 2},
-        {"k": "Penalty kill xGA /60", "h": th.get("pkXga60"), "a": ta.get("pkXga60"), "hr": th["rank"].get("pkXga60"), "ar": ta["rank"].get("pkXga60"), "hi": False, "d": 2},
-        {"k": "Goalie GSAx /60", "h": pj["sides"]["home"]["goalie"]["gsax60"], "a": pj["sides"]["away"]["goalie"]["gsax60"], "hi": True, "d": 2},
+        {"k": "xGoals for /60", "h": th.get("xgf60"), "a": ta.get("xgf60"), "hr": th["rank"].get("xgf60"), "ar": ta["rank"].get("xgf60"), "hi": True, "d": 2},
+        {"k": "xGoals against /60", "h": th.get("xga60"), "a": ta.get("xga60"), "hr": th["rank"].get("xga60"), "ar": ta["rank"].get("xga60"), "hi": False, "d": 2},
+        {"k": "Power play xG per 2 min", "h": per2(th.get("ppXgf60")), "a": per2(ta.get("ppXgf60")), "hr": th["rank"].get("ppXgf60"), "ar": ta["rank"].get("ppXgf60"), "hi": True, "d": 3},
+        {"k": "Penalty kill xGA per 2 min", "h": per2(th.get("pkXga60")), "a": per2(ta.get("pkXga60")), "hr": th["rank"].get("pkXga60"), "ar": ta["rank"].get("pkXga60"), "hi": False, "d": 3},
+        {"k": "Goalie EV GSAx /60", "h": gh.get("ev60"), "a": ga.get("ev60"), "hr": gh.get("rank", {}).get("ev60"), "ar": ga.get("rank", {}).get("ev60"), "hi": True, "d": 2, "n": gh.get("pool")},
+        {"k": "Goalie PK GSAx per 2 min", "h": gh.get("pk2"), "a": ga.get("pk2"), "hr": gh.get("rank", {}).get("pk2"), "ar": ga.get("rank", {}).get("pk2"), "hi": True, "d": 3, "n": gh.get("pool")},
+        {"k": "Goalie GSAx /60 (all)", "h": gh.get("gsax60"), "a": ga.get("gsax60"), "hr": gh.get("rank", {}).get("gsax60"), "ar": ga.get("rank", {}).get("gsax60"), "hi": True, "d": 2, "n": gh.get("pool")},
     ]
     factors = []
     for side, t in (("home", th), ("away", ta)):
@@ -296,11 +309,11 @@ def _nhl(g, m, pdocs, inj, refs):
         if gl.get("name"):
             tone = "pos" if gl["gsax60"] > 0.1 else "neg" if gl["gsax60"] < -0.1 else "info"
             factors.append({"side": side, "tone": tone, "text": f"{t['abbr']} likely in goal: {gl['name']} ({gl['gsax60']:+.2f} goals saved above expected per 60; "
-                            f"{len([s for s in gl['starts'] if s == gl['name']])} of last {len(gl['starts'])} starts) — confirm"})
+                            f"{len([s for s in gl['starts'] if s['name'] == gl['name']])} of last {len(gl['starts'])} starts) — confirm"})
     for side, t, o in (("home", th, ta), ("away", ta, th)):
         pr, kr = t["rank"].get("ppXgf60"), o["rank"].get("pkXga60")
         if pr and kr and pr <= 8 and kr >= 25:
-            factors.append({"side": side, "tone": "pos", "text": f"{t['abbr']} power play ({pr}th) vs {o['abbr']} penalty kill ({kr}th)"})
+            factors.append({"side": side, "tone": "pos", "text": f"{t['abbr']} power play (rank {pr}) vs {o['abbr']} penalty kill (rank {kr})"})
     tl = lines.get("totals")
     factors.append({"side": None, "tone": "info", "text": f"Model: {g['homeRef']['abbr'] if g.get('homeRef') else 'home'} win {pj['pHomeWin']:.0%}, "
                     f"expected goals {pj['home']['goals']:.2f}-{pj['away']['goals']:.2f}"
