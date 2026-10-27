@@ -528,6 +528,8 @@ def build_props(ev, label):
             if main and main["point"] is not None:
                 mean = mean_from_line(mk, main["point"], main["fair"]["Over"], ev["sport_key"])
                 main["isMain"] = True
+            std_line = {(player, d["book"]): l["point"] for l in plines for d in l["dfs"]
+                        if {"Over", "Under"} <= set(d.get("dec") or {}) and l["point"] is not None}
             for l in plines:
                 # judge every pick'em line and every thin alt line from the main line's sharp fair
                 if mean is not None and l["point"] is not None:
@@ -544,7 +546,14 @@ def build_props(ev, label):
                         # PrizePicks / Pick6 list goblin and demon lines as Over-only with a placeholder price, so only
                         # their two-sided (standard) lines are judged; Underdog and Dabble quote real per-side payouts
                         if d["book"] in ("prizepicks", "pick6") and not {"Over", "Under"} <= set(d["dec"]):
-                            d["alt"] = True
+                            # goblin (below the standard line: easier, pays less) or demon (above: harder, pays more);
+                            # the feed carries no real payout, so show our chance and let the app's payout decide
+                            ref = std_line.get((player, d["book"]), main["point"] if main else None)
+                            if ref is not None and l["point"] != ref:
+                                d["alt"] = "goblin" if l["point"] < ref else "demon"
+                            else:
+                                d["alt"] = True
+                            d["pOver"] = _r(po)
                             continue
                         for side, ps in (("Over", po), ("Under", 1 - po)):
                             if side not in d["dec"] or not (0.15 <= ps <= 0.85):

@@ -535,6 +535,36 @@ def _nba(g, m, pdocs, inj, refs):
 # ---------------------------------------------------------------------------
 # NHL
 
+def _goalie_games(pj, m):
+    """add expected goals against and GSAx to each recent start (MoneyPuck game by game)"""
+    gg = getattr(m, "_gg", None)
+    if gg is None:
+        gg = m._gg = {R.norm(k): v for k, v in (ST.load_json(m.data_dir, f"stats/nhl/moneypuck/goalie_games_{m.cur_year}.json") or {}).items()}
+    from datetime import date as _d, timedelta as _td
+
+    def find(name, day):
+        rows = gg.get(R.norm(name or "")) or []
+        for r in rows:
+            try:
+                if abs((_d.fromisoformat(r["date"]) - _d.fromisoformat(day)).days) <= 1:
+                    return r
+            except Exception:
+                pass
+        return None
+    for side in ("home", "away"):
+        gl = pj["sides"][side]["goalie"]
+        for st_ in gl.get("starts") or []:
+            r = find(st_["name"], st_["date"])
+            if r:
+                st_["xga"], st_["gsax"] = r["xga"], r["gsax"]
+        rows = gg.get(R.norm(gl.get("name") or "")) or []
+        if rows:
+            last = rows[-10:]
+            gl["last10"] = dict(gl.get("last10") or {}, gsax=[r["gsax"] for r in last], xga=[r["xga"] for r in last],
+                                sv=[r["sv"] for r in last], sa=[r["sa"] for r in last], ga=[r["ga"] for r in last],
+                                date=[r["date"] for r in last], opp=[r["opp"] for r in last])
+
+
 def _nhl(g, m, pdocs, inj, refs):
     h, a = _abbr(g.get("homeRef"), m.teams), _abbr(g.get("awayRef"), m.teams)
     pj = m.project_game(h, a, g["commence"])
@@ -549,6 +579,10 @@ def _nhl(g, m, pdocs, inj, refs):
             if gl.get("name") and R.norm(gl["name"]) == R.norm(name):
                 return gl
         return None
+    _goalie_games(pj, m)
+    for side in ("home", "away"):
+        gl = pj["sides"][side]["goalie"]
+        gl["headshot"] = _head(refs, gl.get("name") or "")
     _stamp_props(pdocs, pj["sides"], model_nhl.MARKETS, g["sport"], goalie_mean)
     g_share = {p["name"]: p["proj"].get("g", 0) for s_ in ("home", "away") for p in pj["sides"][s_]["players"] if not p.get("out")}
     p_goal = 1 - math.exp(-(pj["home"]["goals"] + pj["away"]["goals"]))

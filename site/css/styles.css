@@ -318,3 +318,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .bo-row { display: grid; grid-template-columns: 16px 30px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--line); }
 .bo-n { font: 700 12px var(--sans); color: var(--muted); text-align: center; }
 @media (max-width: 520px) { .bo-row { grid-template-columns: 14px 30px minmax(0, 1fr) auto; } .bo-row .spark { display: none; } .ars { grid-template-columns: minmax(60px, 1fr) 50px 30px 56px 30px; } }
+.pill.gob { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.pill.dem { border-color: color-mix(in srgb, var(--neg, #e9824a) 50%, transparent); }
+
+/* goalies */
+.gpills { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; }
+.gpill { position: relative; display: flex; flex-direction: column; gap: 1px; padding: 6px 8px 8px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.gpill b { font: 700 15px var(--mono, ui-monospace, monospace); }
+.gpill span { font-size: 11px; color: var(--muted); }
+.gpill i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--pos); border-radius: 0 2px 2px 0; }
+.gviz { display: flex; flex-wrap: wrap; gap: 14px; }
+.gbars .gb-pos { fill: var(--pos); } .gbars .gb-neg { fill: var(--neg, #e9824a); }
+.gtab td, .gtab th { padding: 3px 6px; } .gtab tr.dim td { opacity: .45; }

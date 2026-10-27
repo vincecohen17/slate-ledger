@@ -40,6 +40,7 @@ def _poisson(mu, n=12):
 
 class NHL:
     def __init__(self, data_dir, cur_games, prior_games, injuries, cur_year=2026):
+        self.data_dir, self.cur_year = data_dir, cur_year
         self.inj = injuries or {}
         self.cur = sorted(cur_games, key=lambda g: g["date"])
         self.prior = prior_games
@@ -174,14 +175,14 @@ class NHL:
                 sa, sv = p.get("shotsAgainst") or 0, p.get("saves") or 0
                 starts.append({"name": p["name"], "date": g["date"][:10], "opp": opp, "sa": sa, "sv": sv,
                                "ga": p.get("goalsAgainst") or 0, "svp": round(sv / sa, 3) if sa else None})
-            if len(starts) >= 5:
+            if len(starts) >= 10:
                 break
         if self.goalie_override.get(abbr):
             return self.goalie_override[abbr], starts
         if not starts:
             return None, []
         counts = defaultdict(float)
-        for i, s_ in enumerate(starts):
+        for i, s_ in enumerate(starts[:5]):      # the last five starts decide who is likely
             counts[s_["name"]] += 1 + (0.1 if i == 0 else 0)
         return max(counts, key=counts.get), starts
 

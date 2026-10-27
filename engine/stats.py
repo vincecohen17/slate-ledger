@@ -243,7 +243,52 @@ def moneypuck(data_dir, years=(2025, 2026), refresh_current=True):
                 out[f"{kind}_{y}"] = len(body)
             except Exception:
                 out[f"{kind}_{y}"] = 0
+    try:
+        out["goalieGames"] = moneypuck_goalie_games(data_dir, max(years))
+    except Exception as e:
+        out["goalieGames"] = type(e).__name__
     return out
+
+
+MP_GOALIE_GAMES = "https://moneypuck.com/moneypuck/playerData/careers/gameByGame/{kind}/goalies/{pid}.csv"
+
+
+def moneypuck_goalie_games(data_dir, y=2026, min_gp=2, max_age_h=8):
+    """Per-game goalie lines (shots, goals, expected goals -> GSAx) for every goalie with real work this season.
+    stats/nhl/moneypuck/goalie_games_<y>.json  {name: [{date, opp, home, sa, ga, sv, xga, gsax, toi}]}"""
+    fn = os.path.join(data_dir, "stats", "nhl", "moneypuck", f"goalie_games_{y}.json")
+    if os.path.exists(fn) and (datetime.now().timestamp() - os.path.getmtime(fn)) < max_age_h * 3600:
+        return {"cached": True}
+    goalies = [r for r in read_moneypuck(data_dir, "goalies", y) if float(r.get("games_played") or 0) >= min_gp]
+    out, fails = {}, 0
+
+    def one(r):
+        rows = []
+        for kind in ("regular", "playoffs"):
+            try:
+                body = _get(MP_GOALIE_GAMES.format(kind=kind, pid=r["playerId"]), raw=True).decode("utf-8", "ignore")
+            except Exception:
+                continue
+            for g in csv.DictReader(io.StringIO(body)):
+                if g.get("situation") != "all" or str(g.get("season")) != str(y):
+                    continue
+                f = lambda k: float(g.get(k) or 0)
+                d = str(g.get("gameDate") or "")
+                rows.append({"date": f"{d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) == 8 else d, "opp": g.get("opposingTeam"), "home": g.get("home_or_away") == "HOME",
+                             "sa": int(f("ongoal")), "ga": int(f("goals")), "sv": int(f("ongoal") - f("goals")), "xga": round(f("xGoals"), 2),
+                             "gsax": round(f("xGoals") - f("goals"), 2), "toi": round(f("icetime") / 60, 1)})
+        rows.sort(key=lambda x: x["date"])
+        return r["name"], rows
+    with ThreadPoolExecutor(6) as ex:
+        for name, rows in ex.map(one, goalies):
+            if rows:
+                out[name] = rows[-20:]
+            else:
+                fails += 1
+    if out:
+        os.makedirs(os.path.dirname(fn), exist_ok=True)
+        json.dump(out, open(fn, "w"), separators=(",", ":"))
+    return {"goalies": len(out), "missing": fails}
 
 
 def read_moneypuck(data_dir, kind, y, situation="all"):

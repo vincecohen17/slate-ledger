@@ -95,6 +95,7 @@ function propCard(player, rows, market) {
     const f = r.fair || {};
     const po = f.Over ?? f.Yes, pu = f.Under ?? f.No;
     const bo = r.bestVenue?.Over || r.bestVenue?.Yes, bu = r.bestVenue?.Under || r.bestVenue?.No;
+    const gd = (r.dfs || []).filter((d) => d.alt === "goblin" || d.alt === "demon").map((d) => `<span class="pill ${d.alt === "goblin" ? "gob" : "dem"}" title="${esc(d.name)} ${d.alt} ${d.point}: Over only, pays ${d.alt === "goblin" ? "less" : "more"} than a standard pick. Our chance it goes over: ${prob(d.pOver, 1)}. Compare with the payout the app shows.">${bookLogo(d.book, d.name, 13)} ${d.alt === "goblin" ? "🟢 goblin" : "😈 demon"} O ${prob(d.pOver)}</span>`).join(" ");
     const pk = (r.dfs || []).filter((d) => d.side).map((d) => `<span class="pill ${d.edge >= 0.02 ? "pos" : ""}" title="${esc(d.name)} line ${d.point}: our ${d.side} chance ${prob(d.p)} vs ${prob(d.be ?? 0.5774, 1)} to break even at this line's payout">${bookLogo(d.book, d.name, 13)} ${esc(d.name)} ${d.side[0]} ${prob(d.p)}</span>`).join(" ");
     return `<div class="pl">
       <div class="pl-h"><b class="num">${r.point ?? ""}</b><span class="tiny muted">${r.isMain ? "main line" : r.modelFair ? "alt · market model" : "alt"}</span></div>
@@ -105,7 +106,7 @@ function propCard(player, rows, market) {
         <span class="mini ${edgeCls(bo?.edge)}">O ${bo ? `${both(bo.am)} <span class="tiny">${bookLogo(bo.book, bo.name, 13)} ${esc(bo.name)} ${pct(bo.edge)}</span>` : "–"}</span>
         <span class="mini ${edgeCls(bu?.edge)}">U ${bu ? `${both(bu.am)} <span class="tiny">${bookLogo(bu.book, bu.name, 13)} ${esc(bu.name)} ${pct(bu.edge)}</span>` : "–"}</span>
       </div>
-      ${r.last10?.length ? `<div class="l10" style="margin-top:6px">${spark(r.last10, r.point)}<span>last ${r.last10.length}: ${hitRate(r.last10, r.point)} · avg ${(r.last10.reduce((a, b) => a + b, 0) / r.last10.length).toFixed(1)}</span></div>` : ""}${pk ? `<div class="row" style="flex-wrap:wrap;gap:4px;margin-top:6px">${pk}</div>` : ""}</div>`;
+      ${r.last10?.length ? `<div class="l10" style="margin-top:6px">${spark(r.last10, r.point)}<span>last ${r.last10.length}: ${hitRate(r.last10, r.point)} · avg ${(r.last10.reduce((a, b) => a + b, 0) / r.last10.length).toFixed(1)}</span></div>` : ""}${pk || gd ? `<div class="row" style="flex-wrap:wrap;gap:4px;margin-top:6px">${pk}${gd}</div>` : ""}</div>`;
   };
   return `<div class="card pc"><div class="pc-top">${headshot(main, 54)}<div class="col"><b>${esc(player)}</b><span class="tiny muted">${esc(info || mktName(market))}</span></div></div>
     <div class="pc-lines">${shown.map(lineHtml).join("")}</div></div>`;
