@@ -1,6 +1,7 @@
 import { S, savePromo, deletePromo, loadAllProps } from "../store.js";
 import { esc, am, prob, fmtTime, money, uid, toast, todayPT, bookLogo, $, $$ } from "../util.js";
-import { VENUES, venueName } from "../lab.js";
+import { VENUES, venueName, legSpec } from "../lab.js";
+const draftLine = (p, c) => p.promoLine ?? legSpec(c.leg).point;
 import { KINDS, FIELDS, SPORTS, BET_TYPES, PICKEM, FEE_VENUES, kindOf, blank, normalize, parsePromo, describe, optimize, legs,
   bonusConv, convCurve, findTarget, pAtLine, autoTarget, decOf, amOf, payoutFor, venueHasFeed } from "../promo.js";
 import { betImage, logSheet } from "./common.js";
@@ -270,7 +271,8 @@ function bind(el) {
     const odds = pick ? (mult ? amOf(mult) : "") : k === "odds_boost" ? p.boostedOdds : amOf(o.D);
     logSheet({ label: o.legs.map((c) => c.leg.label).join(" + "), am: odds, stake: stake || "", fair: o.P,
       venue: p.venue !== "any" ? p.venue : undefined, promoId: p.id, gameId: one?.gameId, league: one?.league, matchup: one?.matchup,
-      commence: one?.commence, legs: o.legs.map((c) => ({ label: c.leg.label, gameId: c.leg.gameId, fair: c.P })), source: "promo" });
+      commence: one?.commence, ...(one ? { market: one.market, side: one.side, point: legSpec(one).point, player: one.player || null, team: one.team || null } : {}),
+      legs: o.legs.map((c) => ({ ...legSpec(c.leg), point: c.promo ? draftLine(p, c) : legSpec(c.leg).point, fair: c.P })), source: "promo" });
   });
   $$("[data-edit]", el).forEach((b) => b.onclick = () => { draft = normalize(S.promos.get(b.dataset.edit)); draft.titleSet = false; rerender(); scrollTo(0, 0); });
   $$("[data-used]", el).forEach((b) => b.onclick = () => { const p = S.promos.get(b.dataset.used); savePromo({ ...p, used: !p.used }); });

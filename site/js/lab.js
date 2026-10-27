@@ -89,6 +89,7 @@ function mkLeg(g, matchup, line, o, label, extra) {
     key: `${g.id}|${extra.market}|${line.player || ""}|${line.point ?? ""}|${o}`,
     gameId: g.id, league: g.league, commence: g.commence, matchup, label, side: o, point: line.point,
     nb: line.nBooks ?? 0, est: Object.keys(line.fair || {}).length < 2,      // one-sided (Yes-only) fair is an estimate
+    home: g.home, team: line.team ?? null,
     fair: line.fair[o], fairAm: line.fairAm?.[o], venues, best: line.bestVenue?.[o] || null,
     ref: extra.kind === "line" ? (extra.dir === 1 ? g.homeRef : extra.dir === -1 ? g.awayRef : null) : null,
     ...extra,
@@ -173,3 +174,11 @@ export function parlay(legs, prices) {
 }
 
 export const evPerDollar = (p, dec, boost = 0) => p * (1 + (dec - 1) * (1 + boost)) - 1;
+
+// what the ledger needs to grade a leg: the game, market, side and that side's own line
+export function legSpec(l) {
+  if (!l) return {};
+  const pt = l.pickemLine ?? l.point;
+  const own = pt != null && /spreads/.test(l.market || "") && l.side !== l.home ? -pt : pt;
+  return { gameId: l.gameId, market: l.market, side: l.side, point: own ?? null, player: l.player || null, team: l.team || null, label: l.label, fair: l.fair };
+}

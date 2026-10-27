@@ -673,9 +673,13 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                 if e is not None and e >= min_edge:
                     mp = (line.get("model") or {}).get(o)
                     logic = None if mp is None else "agrees" if mp >= pe["cost"] + 0.01 else "disagrees" if mp < pe["cost"] - 0.02 else "neutral"
+                    pt = line.get("point")
+                    if pt is not None and "spreads" in (line.get("market") or "") and o == doc.get("away"):
+                        pt = -pt            # the away side's own handicap
                     out.append({"modelP": mp, "logic": logic,
                         "gameId": doc["id"], "league": doc["league"], "commence": doc["commence"],
                         "matchup": f"{doc['away']} @ {doc['home']}", "market": line.get("market") or doc.get("market"),
+                        "side": o, "point": pt, "team": line.get("team"),
                         "label": label(o), "book": q["book"], "bookName": q["name"],
                         "am": pe.get("allInAm", pe["am"]), "fair": line["fair"][o],
                         "fairAm": line["fairAm"][o], "edge": e, "ev": pe.get("ev"),
@@ -714,7 +718,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                     out.append({"modelP": mp, "logic": logic,
                         "gameId": p["id"], "league": p["league"], "commence": p["commence"],
                         "matchup": f"{p['away']} @ {p['home']}", "market": p["market"],
-                        "label": f"{l['player']} {d['side']} {d['point']} {p['market'].replace('player_', '').replace('_', ' ')}",
+                        "label": f"{l['player']} {d['side']} {d['point']} {p['market'].replace('player_', '').replace('_', ' ')}", "side": d["side"],
                         "book": d["book"], "bookName": d["name"], "am": None, "pickem": True,
                         "player": l["player"], "headshot": l.get("headshot"), "last10": l.get("last10"), "point": d["point"],
                         "fair": d["p"], "edge": d["edge"], "fairWeight": l.get("fairWeight"), "be": d.get("be"),

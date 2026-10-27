@@ -29,6 +29,10 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - `site/js/promo.js` promo engine: 13 promo kinds (KINDS), plain-words parser, dollar value per promo (bonus-bet
   conversion measured on the board), optimizer (main lines only, venue price at most 10% over fair), pick'em entries,
   discounted lines via `site/js/dist.js` (port of build.p_over; keep in sync), settlement for the ledger.
+- `engine/ledger.py` grades after each game: Vince's pending bets (writes bets/{id}.auto {result, clv, closeFair}; the site
+  settles them with the promo math) and our picks (status, profit in units, clv, closeFair in picks/<date>.json).
+  CLV = closing sharp fair x decimal price - 1, from the pre-game snapshot (tracker keeps them in `track/closed/` 21 days).
+  Bets and picks name the bet with gameId, market, side, point (that side's own line), player, team.
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,
@@ -39,7 +43,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   Firestore `picks/{id}`. Fields: id, date, gameId, league, matchup, commence, selection, player?, tier
   (bet|floor|likely), units, status, fair, fairAm, goodAt, greatAt, playTo[{venue,name,price,line?,inRange}],
   case (1-2 paragraphs, blank line between), pillars{model,advanced,matchup,role,context,market: support|neutral|against},
-  risk (a paragraph on what could go wrong), marketFair, modelP, keyStats[{label,value,note?,tone}], confirm[], clv?, profit?
+  risk (a paragraph on what could go wrong), marketFair, modelP, keyStats[{label,value,note?,tone}], confirm[],
+  market (Odds API key), side, point (the side's own line), player?, team?; graded by the engine: status, profit, clv, closeFair
 - `.github/workflows/pull.yml` engine run (manual or push to `engine/run-request`; live cron after the 5M upgrade).
   `deploy.yml` deploys site + rules on changes to `site/`, `firebase.json` or the rules template.
 - Private data repo `vincecohen17/slate-ledger-data`: `latest/` (board.json, props.json, edges.json),

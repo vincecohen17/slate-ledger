@@ -7,7 +7,7 @@ import { renderEdges } from "./views/edges.js";
 import { renderPicks } from "./views/picks.js";
 import { renderLab } from "./views/lab.js";
 import { renderPromos } from "./views/promos.js";
-import { renderLedger } from "./views/ledger.js";
+import { renderLedger, autoSettle } from "./views/ledger.js";
 import { renderReports } from "./views/reports.js";
 import { renderLive } from "./views/live.js";
 import { renderFinal, findFinal } from "./views/final.js";
@@ -57,6 +57,7 @@ function route() {
   if (!auth.currentUser) return;
   if (S.denied) return deniedView();
   renderStatus();
+  autoSettle();           // bets the engine graded since the last visit
   const h = (location.hash || "#/").slice(2);
   const [base, a, b] = h.split("/");
   // in play: the Live screen, or a game that started in the last five hours

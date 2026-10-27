@@ -455,3 +455,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .fbox td.b { font-weight: 700; } .fbox tr.tot td { border-top: 1px solid var(--line); font-weight: 600; }
 .fbox td:first-child { white-space: nowrap; }
 .pr-sug { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; } .pr-sug li { display: list-item; } .pr-sug li > b { float: right; margin-left: 8px; }
+
+/* ledger */
+.lg-t td:first-child { white-space: nowrap; }
+.lg-roi { position: relative; display: inline-block; width: 80px; height: 8px; background: var(--panel-3); border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+.lg-roi .lg-mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
+.lg-roi i { position: absolute; top: 0; bottom: 0; border-radius: 4px; } .lg-roi i.pos { background: var(--pos); } .lg-roi i.neg { background: var(--neg); }
+.lg-ins { gap: 6px; } .lg-in { font-size: 13px; line-height: 1.45; } .lg-in.pos { color: var(--pos); } .lg-in.neg { color: var(--neg); }
+.lg-line { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.lg-line.dash { background: repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 9px); }

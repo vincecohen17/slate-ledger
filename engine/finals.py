@@ -110,7 +110,7 @@ def _pre(snap):
         return None
     out = {}
     for kind in ("h2h", "spreads", "totals"):
-        rs = [r for r in snap["rows"] if r["mk"] == kind]
+        rs = [r for r in snap["rows"] if r["mk"] == kind and r.get("p") is not None and not r.get("player")]
         if not rs:
             continue
         r = max(rs, key=lambda x: (x.get("w") or 0))

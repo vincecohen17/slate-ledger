@@ -29,7 +29,7 @@ export function edgeCard(e) {
         ${e.ctx?.length ? `<span class="tiny muted ellip" title="${esc(e.ctx.join(" · "))}">ⓘ ${esc(e.ctx[0])}${e.ctx.length > 1 ? ` +${e.ctx.length - 1}` : ""}</span>` : ""}
         ${e.last10?.length ? `<span class="l10">${spark(e.last10, e.point, { side: (e.label.match(/ (Over|Under) /) || [])[1] })}<span>last ${e.last10.length}: ${hitRate(e.last10, e.point, (e.label.match(/ (Over|Under) /) || [])[1])}</span></span>` : ""}
         ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model gives this ${prob(e.modelP, 1)}, a fair price of ${am(amFromProb(e.modelP))}${e.ctx?.length ? ". Context in the model: " + esc(e.ctx.join(" · ")) : ""}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · model ${bothP(e.modelP)}</span>` : ""}</div>
-      <button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair }))}'>Log</button>
+      <button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair, source: "edge" }))}'>Log</button>
     </div>
   </div>`;
 }
@@ -76,7 +76,8 @@ export function logSheet(pre = {}) {
         venue: v.key, venueName: v.name, am: odds, dec: decFromAm(odds), stake, status: "pending",
         promoId: $("#lb-promo", el).value || null, gameId: pre.gameId || null, league: pre.league || null,
         matchup: pre.matchup || null, commence: pre.commence || null, market: pre.market || null,
-        fairAtLog: pre.fair ?? null, legs: pre.legs || null, source: pre.source || "manual" };
+        side: pre.side ?? null, point: pre.point ?? null, player: pre.player || null, team: pre.team || null,
+        fairAtLog: pre.fair ?? null, legs: pre.legs || null, source: pre.source || "manual", pickId: pre.pickId || null };
       try { await saveBet(bet); toast("Bet logged"); close(); } catch (e) { toast("Could not save: " + e.message); }
     };
   });

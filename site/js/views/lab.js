@@ -1,6 +1,6 @@
 import { S, loadAllProps } from "../store.js";
 import { esc, am, pct, prob, fmtTime, amFromDec, decFromAm, amFromProb, both, bothP, spark, hitRate, bookLogo, $, $$ } from "../util.js";
-import { catalog, parlay, priceAt, evPerDollar } from "../lab.js";
+import { catalog, parlay, priceAt, evPerDollar, legSpec } from "../lab.js";
 import { betImage, logSheet } from "./common.js";
 
 const L = { q: "", league: "All", legs: [], customAm: "", boost: 0, stake: 10, compare: [] };
@@ -121,8 +121,8 @@ export function renderLab(el) {
   if ($("#lab-log", el)) $("#lab-log", el).onclick = () => {
     const one = legs.length === 1 ? legs[0] : null;
     logSheet({ label, am: dec ? amFromDec(dec) : "", stake: L.stake, fair: r?.joint, gameId: one?.gameId, league: one?.league,
-               matchup: one?.matchup, commence: one?.commence, market: one?.market,
+               matchup: one?.matchup, commence: one?.commence, ...(one ? legSpec(one) : {}), label,
                venue: L.legs[0]?.venue !== "any" && L.legs[0]?.venue !== "custom" ? L.legs[0]?.venue : undefined,
-               legs: legs.map((l) => ({ label: l.label, gameId: l.gameId, fair: l.fair })), source: "lab" });
+               legs: legs.map(legSpec), source: "lab" });
   };
 }

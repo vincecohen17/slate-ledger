@@ -84,17 +84,20 @@ def snapshot(data_dir, game_docs, prop_docs, now):
             side = _canon_line(g, l)
             m, f = l.get("model") or {}, l.get("fair") or {}
             pm = m.get("_raw", {}).get(side) if isinstance(m.get("_raw"), dict) else m.get(side)
-            if side and pm is not None and f.get(side) is not None:
+            # main lines are kept even without a model number: the ledger needs every closing fair
+            if side and f.get(side) is not None and (pm is not None or l.get("isMain")):
                 rows.append({"g": group(g["sport"], "line", l["market"]), "mk": l["market"], "pt": l.get("point"), "team": l.get("team"),
-                             "side": side, "p": round(pm, 4), "f": f[side], "w": l.get("fairWeight")})
+                             "side": side, "p": round(pm, 4) if pm is not None else None, "f": f[side], "w": l.get("fairWeight")})
         for doc in props.get(g["id"], []):
             for r in doc["rows"]:
                 m, f = r.get("model") or {}, r.get("fair") or {}
                 side = "Over" if "Over" in m else "Yes" if "Yes" in m else None
+                if not side and r.get("isMain") and "Over" in f:
+                    side = "Over"
                 pm = (m.get("_raw") or {}).get(side, m.get(side)) if side else None
-                if side and pm is not None and f.get(side) is not None:
+                if side and f.get(side) is not None and (pm is not None or r.get("isMain")):
                     rows.append({"g": group(g["sport"], "prop", doc["market"]), "mk": doc["market"], "pt": r.get("point"),
-                                 "player": r["player"], "side": side, "p": round(pm, 4), "f": f[side], "w": r.get("fairWeight")})
+                                 "player": r["player"], "side": side, "p": round(pm, 4) if pm is not None else None, "f": f[side], "w": r.get("fairWeight")})
         if not rows:
             continue
         snap = {"id": g["id"], "sport": g["sport"], "commence": g["commence"], "home": g["home"], "away": g["away"],
@@ -258,6 +261,8 @@ def grade(data_dir, now):
             continue
         out = []
         for r in snap["rows"]:
+            if r.get("p") is None:
+                continue        # kept only for the ledger's closing line value
             if "player" in r:
                 p = res["players"].get(_norm(r["player"]))
                 if not p or p.get("dnp"):
@@ -285,7 +290,16 @@ def grade(data_dir, now):
                 for o in out:
                     f.write(json.dumps(o, separators=(",", ":")) + "\n")
             n += len(out)
+        # keep the closing snapshot (sharp fair at the close) for the ledger's closing line value, three weeks
+        cd = os.path.join(data_dir, "track", "closed")
+        os.makedirs(cd, exist_ok=True)
+        snap["result"] = {"hs": res["hs"], "as": res["as"]}
+        json.dump(snap, open(os.path.join(cd, os.path.basename(fn)), "w"), separators=(",", ":"))
         os.remove(fn)
+    cut = (now - timedelta(days=21)).timestamp()
+    for fn in glob.glob(os.path.join(data_dir, "track", "closed", "*.json")):
+        if os.path.getmtime(fn) < cut:
+            os.remove(fn)
     return n
 
 
