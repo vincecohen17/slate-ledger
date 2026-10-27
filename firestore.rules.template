@@ -15,6 +15,7 @@ service cloud.firestore {
     match /matchups/{id} { allow read: if owner(); }
     match /previews/{id} { allow read: if owner(); }
     match /live/{id} { allow read: if owner(); }
+    match /finals/{id} { allow read: if owner(); }
     // the owner's own settings, entered by hand in the Firebase console (e.g. private/dispatch for instant refresh)
     match /private/{id} { allow read: if owner(); }
     // owner-written data
