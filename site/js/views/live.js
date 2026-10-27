@@ -1,4 +1,5 @@
 // Live: games in play, our live win chance vs the live market, live edges; per-game live tab.
+import { finalCard } from "./final.js";
 import { S } from "../store.js";
 import { esc, am, prob, pct, both, bothP, teamLogo, headshot, ago, bookLogo, edgeBar, $$ } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
@@ -68,6 +69,8 @@ export function renderLive(el) {
       <span class="tiny muted">${L?.updated ? `live prices ${ago(L.updated)} · refreshes every minute while this screen is open · ${L.creditsToday ?? 0} live credits today` : "waiting for the first live pull"}</span></div>
     <p class="note">Live prices move in seconds and our feed is about a minute behind, so treat every live edge as a lead: open the app, check the price is still there, then decide.</p>
     ${games.length ? `<div class="grid">${games.map(liveCard).join("")}</div>` : `<div class="empty"><h3>No games in play</h3>Games show up here once they start.</div>`}
+    ${(() => { const fin = (S.finals || []).filter((x) => Date.now() - new Date(x.commence) < 10 * 3600000).slice(0, 12);
+      return fin.length ? `<div class="sec-title">Just finished<span class="line"></span></div><div class="grid tight">${fin.map(finalCard).join("")}</div>` : ""; })()}
     <div class="sec-title">Live edges<span class="line"></span></div>
     ${edges.length ? `<div class="grid tight">${edges.slice(0, 60).map(edgeCard).join("")}</div>` : `<div class="card note">Nothing beats the live fair right now.</div>`}`;
   bindLog(el);

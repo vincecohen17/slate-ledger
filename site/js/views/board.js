@@ -1,6 +1,7 @@
 import { S } from "../store.js";
 import { esc, am, prob, fmtTime, fmtDay, teamLogo, leagueLogo, signPt, $$ } from "../util.js";
 import { sitText } from "./live.js";
+import { finalCard } from "./final.js";
 
 let league = "All", sort = "time";
 const mainLine = (g, m) => g.lines.find((l) => l.market === m && l.isMain);
@@ -137,7 +138,7 @@ function gapScore(g) {
 
 export function renderBoard(el) {
   const games = [...S.games.values()].sort((a, b) => a.commence.localeCompare(b.commence));
-  if (!games.length) { el.innerHTML = `<div class="empty"><h3>No games yet</h3>The next odds pull fills the board.</div>`; return; }
+  if (!games.length && !(S.finals || []).length) { el.innerHTML = `<div class="empty"><h3>No games yet</h3>The next odds pull fills the board.</div>`; return; }
   const leagues = [...new Map(games.map((g) => [g.league, g.leagueLogo])).entries()];
   let shown = games.filter((g) => league === "All" || g.league === league);
   const edgeN = {}; S.edges.forEach((e) => { edgeN[e.gameId] = (edgeN[e.gameId] || 0) + 1; });
@@ -150,16 +151,29 @@ export function renderBoard(el) {
     <div class="bar" style="margin-top:6px"><span class="tiny muted">Sort</span>
       ${[["time", "Start time"], ["gap", "Model vs market"], ["edges", "Most edges"]].map(([k, l]) => `<button class="chip sm ${sort === k ? "on" : ""}" data-sort="${k}">${l}</button>`).join("")}
       <span class="spacer"></span><span class="tiny muted">Bars: market vs model win chance · rank bars: longer is better · <span class="pos">teal</span> price beats the sharp fair</span></div>`;
+  // finished games: the final card replaces the game's card; earlier finals get their own section per day
+  const finals = (S.finals || []).filter((x) => league === "All" || x.league === league);
+  const finByGame = new Map(finals.filter((x) => x.gameId).map((x) => [x.gameId, x]));
   let day = "";
   if (sort !== "time") h += `<div class="grid">`;
   for (const g of shown) {
+    if (finByGame.has(g.id)) {
+      if (sort === "time") { const d = fmtDay(g.commence); if (d !== day) { h += `${day ? "</div>" : ""}<div class="sec-title">${d}<span class="line"></span></div><div class="grid">`; day = d; } }
+      h += finalCard(finByGame.get(g.id)); continue;
+    }
     if (sort === "time") {
       const d = fmtDay(g.commence);
       if (d !== day) { h += `${day ? "</div>" : ""}<div class="sec-title">${d}<span class="line"></span></div><div class="grid">`; day = d; }
     }
     h += card(g, edgeN[g.id], picks[g.id]);
   }
-  el.innerHTML = h + (sort !== "time" || day ? "</div>" : "");
+  h += sort !== "time" || day ? "</div>" : "";
+  const onBoard = new Set(shown.map((g) => g.id));
+  const rest = finals.filter((x) => !x.gameId || !onBoard.has(x.gameId));
+  const byDay = new Map();
+  rest.forEach((x) => { const d = fmtDay(x.commence); if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(x); });
+  for (const [d, xs] of byDay) h += `<div class="sec-title">Final · ${d}<span class="line"></span></div><div class="grid tight">${xs.map(finalCard).join("")}</div>`;
+  el.innerHTML = h;
   $$("[data-lg]", el).forEach((b) => b.onclick = () => { league = b.dataset.lg; renderBoard(el); });
   $$("[data-sort]", el).forEach((b) => b.onclick = () => { sort = b.dataset.sort; renderBoard(el); });
 }

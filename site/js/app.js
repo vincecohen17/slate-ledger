@@ -10,6 +10,7 @@ import { renderPromos } from "./views/promos.js";
 import { renderLedger } from "./views/ledger.js";
 import { renderReports } from "./views/reports.js";
 import { renderLive } from "./views/live.js";
+import { renderFinal, findFinal } from "./views/final.js";
 
 const app = $("#app");
 const ROUTES = { "": renderBoard, live: renderLive, edges: renderEdges, picks: renderPicks, lab: renderLab, promos: renderPromos, ledger: renderLedger, reports: renderReports };
@@ -64,12 +65,15 @@ function route() {
   setView(base || "board", a || null, base === "live" || !!inPlay);
   const nLive = S.live?.games?.length || 0;
   const ln = $("#nav a[data-r=live]"); if (ln) ln.innerHTML = nLive ? `Live <span class="pill live">${nLive}</span>` : "Live";
-  $$("#nav a").forEach((x) => x.classList.toggle("on", x.dataset.r === (base === "game" ? "" : base)));
+  $$("#nav a").forEach((x) => x.classList.toggle("on", x.dataset.r === (base === "game" || base === "final" ? "" : base)));
   const key = h;
   if (key !== lastRoute) { scrollKeep[lastRoute] = scrollY; }
   // keep focus/scroll when live data re-renders the same screen
   const y = key === lastRoute ? scrollY : (scrollKeep[key] || 0);
-  if (base === "game") renderGame(app, a, b);
+  const fin = base === "game" && (!S.games.get(a) || !b) ? findFinal(a) : null;      // finished: the final page (tabs still open the game)
+  if (base === "final") renderFinal(app, decodeURIComponent(a || ""));
+  else if (fin) renderFinal(app, fin.key);
+  else if (base === "game") renderGame(app, a, b);
   else (ROUTES[base] || renderBoard)(app);
   if (key !== lastRoute) scrollTo(0, y); 
   lastRoute = key;

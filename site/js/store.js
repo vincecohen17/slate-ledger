@@ -5,6 +5,7 @@ export const S = {
   games: new Map(), status: null, edges: [], reports: null,
   picks: new Map(), bets: new Map(), promos: new Map(), matchups: new Map(), previews: new Map(),
   live: null, liveGames: new Map(),   // in-play: board/live summary + live/{gameId} docs
+  finals: [], finalDocs: new Map(),   // finished games: board/finals list + finals/{key} loaded when opened
   props: new Map(),            // docId -> prop doc
   propsLoadedFor: new Set(),   // gameIds subscribed
   allProps: false,
@@ -32,6 +33,7 @@ export function start() {
   subs.push(onSnapshot(doc(db, "board", "edges"), (d) => { S.edges = d.exists() ? parse(d).items : []; changed(); }, onErr));
   subs.push(onSnapshot(doc(db, "board", "reports"), (d) => { S.reports = d.exists() ? parse(d) : null; changed(); }, onErr));
   subs.push(onSnapshot(doc(db, "board", "live"), (d) => { S.live = d.exists() ? parse(d) : null; changed(); }, onErr));
+  subs.push(onSnapshot(doc(db, "board", "finals"), (d) => { S.finals = d.exists() ? parse(d).games || [] : []; changed(); }, onErr));
   watchCol("live", S.liveGames);
   watchCol("games", S.games);
   watchCol("picks", S.picks);
@@ -41,7 +43,14 @@ export function start() {
   watchCol("promos", S.promos, (d) => d.data());
 }
 
-export function stop() { subs.splice(0).forEach((u) => u()); S.games.clear(); S.props.clear(); S.matchups.clear(); S.propsLoadedFor.clear(); S.allProps = false; }
+export function stop() { subs.splice(0).forEach((u) => u()); finalSubs.clear(); S.games.clear(); S.props.clear(); S.matchups.clear(); S.propsLoadedFor.clear(); S.allProps = false; }
+
+const finalSubs = new Set();
+export function loadFinal(key) {
+  if (!key || finalSubs.has(key)) return;
+  finalSubs.add(key);
+  subs.push(onSnapshot(doc(db, "finals", key), (d) => { if (d.exists()) S.finalDocs.set(key, parse(d)); changed(); }, onErr));
+}
 
 export function loadProps(gameId) {
   if (S.allProps || S.propsLoadedFor.has(gameId)) return;

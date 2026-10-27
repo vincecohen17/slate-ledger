@@ -764,7 +764,15 @@ def publish(game_docs, prop_docs, status, stamp):
             log(f"stats refresh failed: {type(e).__name__}")
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
     import tracker
+    fin = {}
     try:
+        n_graded = 0
+        try:        # before grading: finals read the pre-game snapshots that grading clears
+            import finals
+            fin = finals.collect(DATA_DIR, sorted({g["sport"] for g in game_docs}), game_docs, NOW, log=log)
+        except Exception as e:
+            log(f"finals failed: {type(e).__name__}: {str(e)[:100]}")
+            fin = {}
         n_graded = tracker.grade(DATA_DIR, NOW)
         params, card = tracker.fit(DATA_DIR)
     except Exception as e:
@@ -796,7 +804,7 @@ def publish(game_docs, prop_docs, status, stamp):
     with open(os.path.join(DATA_DIR, "latest", "matchups.json"), "w") as f:
         json.dump(mups, f, separators=(",", ":"))
     if os.environ.get("FIREBASE_SERVICE_ACCOUNT"):
-        n = write_firestore(game_docs, prop_docs, edge_list, status, rep, picks, mups, previews)
+        n = write_firestore(game_docs, prop_docs, edge_list, status, rep, picks, mups, previews, fin)
         log(f"firestore: {n} docs written")
     log(f"published: {len(game_docs)} games ({n_logo} with logos), {len(prop_docs)} prop docs "
         f"({n_head} rows with headshots), {len(edge_list)} edges, {len(mups)} matchups, {len(picks)} picks")
@@ -828,7 +836,7 @@ def write_data_repo(game_docs, prop_docs, edge_list, status):
                             "remaining": status.get("creditsRemaining")}) + "\n")
 
 
-def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(), mups=None, previews=()):
+def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(), mups=None, previews=(), fin=None):
     db = firestore_db()
 
     hash_file = os.path.join(DATA_DIR, "latest", "hashes.json")
@@ -861,6 +869,11 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
     for pk in picks:
         put(f"picks/{pk['id']}", {"date": pk.get("date"), "gameId": pk.get("gameId"),
                                   "status": pk.get("status", "pending")}, pk)
+    if fin is not None:
+        import finals
+        for k, d in fin.items():
+            put(f"finals/{k}", {"date": d["date"], "league": d["league"], "gameId": d.get("gameId")}, d)
+        put("board/finals", {}, {"games": finals.summary(fin)})
     writes.append(("board/status", status))
 
     # Spark plan: 20k writes a day. Past 14k, prop docs only for games starting within 2 hours; past 19k, none.
@@ -894,6 +907,12 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
         for snap in db.collection(col).where("commence", "<", gone_before).stream():
             batch.delete(snap.reference)
             new.pop(f"{col}/{snap.id}", None)
+            n += 1
+    if fin is not None:     # finals: keep three days
+        cut = (NOW - timedelta(hours=7) - timedelta(days=2)).strftime("%Y-%m-%d")
+        for snap in db.collection("finals").where("date", "<", cut).stream():
+            batch.delete(snap.reference)
+            new.pop(f"finals/{snap.id}", None)
             n += 1
     batch.commit()
     new["_writes"] = {"day": day, "n": used_today + n}
