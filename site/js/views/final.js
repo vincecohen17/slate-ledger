@@ -105,7 +105,9 @@ function boxScore(x) {
     <div class="tiny faint">Starters in bold.</div></div>`;
 }
 
-export function findFinal(gameId) { return S.finals.find((x) => x.gameId === gameId) || null; }
+// a final belongs to a game only if it started at the same time (series play the same teams on back-to-back days)
+const sameStart = (x, g) => !g || Math.abs(new Date(x.commence) - new Date(g.commence)) < 4 * 3600000;
+export function findFinal(gameId) { return S.finals.find((x) => x.gameId === gameId && sameStart(x, S.games.get(gameId))) || null; }
 
 export function renderFinal(el, key) {
   loadFinal(key);

@@ -153,7 +153,7 @@ export function renderBoard(el) {
       <span class="spacer"></span><span class="tiny muted">Bars: market vs model win chance · rank bars: longer is better · <span class="pos">teal</span> price beats the sharp fair</span></div>`;
   // finished games: the final card replaces the game's card; earlier finals get their own section per day
   const finals = (S.finals || []).filter((x) => (league === "All" || x.league === league) && (!x.tennis || x.gameId));   // tennis: only matches we had on the board
-  const finByGame = new Map(finals.filter((x) => x.gameId).map((x) => [x.gameId, x]));
+  const finByGame = new Map(finals.filter((x) => x.gameId && (!S.games.get(x.gameId) || Math.abs(new Date(x.commence) - new Date(S.games.get(x.gameId).commence)) < 4 * 3600000)).map((x) => [x.gameId, x]));
   let day = "";
   if (sort !== "time") h += `<div class="grid">`;
   for (const g of shown) {

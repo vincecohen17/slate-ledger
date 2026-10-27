@@ -123,7 +123,7 @@ def _match(snaps, games, sport, home, away, when):
     hn, an = {R.norm(home.get("name") or ""), R.norm(home.get("abbr") or "")}, {R.norm(away.get("name") or ""), R.norm(away.get("abbr") or "")}
     def ok(h, a, ha, aa, t):
         try:
-            close = abs((datetime.fromisoformat(t.replace("Z", "+00:00")) - when).total_seconds()) < 30 * 3600
+            close = abs((datetime.fromisoformat(t.replace("Z", "+00:00")) - when).total_seconds()) < 4 * 3600      # series play the same teams on back-to-back days
         except Exception:
             close = False
         return close and ({R.norm(h), R.norm(ha or "")} & hn) and ({R.norm(a), R.norm(aa or "")} & an)

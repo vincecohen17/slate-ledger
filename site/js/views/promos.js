@@ -73,7 +73,7 @@ function form(p) {
       const same = tg && p.promoLine != null && +p.promoLine === +tg.point;
       return `${same ? `<div class="tiny neg" style="margin-bottom:6px">The promo line is the same as the regular line (${tg.point}). Type the discounted number the app shows.</div>` : ""}
         <div>Worth about <b class="${opts[0].ev >= 0 ? "pos" : "neg"}">${money(opts[0].ev)}</b>. Suggested plays:</div>
-        <ol class="pr-sug">${opts.map((o) => `<li><span class="grow">${esc(o.legs.map((c) => `${c.leg.label} (${prob(c.P)})`).join(" + "))}</span>
+        <ol class="pr-sug">${opts.map((o) => `<li><span class="grow">${esc(o.legs.map((c) => `${c.leg.label} (${prob(c.P)}${c.needs ? `, needs ≥ ${c.needs.toFixed(2)}x` : c.mult && Math.abs(c.mult - 1) > 0.01 ? `, pays ${c.mult.toFixed(2)}x` : ""})`).join(" + "))}</span>
           <b class="${o.ev >= 0 ? "pos" : "neg"}">${money(o.ev)}</b></li>`).join("")}</ol>`;
     } catch (e) { return ""; }
   })();
@@ -109,6 +109,8 @@ function optRow(p, o, i, max) {
   const pick = o.pick, dep = o.deposit;
   const legsH = o.legs.map((c) => `<div class="row pr-leg">${betImage({ gameId: c.leg.gameId, label: c.leg.label, player: c.leg.player, headshot: c.leg.headshot }, 24)}
       <span class="grow ellip">${esc(c.leg.label)}${c.promo ? ` <span class="pill pos">promo</span>` : ""}</span>
+      ${pick && c.mult != null && Math.abs(c.mult - 1) > 0.01 ? `<span class="pill" title="this pick's payout vs a standard pick">${c.mult.toFixed(2)}x</span>` : ""}
+      ${pick && c.needs ? `<span class="pill warn" title="skip this pick if the app shows a lower multiplier">needs ≥ ${c.needs.toFixed(2)}x</span>` : ""}
       ${pick ? "" : `<span class="num small">${c.price?.am != null ? am(c.price.am) : c.price?.standIn ? `~${am(amOf(c.D))}` : am(amOf(c.D))}</span>`}
       <span class="tiny muted" title="our chance">${prob(c.P)}</span></div>`).join("");
   const bar = `<div class="pr-evb"><i class="${o.ev >= 0 ? "pos" : "neg"}" style="width:${Math.min(100, Math.abs(o.ev) / max * 100).toFixed(0)}%"></i></div>`;
@@ -146,6 +148,7 @@ function promoCard(p) {
       ${!venueHasFeed(p.venue) && p.venue !== "any" ? `<div class="note">${esc(venueName(p.venue))} isn't in the odds feed: prices shown are typical sportsbook prices. Check the app's price before betting.</div>` : ""}
       ${VENUES.find((v) => v.key === p.venue)?.proxy ? `<div class="note">${esc(venueName(p.venue))} prices are read from the matching sportsbook; confirm the price in the app.</div>` : ""}
       ${k === "deposit_match" && opts[0]?.deposit ? depSummary(opts[0].deposit) : ""}
+      ${opts.some((o) => o.pick && o.legs.some((c) => c.needs)) ? `<div class="note">${esc(venueName(p.venue))} sets a payout multiplier on each pick that the odds feed doesn't carry. These suggestions stick to near-even picks the app usually pays at 1x; if the app shows a pick below its "needs" number, swap it out.</div>` : ""}
       ${opts.length ? opts.slice(0, 6).map((x, i) => optRow(p, x, i, max)).join("") : `<div class="note">Nothing on the board meets every rule yet. More games and props arrive with each pull.</div>`}</div>` : ""}
   </div>`;
 }

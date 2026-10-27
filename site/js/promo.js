@@ -93,7 +93,9 @@ export function parsePromo(text) {
   const t = " " + text.toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, " ") + " ";
   const p = blank();
   p.text = text;
-  const v = VENUES.find((x) => x.aliases.some((a) => t.includes(" " + a.trim())));
+  // the longest alias that appears wins ("dk pick6" is Pick6, not DraftKings)
+  let v = null, vl = 0;
+  for (const x of VENUES) for (const a of x.aliases) if (t.includes(" " + a.trim()) && a.trim().length > vl) { v = x; vl = a.trim().length; }
   if (v) p.venue = v.key;
   const pick = PICKEM.has(p.venue);
   const m = (re) => t.match(re);
@@ -314,7 +316,7 @@ function entryPay(p, cs) {     // expected multiplier of a pick'em entry
   const flex = parseTable(p.flex);
   if (flex) { const d = hitsDist(cs.map((c) => c.P)); return Object.entries(flex).reduce((s, [k, m]) => s + (d[+k] || 0) * m, 0); }
   const M = (p.mult || payoutFor(p.venue, n) || 0) * (1 + (p.kind === "pickem_boost" ? p.boost || 0 : 0));
-  return pAll(cs) * M;
+  return pAll(cs) * M * cs.reduce((x, c) => x * (c.mult ?? 1), 1);      // per-pick payout adjustments (Underdog, Dabble)
 }
 
 export function value(p, cs, ctx = {}) {
@@ -466,9 +468,18 @@ function sgpPlan(p, cands, n, top, ctx) {
 function pickemPlan(p, top, ctx) {
   const all = legs();
   const fed = all.some((l) => l.pickem === p.venue);
+  // Each pick's payout: Underdog and Dabble send it (per-pick price vs the standard 1.732 of a 3x 2-pick).
+  // PrizePicks and Pick6 set it in the app (0.6x, 0.8x...) and the feed only has a placeholder, so keep to near-even
+  // picks, which those apps usually pay at 1x, and show the smallest multiplier each pick needs to be worth it.
+  const STD = Math.sqrt(3);
   let pool = all.filter((l) => legOK(p, l) && (fed ? l.pickem === p.venue : (!l.pickem && l.kind === "prop" && l.main)))
-    .map((l) => ({ leg: l, price: { am: null }, D: 1, P: l.fair }))
-    .filter((c) => c.P >= 0.5 && (fed || c.P <= 0.62)).sort((a, b) => b.P - a.P);
+    .map((l) => {
+      const real = fed && !l.varPay && l.pickDec > 1;
+      return { leg: l, price: { am: null }, D: 1, P: l.fair, mult: real ? l.pickDec / STD : 1, needs: l.varPay ? l.minMult ?? (1 / l.fair) / STD : null, varPay: !!l.varPay || !fed };
+    })
+    // varPay apps: near-even picks only (likely paid 1x); real per-pick payouts (Underdog, Dabble): any side the payout justifies
+    .filter((c) => c.varPay ? c.P >= 0.5 && c.P <= 0.59 : c.P >= 0.3 && c.P * c.mult * STD > 0.9)
+    .sort((a, b) => b.P * b.mult - a.P * a.mult);
   let fixed = null;
   if (p.kind === "discounted_line") {
     const l = findTarget(p.target);
