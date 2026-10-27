@@ -15,7 +15,7 @@ concurrency: { group: pull, cancel-in-progress: false }
 jobs:
   pull:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4

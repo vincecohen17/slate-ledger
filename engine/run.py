@@ -97,6 +97,8 @@ def main():
     if MODE == "probe":
         import probe  # noqa: F401  (runs on import)
         return
+    if MODE == "stats":
+        return run_stats(backfill="backfill" in open(os.path.join(os.path.dirname(__file__), "run-request")).read())
     if MODE == "rebuild":
         return rebuild()
     key = os.environ.get("ODDS_API_KEY")
@@ -169,6 +171,15 @@ def main():
     }
     publish(game_docs, prop_docs, status, stamp=NOW.strftime("%Y-%m-%dT%H%M%S"))
     log(f"credits left {api.remaining}, errors {len(errors)}")
+
+
+def run_stats(backfill=False):
+    import stats
+    for lg in ("nba", "nhl", "nfl"):
+        n = stats.collect(lg, DATA_DIR, backfill=backfill)
+        inj = stats.injuries(lg, DATA_DIR)
+        log(f"stats {lg}: {n} games fetched, injuries for {len(inj or {})} teams")
+    log(f"moneypuck: {stats.moneypuck(DATA_DIR)}")
 
 
 def load_picks(days=14):
