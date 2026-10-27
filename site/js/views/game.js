@@ -96,8 +96,15 @@ function propCard(player, rows, market) {
     const f = r.fair || {};
     const po = f.Over ?? f.Yes, pu = f.Under ?? f.No;
     const bo = r.bestVenue?.Over || r.bestVenue?.Yes, bu = r.bestVenue?.Under || r.bestVenue?.No;
-    const gd = (r.dfs || []).filter((d) => d.alt === "goblin" || d.alt === "demon").map((d) => `<span class="pill ${d.alt === "goblin" ? "gob" : "dem"}" title="${esc(d.name)} ${d.alt} ${d.point}: Over only, pays ${d.alt === "goblin" ? "less" : "more"} than a standard pick. Our chance it goes over: ${prob(d.pOver, 1)}. Compare with the payout the app shows.">${bookLogo(d.book, d.name, 13)} ${d.alt === "goblin" ? "🟢 goblin" : "😈 demon"} O ${prob(d.pOver)}</span>`).join(" ");
-    const pk = (r.dfs || []).filter((d) => d.side).map((d) => `<span class="pill ${d.edge >= 0.02 ? "pos" : ""}" title="${esc(d.name)} line ${d.point}: our ${d.side} chance ${prob(d.p)} vs ${prob(d.be ?? 0.5774, 1)} to break even at this line's payout">${bookLogo(d.book, d.name, 13)} ${esc(d.name)} ${d.side[0]} ${prob(d.p)}</span>`).join(" ");
+    const gd = (r.dfs || []).filter((d) => d.alt === "goblin" || d.alt === "demon").map((d) => `<span class="pill ${d.alt === "goblin" ? "gob" : "dem"}" title="${esc(d.name)} ${d.alt} ${d.point}: Over only, pays ${d.alt === "goblin" ? "less" : "more"} than a standard pick. Our chance it goes over: ${prob(d.pOver, 1)}. Worth it if the app's multiplier is at least ${(d.minMult?.Over ?? 0).toFixed(2)}x.">${bookLogo(d.book, d.name, 13)} ${d.alt === "goblin" ? "🟢 goblin" : "😈 demon"} O ${prob(d.pOver)}${d.minMult?.Over ? ` <span class="muted">≥${d.minMult.Over.toFixed(2)}x</span>` : ""}</span>`).join(" ");
+    // pick'em: judged sides, plus the smallest multiplier worth taking on apps whose payouts are not in the feed
+    const pk = (r.dfs || []).filter((d) => d.side || (d.minMult && !d.alt)).map((d) => {
+      const mm = d.minMult || {};
+      const sides = Object.entries(mm).map(([s_, m]) => `${s_[0]} ≥${m.toFixed(2)}x`).join(" · ");
+      const t = d.flex || Object.keys(mm).length ? `${d.name} line ${d.point}: our over chance ${prob(d.fairOver, 1)}. Worth it if the app pays at least ${sides || "1x"} (1x = a standard pick).`
+        : `${d.name} line ${d.point}: our ${d.side} chance ${prob(d.p)} vs ${prob(d.be ?? 0.5774, 1)} to break even at this line's payout`;
+      return `<span class="pill ${d.edge >= 0.02 ? "pos" : ""}" title="${esc(t)}">${bookLogo(d.book, d.name, 13)} ${esc(d.name)} ${d.side ? `${d.side[0]} ${prob(d.p)}` : ""}${sides ? ` <span class="muted">${sides}</span>` : ""}</span>`;
+    }).join(" ");
     return `<div class="pl">
       <div class="pl-h"><b class="num">${r.point ?? ""}</b><span class="tiny muted">${r.isMain ? "main line" : r.modelFair ? "alt · market model" : "alt"}</span></div>
       ${r.model?.Over != null ? `<div class="row tiny" style="gap:6px;margin-top:4px"><span class="pill ${r.model.Over - (po ?? 0.5) >= 0.04 ? "pos" : r.model.Over - (po ?? 0.5) <= -0.04 ? "neg" : ""}">our model ${r.model.mean} · O ${prob(r.model.Over)}</span></div>` : ""}

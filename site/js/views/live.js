@@ -3,8 +3,11 @@ import { S } from "../store.js";
 import { esc, am, prob, pct, both, bothP, teamLogo, headshot, ago, bookLogo, edgeBar, $$ } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 
+const TENNIS = (lg) => lg === "ATP" || lg === "WTA";
 const sitText = (st, league) => {
   if (!st) return "";
+  if (TENNIS(league)) return st.detail || `set ${st.set || ""}`;
+  if (st.minute != null) return `${st.clock || ""}${st.reds && (st.reds.home || st.reds.away) ? ` · 🟥 ${st.reds.away ? `${st.reds.away} away` : ""}${st.reds.home ? ` ${st.reds.home} home` : ""}` : ""}`;
   if (league === "MLB") return `${st.detail || ""}${st.outs != null && !st.between ? ` · ${st.outs} out` : ""}${st.on1 || st.on2 || st.on3 ? ` · on ${[st.on1 && "1st", st.on2 && "2nd", st.on3 && "3rd"].filter(Boolean).join(", ")}` : ""}`;
   if (league === "NFL" || league === "NCAAF") return `${st.detail || ""}${st.downText ? ` · ${st.downText}` : ""}`;
   return st.detail || `P${st.period} ${st.clock || ""}`;
@@ -25,8 +28,25 @@ function diamond(st) {
     <rect x="23" y="11" width="8" height="8" transform="rotate(45 27 15)" ${b(st.on1)}/><rect x="3" y="11" width="8" height="8" transform="rotate(45 7 15)" ${b(st.on3)}/></svg>`;
 }
 
+// tennis score: set boxes per player, serving dot
+function tennisScore(st, home, away) {
+  const pl = st.players || [];
+  const row = (name) => {
+    const p = pl.find((q) => q.name && name && q.name.toLowerCase().split(" ").pop() === name.toLowerCase().split(" ").pop()) || {};
+    return `<span class="row" style="gap:6px"><i class="srv ${p.serving ? "on" : ""}"></i><b>${esc(name)}</b></span>
+      <span class="sets">${(p.sets || []).map((g) => `<b class="num">${g}</b>`).join("")}</span>`;
+  };
+  return `<div class="live-score tennis">${row(away)}${row(home)}</div>`;
+}
+
 export function liveCard(x) {
   const st = x.state || {};
+  if (TENNIS(x.league)) {
+    return `<a class="card live-card" href="#/game/${x.id}/live" style="text-decoration:none;color:inherit">
+      <div class="row" style="justify-content:space-between"><span class="pill live">● LIVE</span><span class="tiny muted">${esc(x.league)} · ${esc(sitText(st, x.league))}</span></div>
+      ${tennisScore(st, x.home, x.away)}${wpPair(x, x.pHome, x.mkt)}
+      <div class="row tiny" style="justify-content:space-between"><span class="muted">${esc(x.home.split(" ").pop())} win chance</span>${x.edges ? `<span class="pill">${x.edges} live edge${x.edges > 1 ? "s" : ""}</span>` : ""}</div></a>`;
+  }
   const swing = x.pHome != null && x.mkt != null ? x.pHome - x.mkt : null;
   return `<a class="card live-card" href="#/game/${x.id}/live" style="text-decoration:none;color:inherit">
     <div class="row" style="justify-content:space-between"><span class="pill live">● LIVE</span><span class="tiny muted">${esc(x.league)} · ${esc(sitText(st, x.league))}</span></div>
@@ -78,14 +98,16 @@ export function renderGameLive(el, g) {
     .sort((a, b) => Math.abs((b.live.Over ?? 0.5) - (b.fair?.Over ?? 0.5)) - Math.abs((a.live.Over ?? 0.5) - (a.fair?.Over ?? 0.5))).slice(0, 24);
   el.insertAdjacentHTML("beforeend", `<div class="col" style="gap:12px">
     <div class="card"><div class="row" style="justify-content:space-between;flex-wrap:wrap"><span class="pill live">● LIVE</span><span class="tiny muted">${esc(sitText(st, d.league))} · prices ${ago(d.updated)}</span></div>
-      <div class="live-score big2">
+      ${TENNIS(d.league) ? tennisScore(st, g.home, g.away) : `<div class="live-score big2">
         <span class="row">${teamLogo(g.awayRef, g.away, 40)}<b>${esc(g.away)}</b></span><b class="num">${st.away?.score ?? "–"}</b>
-        <span class="row">${teamLogo(g.homeRef, g.home, 40)}<b>${esc(g.home)}</b></span><b class="num">${st.home?.score ?? "–"}</b></div>${diamond(st)}
+        <span class="row">${teamLogo(g.homeRef, g.home, 40)}<b>${esc(g.home)}</b></span><b class="num">${st.home?.score ?? "–"}</b></div>`}${diamond(st)}
       ${wpPair(g, m.pHome, (d.lines.find((l) => l.market === "h2h")?.fair || {})[g.home])}
       <div class="row tiny muted" style="gap:14px;flex-wrap:wrap;margin-top:6px">
         ${m.margin != null ? `<span>model final margin ${g.homeRef?.abbr || "home"} ${m.margin > 0 ? "+" : ""}${(+m.margin).toFixed(1)}</span>` : ""}
         ${m.total != null ? `<span>model final total ${(+m.total).toFixed(1)}</span>` : ""}
-        ${m.left != null ? `<span>${Math.round(m.left * 100)}% of the game left</span>` : ""}</div></div>
+        ${m.left != null ? `<span>${Math.round(m.left * 100)}% of the game left</span>` : ""}
+        ${m.pDraw != null ? `<span>draw ${prob(m.pDraw)}</span>` : ""}
+        ${m.serve ? `<span>points won on serve (model): ${esc(g.home.split(" ").pop())} ${Math.round(m.serve[0] * 100)}%, ${esc(g.away.split(" ").pop())} ${Math.round(m.serve[1] * 100)}%</span>` : ""}</div></div>
     <div class="card"><b>Live lines</b> <span class="tiny muted">best price at your venues · live fair · our live model · edge</span>
       <div class="lv-head tiny muted"><span>Bet</span><span>Best</span><span>Fair</span><span>Model</span><span>Edge</span></div>
       ${mainLines.map((l) => l.outcomes.map((o) => row(l, o)).join("")).join("") || `<div class="note">No live lines yet.</div>`}</div>

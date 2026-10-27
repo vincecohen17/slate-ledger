@@ -452,6 +452,17 @@ def _one_sided_fair(plines, mk, margins):
     return out
 
 
+# pick'em apps whose per-pick multipliers are not in the feed (the price is a placeholder)
+FLEX_PAYOUT = {"prizepicks", "pick6"}
+FLEX_STANDARD_MAX = 0.66      # beyond this chance the app nearly always cuts the multiplier, so it is not judged at 1x
+STD_LEG = 1 / C.DFS_BREAKEVEN  # per-leg payout of a standard 2-pick (3x): 1.732
+
+
+def min_mult(p):
+    """smallest payout multiplier (relative to a standard pick) at which a side with chance p is worth taking"""
+    return (1 / max(p, 1e-6)) / STD_LEG
+
+
 def _norm_outcome(o):
     """some markets name the player in 'name' with no description: make every player outcome (player, Yes/No/Over/Under)"""
     if not o.get("description") and o.get("name") not in ("Over", "Under", "Yes", "No"):
@@ -554,17 +565,26 @@ def build_props(ev, label):
                             else:
                                 d["alt"] = True
                             d["pOver"] = _r(po)
+                            d["minMult"] = {"Over": _r(min_mult(po))}
                             continue
+                        flex = d["book"] in FLEX_PAYOUT
+                        if flex:
+                            # payouts move pick by pick (e.g. Pick6 "0.6x") and the feed only sends a placeholder:
+                            # show the smallest multiplier worth taking for each side
+                            d["minMult"] = {s_: _r(min_mult(ps_)) for s_, ps_ in (("Over", po), ("Under", 1 - po)) if s_ in d["dec"]}
                         for side, ps in (("Over", po), ("Under", 1 - po)):
                             if side not in d["dec"] or not (0.15 <= ps <= 0.85):
                                 continue
+                            if flex and ps > FLEX_STANDARD_MAX:
+                                continue        # a side this likely is almost always paid below 1x on these apps
                             px = d["dec"][side]
-                            be = 1 / px if px and px > 1 else C.DFS_BREAKEVEN
+                            be = C.DFS_BREAKEVEN if flex else (1 / px if px and px > 1 else C.DFS_BREAKEVEN)
                             e = ps - be
                             if best is None or e > best[2]:
                                 best = (side, ps, e, be)
                         if best:
                             d["side"], d["p"], d["edge"], d["be"] = best[0], _r(best[1]), _r(best[2]), _r(best[3])
+                            d["flex"] = flex
                 rows.append(l)
             if mean is not None:
                 for l in plines:
@@ -657,6 +677,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "book": d["book"], "bookName": d["name"], "am": None, "pickem": True,
                         "player": l["player"], "headshot": l.get("headshot"), "last10": l.get("last10"), "point": d["point"],
                         "fair": d["p"], "edge": d["edge"], "fairWeight": l.get("fairWeight"), "be": d.get("be"),
+                        "minMult": (d.get("minMult") or {}).get(d["side"]), "flex": d.get("flex"),
                     })
     # rank: model-derived fairs (alt lines, pick'em lines) count half until backtests earn them more trust
     for x in out:

@@ -347,3 +347,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .lv-prog i:first-child { position: absolute; left: 0; top: 0; bottom: 0; background: var(--pos); border-radius: 4px; }
 .lv-prog i.ln { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg, #fff); }
 @media (max-width: 520px) { .lv-head, .lv-row { grid-template-columns: minmax(0, 1.4fr) 0.9fr 0.9fr 0.6fr; } .lv-head span:last-child, .lv-row .eb { display: none; } .lv-prop { grid-template-columns: 30px minmax(0, 1fr) 60px; } .lv-prop .lv-prog { display: none; } }
+.live-score.tennis { grid-template-columns: minmax(0, 1fr) auto; }
+.live-score .sets { display: flex; gap: 6px; } .live-score .sets b { min-width: 18px; text-align: center; font-size: 18px; }
+.srv { width: 7px; height: 7px; border-radius: 50%; background: transparent; display: inline-block; } .srv.on { background: var(--accent); }

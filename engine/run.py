@@ -130,6 +130,22 @@ def presence_doc():
 def _live_pre(s, g, mu, games):
     """pre-game starting point for the live model: our model, else the sharp pre-game market"""
     m = (mu or {}).get("model") or {}
+    pg = next((x for x in games if x["id"] == g["id"]), None) or {}
+    ml = next((l for l in pg.get("lines", []) if l["market"] == "h2h" and l.get("fair")), None)
+    if s.startswith("tennis_"):
+        pm = (ml or {}).get("fair", {}).get(g["home"])
+        if pm is None and m.get("pHome") is None:
+            return None
+        return {"pHome": pm if m.get("pHome") is None else (m["pHome"] if pm is None else 0.6 * pm + 0.4 * m["pHome"])}
+    if s.startswith("soccer_"):
+        if mu and mu.get("teams", {}).get("home", {}).get("goals") is not None:
+            return {"home": mu["teams"]["home"]["goals"], "away": mu["teams"]["away"]["goals"]}
+        tt = next((l for l in pg.get("lines", []) if l["market"] == "totals" and l.get("fair")), None)
+        if not (ml and tt):
+            return None
+        f = ml["fair"]
+        share = (f.get(g["home"], 0.4) + 0.5 * f.get("Draw", 0.25))
+        return {"home": tt["point"] * share, "away": tt["point"] * (1 - share)}
     if mu:
         if s == "icehockey_nhl":
             pre = {"home": mu["teams"]["home"].get("goals"), "away": mu["teams"]["away"].get("goals")}
@@ -139,7 +155,6 @@ def _live_pre(s, g, mu, games):
             pre = {"margin": m.get("margin"), "total": m.get("total")}
         if all(v is not None for v in pre.values()):
             return pre
-    pg = next((x for x in games if x["id"] == g["id"]), None) or {}
     sp = next((l for l in pg.get("lines", []) if l["market"] == "spreads" and l.get("fair")), None)
     tt = next((l for l in pg.get("lines", []) if l["market"] == "totals" and l.get("fair")), None)
     if not (sp and tt):
@@ -200,10 +215,13 @@ def live():
             refs.decorate_game(g, Rf)
             LV.stale_after(g, 120)
             ha, aa = (g.get("homeRef") or {}).get("abbr"), (g.get("awayRef") or {}).get("abbr")
-            st = states.get((s, refs.norm(ha or ""), refs.norm(aa or "")))
+            st = states.get((s, refs.norm(ha or ""), refs.norm(aa or ""))) or states.get((s, refs.norm(g["home"]), refs.norm(g["away"])))
             mu = mups.get(g["id"]) or {}
             pre = _live_pre(s, g, mu, games)
-            pj = LV.project(s, st, pre) if st and pre else None
+            if s.startswith("tennis_"):
+                pj = LV.project_tennis(st, g["home"], pre["pHome"]) if st and pre else None
+            else:
+                pj = LV.project(s, st, pre) if st and pre else None
             if pj:
                 f = LV.line_probs(s, g, pj)
                 for l in g["lines"]:

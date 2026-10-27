@@ -58,14 +58,36 @@ def _clock_min(s):
 # ---------------------------------------------------------------------------
 # in-game state
 
+def _path(sport):
+    if sport in PATH:
+        return PATH[sport]
+    if sport.startswith("soccer_"):
+        return next((v[0] for v in ST.SOCCER.values() if v[1] == sport), None)
+    if sport.startswith("tennis_atp"):
+        return "tennis/atp"
+    if sport.startswith("tennis_wta"):
+        return "tennis/wta"
+    return None
+
+
 def scoreboards(sports):
-    """{(sport, homeAbbr, awayAbbr): state} for games in progress"""
+    """{(sport, homeAbbr, awayAbbr): state} for games in progress (tennis: player names)"""
     out = {}
+    done = set()
     for sport in sports:
-        if sport not in PATH:
+        path = _path(sport)
+        if not path:
+            continue
+        if path.startswith("tennis/"):
+            if path not in done:
+                done.add(path)
+                out.update({(s_, a, b): v for (a, b), v in _tennis_live(path).items() for s_ in sports if _path(s_) == path})
+            continue
+        if path.startswith("soccer/"):
+            out.update(_soccer_live(sport, path))
             continue
         try:
-            sb = _get(f"{ESPN}/{PATH[sport]}/scoreboard" + ("?groups=80" if sport == "americanfootball_ncaaf" else ""))
+            sb = _get(f"{ESPN}/{path}/scoreboard" + ("?groups=80" if sport == "americanfootball_ncaaf" else ""))
         except Exception:
             continue
         for e in sb.get("events", []):
@@ -88,6 +110,70 @@ def scoreboards(sports):
                 if str(state["detail"] or "").lower().startswith(("mid", "end")):
                     state["between"] = True
             out[(sport, R.norm(state["home"]["abbr"]), R.norm(state["away"]["abbr"]))] = state
+    return out
+
+
+def _soccer_live(sport, path):
+    out = {}
+    try:
+        sb = _get(f"{ESPN}/{path}/scoreboard")
+    except Exception:
+        return out
+    for e in sb.get("events", []):
+        c = e["competitions"][0]
+        st = c.get("status") or {}
+        if (st.get("type") or {}).get("state") != "in":
+            continue
+        side = {x["homeAway"]: x for x in c["competitors"]}
+        reds = {"home": 0, "away": 0}
+        ids = {side["home"]["team"]["id"]: "home", side["away"]["team"]["id"]: "away"}
+        for dt in c.get("details") or []:
+            if "red" in str((dt.get("type") or {}).get("text", "")).lower():
+                reds[ids.get((dt.get("team") or {}).get("id"), "home")] += 1
+        clock = str(st.get("displayClock") or "0'")
+        try:
+            minute = sum(int(x) for x in clock.replace("'", "").split("+") if x.strip().isdigit())
+        except Exception:
+            minute = 0
+        state = {"espnId": e["id"], "period": st.get("period"), "clock": clock, "minute": minute, "detail": (st.get("type") or {}).get("shortDetail") or clock,
+                 "reds": reds,
+                 "home": {"abbr": side["home"]["team"]["abbreviation"], "id": side["home"]["team"]["id"], "score": float(side["home"].get("score") or 0)},
+                 "away": {"abbr": side["away"]["team"]["abbreviation"], "id": side["away"]["team"]["id"], "score": float(side["away"].get("score") or 0)}}
+        out[(sport, R.norm(state["home"]["abbr"]), R.norm(state["away"]["abbr"]))] = state
+        out[(sport, R.norm(side["home"]["team"].get("displayName")), R.norm(side["away"]["team"].get("displayName")))] = state
+    return out
+
+
+def _tennis_live(path):
+    """{(name a, name b): state} for singles matches in play, both name orders"""
+    out = {}
+    try:
+        sb = _get(f"{ESPN}/{path}/scoreboard")
+    except Exception:
+        return out
+    for ev in sb.get("events", []):
+        for gr in ev.get("groupings") or [{"competitions": ev.get("competitions", [])}]:
+            if "doubles" in str((gr.get("grouping") or {}).get("slug", "")).lower():
+                continue
+            for c in gr.get("competitions", []):
+                stt = c.get("status") or {}
+                if (stt.get("type") or {}).get("state") != "in":
+                    continue
+                comp = c.get("competitors", [])
+                if len(comp) != 2:
+                    continue
+                pl = []
+                for x in comp:
+                    sets = [int(float(ls.get("value") or 0)) for ls in x.get("linescores") or []]
+                    pl.append({"name": (x.get("athlete") or {}).get("displayName"), "sets": sets, "serving": bool(x.get("possession"))})
+                if not all(p["name"] for p in pl):
+                    continue
+                best_of = 5 if (c.get("format") or {}).get("regulation", {}).get("periods") == 5 else 3
+                state = {"espnId": c.get("id"), "detail": (stt.get("type") or {}).get("shortDetail") or "", "players": pl, "bestOf": best_of,
+                         "set": stt.get("period") or len(pl[0]["sets"])}
+                a, b = R.norm(pl[0]["name"]), R.norm(pl[1]["name"])
+                out[(a, b)] = state
+                out[(b, a)] = state
     return out
 
 
@@ -157,7 +243,105 @@ def project(sport, st, pre):
         cur_h = RE24[min(2, outs)][idx] * (rh / 0.5) if not top and not between else 0.0
         mh, ma = cur_h + rh * h_left, cur_a + ra * a_left
         return {"mh": mh, "ma": ma, "hs": int(hs), "as": int(as_), "left": (h_left + a_left) / 18}
+    if sport.startswith("soccer_"):
+        minute = st.get("minute") or 0
+        r = max(0.0, (93 - minute) / 93) if (st.get("period") or 1) <= 2 else 0.0
+        lh, la = pre["home"] * r, pre["away"] * r
+        rh, ra = (st.get("reds") or {}).get("home", 0), (st.get("reds") or {}).get("away", 0)
+        lh *= 0.7 ** rh * 1.2 ** ra
+        la *= 0.7 ** ra * 1.2 ** rh
+        return {"lh": lh, "la": la, "hs": int(hs), "as": int(as_), "left": r}
     return None
+
+
+# ---------------------------------------------------------------------------
+# tennis: serve point probabilities -> game, tiebreak, set, match
+
+from functools import lru_cache
+
+
+def _hold(sv):
+    q = 1 - sv
+    return sv ** 4 * (1 + 4 * q + 10 * q * q) + 20 * sv ** 3 * q ** 3 * sv * sv / max(1e-9, 1 - 2 * sv * q)
+
+
+def _tiebreak(sa, sb):
+    """P(A wins a tiebreak) when A serves first"""
+    @lru_cache(None)
+    def f(a, b):
+        if a >= 7 and a - b >= 2:
+            return 1.0
+        if b >= 7 and b - a >= 2:
+            return 0.0
+        if a == b and a >= 6:
+            x, y = sa * (1 - sb), (1 - sa) * sb
+            return x / (x + y) if x + y else 0.5
+        n = a + b
+        a_srv = n == 0 or ((n - 1) // 2) % 2 == 1
+        p = sa if a_srv else 1 - sb
+        return p * f(a + 1, b) + (1 - p) * f(a, b + 1)
+    return f(0, 0)
+
+
+def _set(sa, sb, ga=0, gb=0, a_srv=True):
+    ha, hb = _hold(sa), _hold(sb)
+    tb_a, tb_b = _tiebreak(sa, sb), 1 - _tiebreak(sb, sa)
+
+    @lru_cache(None)
+    def f(a, b, srv):
+        if (a >= 6 and a - b >= 2) or a == 7:
+            return 1.0
+        if (b >= 6 and b - a >= 2) or b == 7:
+            return 0.0
+        if a == 6 and b == 6:
+            return tb_a if srv else tb_b
+        p = ha if srv else 1 - hb
+        return p * f(a + 1, b, not srv) + (1 - p) * f(a, b + 1, not srv)
+    return f(ga, gb, a_srv)
+
+
+def tennis_match(sa, sb, best_of=3, sets_a=0, sets_b=0, ga=0, gb=0, a_srv=None):
+    need = best_of // 2 + 1
+    cur = 0.5 * (_set(sa, sb, ga, gb, True) + _set(sa, sb, ga, gb, False)) if a_srv is None else _set(sa, sb, ga, gb, a_srv)
+    ps = 0.5 * (_set(sa, sb) + _set(sa, sb, 0, 0, False))
+
+    @lru_cache(None)
+    def m(a, b):
+        if a >= need:
+            return 1.0
+        if b >= need:
+            return 0.0
+        return ps * m(a + 1, b) + (1 - ps) * m(a, b + 1)
+    return cur * m(sets_a + 1, sets_b) + (1 - cur) * m(sets_a, sets_b + 1)
+
+
+def serve_probs(p_match, best_of=3, base=0.64):
+    """serve point win chances for A and B that reproduce a pre-match win chance"""
+    lo, hi = -0.2, 0.2
+    for _ in range(40):
+        d = (lo + hi) / 2
+        if tennis_match(base + d, base - d, best_of) < p_match:
+            lo = d
+        else:
+            hi = d
+    d = (lo + hi) / 2
+    return base + d, base - d
+
+
+def project_tennis(st, home, p_home):
+    """live match win chance for `home` from sets and games (points are not in the feed)"""
+    pl = st["players"]
+    hi = 0 if R.norm(pl[0]["name"]) == R.norm(home) else 1
+    A, Bp = pl[hi], pl[1 - hi]
+    sa, sb = serve_probs(min(0.97, max(0.03, p_home)), st.get("bestOf", 3))
+    n = max(len(A["sets"]), len(Bp["sets"]))
+    sets_a = sum(1 for i in range(n - 1) if (A["sets"][i] if i < len(A["sets"]) else 0) > (Bp["sets"][i] if i < len(Bp["sets"]) else 0))
+    sets_b = (n - 1) - sets_a if n else 0
+    ga = A["sets"][-1] if A["sets"] else 0
+    gb = Bp["sets"][-1] if Bp["sets"] else 0
+    srv = True if A.get("serving") else False if Bp.get("serving") else None
+    p = tennis_match(sa, sb, st.get("bestOf", 3), sets_a, sets_b, min(ga, 7), min(gb, 7), srv)
+    return {"pHome": p, "sets": [sets_a, sets_b], "games": [ga, gb], "serve": [round(sa, 3), round(sb, 3)], "left": None}
 
 
 def _pois(mu, n=25):
@@ -199,6 +383,48 @@ def line_probs(sport, g, pj):
                 mean = (pj["total"] + pj["margin"]) / 2 if side == "home" else (pj["total"] - pj["margin"]) / 2
                 po = 1 - _phi((pt - mean) / (math.hypot(pj["sdTotal"], pj["sdMargin"]) / 2))
                 return {"Over": po, "Under": 1 - po}
+        return f
+    if sport.startswith("tennis_"):
+        return lambda l: {home: pj["pHome"], away: 1 - pj["pHome"]} if l["market"] == "h2h" else None
+    if sport.startswith("soccer_"):
+        ph, pa = _pois(pj["lh"], 15), _pois(pj["la"], 15)
+        H, A = pj["hs"], pj["as"]
+        grid = [(H + i, A + j, ph[i] * pa[j]) for i in range(15) for j in range(15)]
+        hw = sum(p for h, a, p in grid if h > a)
+        dr = sum(p for h, a, p in grid if h == a)
+        pj["pHome"], pj["pDraw"] = hw, dr
+
+        def ah(pt, handicap=True):
+            """asian handicap / total, quarter lines split in two, pushes removed"""
+            parts = [pt] if (pt * 4) % 2 == 0 else [pt - 0.25, pt + 0.25]
+            vals = []
+            for q in parts:
+                if handicap:
+                    w = sum(p for h, a, p in grid if h + q > a)
+                    push = sum(p for h, a, p in grid if h + q == a)
+                else:
+                    w = sum(p for h, a, p in grid if h + a > q)
+                    push = sum(p for h, a, p in grid if h + a == q)
+                vals.append(w / max(1e-9, 1 - push))
+            return sum(vals) / len(vals)
+
+        def f(l):
+            mk = l["market"].replace("alternate_", "")
+            pt = l.get("point")
+            if mk == "h2h":
+                out = {home: hw, away: 1 - hw - dr}
+                for o in l.get("outcomes", []):
+                    out.setdefault(o, dr)
+                return out
+            if mk == "spreads" and pt is not None:
+                c = ah(pt, True)
+                return {home: c, away: 1 - c}
+            if mk == "totals" and pt is not None:
+                o = ah(pt, False)
+                return {"Over": o, "Under": 1 - o}
+            if mk == "btts":
+                y = sum(p for h, a, p in grid if h > 0 and a > 0)
+                return {"Yes": y, "No": 1 - y}
         return f
     if sport in ("icehockey_nhl", "baseball_mlb"):
         if sport == "icehockey_nhl":
