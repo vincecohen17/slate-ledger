@@ -10,7 +10,10 @@ on:
     # app-driven refresh: every 5 minutes the engine checks whether the site is open and what is stale
     - cron: "*/5 * * * *"
 # in-play pulls run in their own lane so a long pre-game pull never holds them up
-concurrency: { group: "pull-${{ github.event.inputs.mode == 'live' && 'live' || 'main' }}", cancel-in-progress: false }
+concurrency: { group: "pull-${{ (github.event.inputs.mode == 'live' || github.event.inputs.mode == 'history' || github.event.inputs.mode == 'backtest') && github.event.inputs.mode || 'main' }}", cancel-in-progress: false }
+permissions:
+  contents: read
+  actions: write        # a long history backfill asks for its next run
 jobs:
   pull:
     runs-on: ubuntu-latest
@@ -31,6 +34,7 @@ jobs:
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GITHUB_TOKEN: ${{ github.token }}
           DATA_DIR: data
           MODE: ${{ github.event.inputs.mode || (github.event_name == 'schedule' && 'auto') || '' }}
         run: python engine/run.py

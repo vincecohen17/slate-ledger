@@ -95,6 +95,15 @@ class OddsAPI:
         # usage counts markets returned; the estimate assumes about 60% of requested markets come back
         return self._get(f"/sports/{sport}/events/{event_id}/odds", p, est_cost=max(1, int(len(markets) * 0.6)) * units)
 
+    # historical (10 credits per market returned per unit)
+    def historical_events(self, sport, at, **kw):
+        return self._get(f"/historical/sports/{sport}/events", dict(date=at, **kw), est_cost=1)
+
+    def historical_event_odds(self, sport, event_id, at, markets, bookmakers):
+        p = {"date": at, "markets": ",".join(markets), "bookmakers": ",".join(bookmakers), "oddsFormat": "decimal"}
+        units = -(-len(bookmakers) // 10)
+        return self._get(f"/historical/sports/{sport}/events/{event_id}/odds", p, est_cost=int(10 * len(markets) * 0.7) * units)
+
     def event_odds_all(self, sport, event_id, markets, bookmakers, _depth=0):
         """Every market for one event. If the API rejects a market for this sport (422), drop the ones it names,
         or split the list in half until the bad ones are isolated. Returns (payload, rejected markets)."""

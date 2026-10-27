@@ -30,7 +30,7 @@ def _mode():
         return m
     try:  # push-triggered runs read the mode from the first word of engine/run-request
         w = open(os.path.join(os.path.dirname(__file__), "run-request")).read().split()
-        if w and w[0] in ("mock", "live", "auto", "refresh", "rebuild", "probe", "stats"):
+        if w and w[0] in ("mock", "live", "auto", "refresh", "rebuild", "probe", "stats", "history", "backtest"):
             return w[0]
     except OSError:
         pass
@@ -117,6 +117,31 @@ def firestore_db():
             firebase_admin.initialize_app(credentials.Certificate(json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT"])))
         _DB = firestore.client()
     return _DB
+
+
+def run_history():
+    """historical closing odds, resumable; hands off to a fresh run before the job time limit"""
+    import history
+    key = os.environ.get("ODDS_API_KEY")
+    if not key:
+        raise RuntimeError("ODDS_API_KEY secret is missing or empty")
+    api = OddsAPI(key)
+    st, stop = history.run(api, DATA_DIR)
+    log(f"history: {st['games']} games so far, {st['spent']} credits, stop={stop}, left {api.remaining}")
+    if stop == "time" and os.environ.get("GITHUB_TOKEN"):
+        import urllib.request
+        req = urllib.request.Request("https://api.github.com/repos/vincecohen17/slate-ledger/actions/workflows/pull.yml/dispatches",
+                                     data=json.dumps({"ref": "main", "inputs": {"mode": "history"}}).encode(), method="POST",
+                                     headers={"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}", "Accept": "application/vnd.github+json"})
+        try:
+            urllib.request.urlopen(req, timeout=20)
+            log("history: next run requested")
+        except Exception as e:
+            log(f"history: could not request the next run ({type(e).__name__})")
+    elif stop is None:
+        # everything fetched: replay the models over it
+        import backtest
+        backtest.main(DATA_DIR)
 
 
 def presence_doc():
@@ -353,6 +378,10 @@ def auto():
     if not key:
         raise RuntimeError("ODDS_API_KEY secret is missing or empty")
     st = load_state()
+    try:
+        st["historyLeft"] = max(0, C.HISTORY_RESERVE - json.load(open(os.path.join(DATA_DIR, "history", "state.json"))).get("spent", 0))
+    except Exception:
+        pass
     plan_key = C.PLAN if C.PLAN != "auto" else st.get("plan", "free")
     P = C.PLANS[plan_key]
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
@@ -559,6 +588,11 @@ def main():
         return rebuild()
     if MODE == "live":
         return live()
+    if MODE == "history":
+        return run_history()
+    if MODE == "backtest":
+        import backtest
+        return backtest.main(DATA_DIR)
     if MODE in ("auto", "refresh"):     # refresh = a forced pull (Claude's pick runs ask for one first)
         return auto()
     key = os.environ.get("ODDS_API_KEY")
