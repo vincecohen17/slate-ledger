@@ -23,6 +23,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - `engine/tracker.py` model report card: snapshots model vs sharp fair before each game (`track/open/`), grades after
   (`track/graded/<sport>.jsonl`), fits per-market calibration a, b and model trust weight w (`calib/params.json`), and
   applies the calibration to every model probability on each run. Reports page shows the card.
+- `engine/finals.py` finished games (ESPN summary fetched once per game: final score, line score, team stats, scoring
+  plays, box scores) plus our pre-game numbers from `track/open` and how they did; data repo `finals/<date>.json`,
+  Firestore `finals/{sport|espnId}` and `board/finals` (three days). Collected in auto/rebuild runs before grading.
+- `site/js/promo.js` promo engine: 13 promo kinds (KINDS), plain-words parser, dollar value per promo (bonus-bet
+  conversion measured on the board), optimizer (main lines only, venue price at most 10% over fair), pick'em entries,
+  discounted lines via `site/js/dist.js` (port of build.p_over; keep in sync), settlement for the ledger.
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,
