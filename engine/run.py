@@ -152,7 +152,7 @@ def auto():
     plan), and only on what is stale for how soon it starts."""
     key = os.environ.get("ODDS_API_KEY")
     if not key:
-        sys.exit("ODDS_API_KEY missing")
+        raise RuntimeError("ODDS_API_KEY secret is missing or empty")
     st = load_state()
     plan_key = C.PLAN if C.PLAN != "auto" else st.get("plan", "free")
     P = C.PLANS[plan_key]
@@ -341,7 +341,7 @@ def main():
         return auto()
     key = os.environ.get("ODDS_API_KEY")
     if not key:
-        sys.exit("ODDS_API_KEY missing")
+        raise RuntimeError("ODDS_API_KEY secret is missing or empty")
     horizon, prop_win, prop_mk, prop_rg, cap = plan()
     api = OddsAPI(key, max_credits=cap)
     errors = []
@@ -603,5 +603,26 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
     return n
 
 
+def _record_failure(e):
+    """write what went wrong to the private data repo (key redacted) so it can be read without the Actions log"""
+    key = os.environ.get("ODDS_API_KEY") or "\x00"
+    msg = f"{type(e).__name__}: {e}"
+    detail = getattr(e, "detail", "") or ""
+    info = {"at": iso(NOW), "mode": MODE, "error": msg.replace(key, "***")[:400], "detail": str(detail).replace(key, "***")[:400],
+            "keyLength": len(os.environ.get("ODDS_API_KEY") or ""), "keyHasSpace": any(c.isspace() for c in (os.environ.get("ODDS_API_KEY") or ""))}
+    try:
+        os.makedirs(os.path.join(DATA_DIR, "latest"), exist_ok=True)
+        json.dump(info, open(os.path.join(DATA_DIR, "latest", "last_error.json"), "w"), indent=1)
+    except Exception:
+        pass
+    log(f"run failed: {type(e).__name__}")
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:
+        _record_failure(e)
+        sys.exit(1)

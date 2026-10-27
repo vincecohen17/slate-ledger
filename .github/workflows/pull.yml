@@ -34,6 +34,7 @@ jobs:
           MODE: ${{ github.event.inputs.mode || (github.event_name == 'schedule' && 'auto') || '' }}
         run: python engine/run.py
       - name: Save snapshot to the private data repo
+        if: always()
         run: |
           cd data
           git config user.name "slate-ledger-bot"
