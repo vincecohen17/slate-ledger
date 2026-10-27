@@ -389,9 +389,10 @@ def main():
 
 def run_stats(backfill=False):
     import stats
-    log(f"nflverse: {stats.nflverse(DATA_DIR)}")
-    log(f"tennis: {stats.tennis(DATA_DIR)}")
-    log(f"mlb: {stats.mlb(DATA_DIR)}")
+    diag = {"at": iso(NOW), "nflverse": stats.nflverse(DATA_DIR), "tennis": stats.tennis(DATA_DIR), "mlb": stats.mlb(DATA_DIR)}
+    os.makedirs(os.path.join(DATA_DIR, "stats"), exist_ok=True)
+    json.dump(diag, open(os.path.join(DATA_DIR, "stats", "last_run.json"), "w"), indent=1)   # private repo: full diagnostics
+    log(f"stats sources: {sum(1 for v in diag['tennis'].values() if isinstance(v, int))} tennis files")
     for lg in ("nba", "nhl", "nfl", "cfb", "epl", "ucl", "mls"):
         n = stats.collect(lg, DATA_DIR, backfill=backfill)
         inj = stats.injuries(lg, DATA_DIR)

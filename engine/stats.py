@@ -336,7 +336,7 @@ def read_nfl_players(data_dir, y):
 # ---------------------------------------------------------------------------
 # Tennis: tennis-data.co.uk results (every ATP/WTA tour match, with Pinnacle closing odds)
 
-TENNISDATA = {"atp": "http://www.tennis-data.co.uk/{y}/{y}.xlsx", "wta": "http://www.tennis-data.co.uk/{y}w/{y}.xlsx"}
+TENNISDATA = {"atp": "https://www.tennis-data.co.uk/{y}/{y}.xlsx", "wta": "https://www.tennis-data.co.uk/{y}w/{y}.xlsx"}
 
 
 def tennis(data_dir, years=(2025, 2026)):
@@ -367,7 +367,7 @@ def tennis(data_dir, years=(2025, 2026)):
                                     r[ix["PSW"]] if "PSW" in ix else "", r[ix["PSL"]] if "PSL" in ix else ""])
                 out[f"{tour}_{y}"] = len(rows) - 1
             except Exception as e:
-                out[f"{tour}_{y}"] = type(e).__name__
+                out[f"{tour}_{y}"] = f"{type(e).__name__}: {str(e)[:80]}"
     return out
 
 
