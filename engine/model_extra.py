@@ -82,14 +82,10 @@ class Tennis:
     def __init__(self, data_dir):
         self.elo, self.surf, self.n = defaultdict(lambda: 1500.0), defaultdict(lambda: 1500.0), defaultdict(int)
         self.form = defaultdict(list)
-        rows = []
-        d = os.path.join(data_dir, "stats", "tennis")
-        for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-            if fn.endswith(".csv"):
-                rows += list(csv.DictReader(io.StringIO(open(os.path.join(d, fn), encoding="utf-8", errors="ignore").read())))
-        rows.sort(key=lambda r: (r.get("tourney_date", ""), r.get("match_num", "")))
+        rows = ST.load_tennis(data_dir)
+        rows.sort(key=lambda r: r.get("date", ""))
         for r in rows:
-            w, l, s = r.get("winner_name"), r.get("loser_name"), (r.get("surface") or "Hard")
+            w, l, s = r.get("winner_name"), r.get("loser_name"), (r.get("surface") or "Any")
             if not w or not l:
                 continue
             for table, key_w, key_l in ((self.elo, w, l), (self.surf, (w, s), (l, s))):
@@ -100,26 +96,22 @@ class Tennis:
             self.n[w] += 1; self.n[l] += 1
             self.form[w].append(1); self.form[l].append(0)
 
-    @staticmethod
-    def key(full_name):
-        """'Jannik Sinner' -> 'Sinner J.' (tennis-data.co.uk naming)."""
-        parts = (full_name or "").replace(".", "").split()
-        if len(parts) < 2:
-            return full_name
-        return f"{' '.join(parts[1:])} {parts[0][0]}."
-
     def find(self, full_name):
-        k = self.key(full_name)
-        if self.n.get(k):
-            return k
-        last = full_name.split()[-1].lower()
-        cands = [n for n in self.n if n.lower().startswith(last + " ") or (" " + last + " ") in (" " + n.lower() + " ")]
+        if self.n.get(full_name):
+            return full_name
+        import refs as R
+        k = R.norm(full_name)
+        cands = [n for n in self.n if R.norm(n) == k]
+        if not cands:
+            last = full_name.split()[-1].lower()
+            cands = [n for n in self.n if n.lower().split()[-1] == last and n[0].lower() == full_name[0].lower()]
         return cands[0] if len(cands) == 1 else None
 
-    def rating(self, name, surface="Hard"):
-        return 0.5 * self.elo[name] + 0.5 * self.surf[(name, surface)]
+    def rating(self, name, surface="Any"):
+        # surface is not always reported, so overall Elo carries the weight until it is
+        return 0.75 * self.elo[name] + 0.25 * self.surf[(name, surface)]
 
-    def p_win(self, a, b, surface="Hard"):
+    def p_win(self, a, b, surface="Any"):
         ka, kb = self.find(a), self.find(b)
         if not ka or not kb:
             return None

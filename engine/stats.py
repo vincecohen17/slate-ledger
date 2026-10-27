@@ -334,41 +334,79 @@ def read_nfl_players(data_dir, y):
 
 
 # ---------------------------------------------------------------------------
-# Tennis: tennis-data.co.uk results (every ATP/WTA tour match, with Pinnacle closing odds)
+# Tennis: ESPN tour scoreboards (every completed singles match, one file per tour per month)
 
-TENNISDATA = {"atp": "https://www.tennis-data.co.uk/{y}/{y}.xlsx", "wta": "https://www.tennis-data.co.uk/{y}w/{y}.xlsx"}
+def _tennis_day(tour, d):
+    sb = _get(f"{ESPN}/tennis/{tour}/scoreboard?dates={d.replace('-', '')}")
+    out = []
+    for ev in sb.get("events", []):
+        groups = ev.get("groupings") or [{"competitions": ev.get("competitions", [])}]
+        for gr in groups:
+            if "doubles" in str((gr.get("grouping") or {}).get("slug", "")).lower():
+                continue
+            for c in gr.get("competitions", []):
+                if not (c.get("status", {}).get("type", {}) or {}).get("completed"):
+                    continue
+                comp = c.get("competitors", [])
+                if len(comp) != 2:
+                    continue
+                names = [(x.get("athlete") or {}).get("displayName") for x in comp]
+                if not all(names):
+                    continue
+                w = [x for x in comp if x.get("winner")]
+                if len(w) != 1:
+                    continue
+                win = (w[0].get("athlete") or {}).get("displayName")
+                lose = names[1] if names[0] == win else names[0]
+                out.append({"date": d, "tour": tour, "event": ev.get("name"), "winner_name": win, "loser_name": lose,
+                            "surface": (c.get("venue") or {}).get("surface") or ""})
+    return out
 
 
-def tennis(data_dir, years=(2025, 2026)):
-    out = {}
+def tennis(data_dir, days_back=540, workers=8):
     d = os.path.join(data_dir, "stats", "tennis")
     os.makedirs(d, exist_ok=True)
-    for tour, url in TENNISDATA.items():
-        for y in years:
-            fn = os.path.join(d, f"{tour}_{y}.csv")
-            if os.path.exists(fn) and os.path.getsize(fn) > 0 and y != max(years):
+    for f in os.listdir(d):              # clear the empty files left by the old source
+        if f.endswith(".csv") and os.path.getsize(os.path.join(d, f)) == 0:
+            os.remove(os.path.join(d, f))
+    end = today_pt() - timedelta(days=1)
+    jobs = []
+    for tour in ("atp", "wta"):
+        for i in range(days_back):
+            day = (end - timedelta(days=i)).isoformat()
+            fn = os.path.join(d, tour, f"{day}.json")
+            if os.path.exists(fn) and i > 3:
                 continue
-            try:
-                import openpyxl
-                body = _get(url.format(y=y), raw=True)
-                ws = openpyxl.load_workbook(io.BytesIO(body), read_only=True).active
-                rows = list(ws.iter_rows(values_only=True))
-                head = [str(h) for h in rows[0]]
-                with open(fn, "w", newline="") as f:
-                    w = csv.writer(f)
-                    w.writerow(["tourney_date", "tournament", "surface", "round", "winner_name", "loser_name", "wrank", "lrank", "psw", "psl"])
-                    ix = {h: i for i, h in enumerate(head)}
-                    for r in rows[1:]:
-                        if not r or r[ix["Winner"]] is None:
-                            continue
-                        dt = r[ix["Date"]]
-                        w.writerow([dt.strftime("%Y%m%d") if hasattr(dt, "strftime") else dt, r[ix.get("Tournament", 0)], r[ix.get("Surface", 0)],
-                                    r[ix.get("Round", 0)], r[ix["Winner"]], r[ix["Loser"]], r[ix.get("WRank", 0)], r[ix.get("LRank", 0)],
-                                    r[ix["PSW"]] if "PSW" in ix else "", r[ix["PSL"]] if "PSL" in ix else ""])
-                out[f"{tour}_{y}"] = len(rows) - 1
-            except Exception as e:
-                out[f"{tour}_{y}"] = f"{type(e).__name__}: {str(e)[:80]}"
-    return out
+            jobs.append((tour, day, fn))
+    n = 0
+
+    def run(j):
+        tour, day, fn = j
+        try:
+            rows = _tennis_day(tour, day)
+        except Exception:
+            return 0
+        os.makedirs(os.path.dirname(fn), exist_ok=True)
+        json.dump(rows, open(fn, "w"), separators=(",", ":"))
+        return len(rows)
+    with ThreadPoolExecutor(workers) as ex:
+        for k in ex.map(run, jobs):
+            n += k
+    return {"days": len(jobs), "matches": n}
+
+
+def load_tennis(data_dir):
+    d = os.path.join(data_dir, "stats", "tennis")
+    rows = []
+    for tour in ("atp", "wta"):
+        p = os.path.join(d, tour)
+        if os.path.isdir(p):
+            for f in sorted(os.listdir(p)):
+                try:
+                    rows += json.load(open(os.path.join(p, f)))
+                except Exception:
+                    pass
+    return rows
 
 
 # ---------------------------------------------------------------------------
