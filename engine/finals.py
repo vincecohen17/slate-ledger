@@ -162,7 +162,7 @@ def _doc(sport, e, s, snaps, games):
             "venue": ((hdr.get("venue") or (s or {}).get("gameInfo", {}).get("venue") or {}).get("fullName"))}
 
 
-def _tennis_doc(sport, ev, c):
+def _tennis_doc(sport, ev, c, games=()):
     comp = c.get("competitors", [])
     if len(comp) != 2:
         return None
@@ -177,7 +177,11 @@ def _tennis_doc(sport, ev, c):
     when = datetime.fromisoformat((c.get("date") or ev.get("date")).replace("Z", "+00:00"))
     sets = [sum(1 for i, g in enumerate(p["line"]) if g > (pl[1 - j]["line"][i] if i < len(pl[1 - j]["line"]) else 0)) for j, p in enumerate(pl)]
     home, away = dict(pl[0], score=sets[0]), dict(pl[1], score=sets[1])
-    return {"key": f"{sport}|{c.get('id')}", "espnId": c.get("id"), "gameId": None, "sport": sport, "league": C.label(sport),
+    names = {R.norm(pl[0]["name"]), R.norm(pl[1]["name"])}
+    g = next((x for x in games if str(x.get("sport", "")).startswith("tennis_") and {R.norm(x["home"]), R.norm(x["away"])} == names), None)
+    if g and R.norm(g["home"]) != R.norm(home["name"]):
+        home, away = away, home         # keep our board's home/away order
+    return {"key": f"{sport}|{c.get('id')}", "espnId": c.get("id"), "gameId": g["id"] if g else None, "sport": sport, "league": C.label(sport),
             "commence": when.isoformat().replace("+00:00", "Z"), "date": str(_pt(when)), "status": ((c.get("status") or {}).get("type") or {}).get("shortDetail") or "Final",
             "home": home, "away": away, "teamStats": [], "plays": [], "box": {}, "pre": None, "result": None, "tennis": True,
             "event": ev.get("name")}
@@ -234,7 +238,7 @@ def collect(data_dir, sports, games, now, every_min=10, log=print):
                                 k = f"{sport}|{c.get('id')}"
                                 if any(k in v for v in store.values()):
                                     continue
-                                doc = _tennis_doc(sport, ev, c)
+                                doc = _tennis_doc(sport, ev, c, games)
                                 if doc and doc["date"] in store:
                                     store[doc["date"]][k] = doc
                                     new += 1

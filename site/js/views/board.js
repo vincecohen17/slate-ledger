@@ -152,7 +152,7 @@ export function renderBoard(el) {
       ${[["time", "Start time"], ["gap", "Model vs market"], ["edges", "Most edges"]].map(([k, l]) => `<button class="chip sm ${sort === k ? "on" : ""}" data-sort="${k}">${l}</button>`).join("")}
       <span class="spacer"></span><span class="tiny muted">Bars: market vs model win chance · rank bars: longer is better · <span class="pos">teal</span> price beats the sharp fair</span></div>`;
   // finished games: the final card replaces the game's card; earlier finals get their own section per day
-  const finals = (S.finals || []).filter((x) => league === "All" || x.league === league);
+  const finals = (S.finals || []).filter((x) => (league === "All" || x.league === league) && (!x.tennis || x.gameId));   // tennis: only matches we had on the board
   const finByGame = new Map(finals.filter((x) => x.gameId).map((x) => [x.gameId, x]));
   let day = "";
   if (sort !== "time") h += `<div class="grid">`;
