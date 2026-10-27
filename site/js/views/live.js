@@ -4,7 +4,7 @@ import { esc, am, prob, pct, both, bothP, teamLogo, headshot, ago, bookLogo, edg
 import { edgeCard, bindLog } from "./common.js";
 
 const TENNIS = (lg) => lg === "ATP" || lg === "WTA";
-const sitText = (st, league) => {
+export const sitText = (st, league) => {
   if (!st) return "";
   if (TENNIS(league)) return st.detail || `set ${st.set || ""}`;
   if (st.minute != null) return `${st.clock || ""}${st.reds && (st.reds.home || st.reds.away) ? ` · 🟥 ${st.reds.away ? `${st.reds.away} away` : ""}${st.reds.home ? ` ${st.reds.home} home` : ""}` : ""}`;
