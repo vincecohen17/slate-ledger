@@ -102,6 +102,41 @@ function goalies(mu, g) {
     <div class="sides" style="margin-top:10px">${card(mu.teams.away, g.awayRef, g.away)}${card(mu.teams.home, g.homeRef, g.home)}</div></div>`;
 }
 
+// ---------- lineups
+function chip(p, sub) {
+  return `<div class="lu-chip ${p.changed ? "chg" : ""}" title="${esc(p.name)}">${headshot({ player: p.name, headshot: p.headshot }, 38)}
+    <span class="lu-n">${esc((p.name || "").split(" ").slice(-1)[0])}</span><span class="lu-s">${esc(sub || "")}</span></div>`;
+}
+function lineupCard(lu, ref, name) {
+  if (!lu) return "";
+  let body = "";
+  if (lu.kind === "nba") {
+    const slots = [[50, 16], [18, 34], [82, 34], [30, 72], [70, 72]];
+    body = `<div class="court nba"><svg viewBox="0 0 100 100" preserveAspectRatio="none" class="court-lines"><rect x="1" y="1" width="98" height="98" rx="3"/>
+        <rect x="34" y="62" width="32" height="37"/><path d="M34 62 A16 16 0 0 1 66 62"/><path d="M8 99 L8 70 A42 42 0 0 1 92 70 L92 99"/></svg>
+      ${lu.starters.map((p, i) => `<div class="lu-slot" style="left:${slots[i][0]}%;top:${slots[i][1]}%">${chip(p, `${p.pos || ""} · ${Math.round(p.min || 0)}m`)}</div>`).join("")}</div>
+      <div class="lu-bench"><span class="tiny muted">Bench</span>${lu.bench.map((p) => `<span class="pill">${esc(p.name)} ${Math.round(p.min || 0)}m</span>`).join("")}</div>`;
+  } else if (lu.kind === "nhl") {
+    body = `<div class="court nhl">${lu.lines.map((l, i) => `<div class="lu-row"><span class="lu-tag">L${i + 1}</span>${l.map((p) => chip(p, `${p.pos || ""} ${(p.toi || 0).toFixed(0)}m`)).join("")}</div>`).join("")}
+      <div class="lu-sep"></div>${lu.pairs.map((l, i) => `<div class="lu-row"><span class="lu-tag">D${i + 1}</span>${l.map((p) => chip(p, `D ${(p.toi || 0).toFixed(0)}m`)).join("")}</div>`).join("")}
+      <div class="lu-sep"></div><div class="lu-row"><span class="lu-tag">G</span>${chip(lu.goalie || {}, "likely")}</div></div>`;
+  } else if (lu.kind === "nfl") {
+    const vol = (p) => `${p.vol} ${p.volKey === "att" ? "att" : p.volKey === "car" ? "car" : "tgt"}`;
+    body = `<div class="court nfl">
+      <div class="lu-row">${lu.wr.slice(0, 1).map((p) => chip(p, vol(p))).join("")}<span class="ol">${"<i></i>".repeat(5)}</span>${lu.te.map((p) => chip(p, vol(p))).join("")}${lu.wr.slice(1, 2).map((p) => chip(p, vol(p))).join("")}</div>
+      <div class="lu-row">${lu.wr.slice(2, 3).map((p) => chip(p, vol(p))).join("")}${lu.qb.map((p) => chip(p, vol(p))).join("")}</div>
+      <div class="lu-row">${lu.rb.map((p) => chip(p, vol(p))).join("")}</div></div>`;
+  }
+  return `<div><div class="side-h">${teamLogo(ref, name, 22)}<span>${esc(ref?.abbr || name)}</span></div>${body}
+    ${lu.out?.length ? `<div class="tiny muted" style="margin-top:6px">Out: ${lu.out.map(esc).join(", ")}</div>` : ""}</div>`;
+}
+function lineups(mu, g) {
+  if (!mu.lineups) return "";
+  const how = mu.lineups.home?.how || "";
+  return `<div class="card"><b>Projected lineups</b> <span class="tiny muted">${esc(how)}</span>
+    <div class="sides" style="margin-top:10px">${lineupCard(mu.lineups.away, g.awayRef, g.away)}${lineupCard(mu.lineups.home, g.homeRef, g.home)}</div></div>`;
+}
+
 const fmtS = (v, d) => v == null ? "–" : `${v > 0 ? "+" : ""}${(+v).toFixed(d)}`;
 
 const PSTATS = {
@@ -187,6 +222,7 @@ export function renderMatchup(el, g) {
     <div class="mu-grid">${modelVsMarket(mu, g)}${factors(mu, g)}</div>
     ${tape(mu, g)}
     <div class="mu-grid">${injuries(mu, g)}${goalies(mu, g) || ""}</div>
+    ${lineups(mu, g)}
     ${players(mu, g)}
     ${propGaps(mu)}</div>`);
   el.querySelectorAll("[data-p]").forEach((r) => r.onclick = () => {

@@ -283,3 +283,22 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
   .leg { grid-template-columns: auto 1fr auto; }
   .leg select { grid-column: 2 / 3; grid-row: 2; }
 }
+
+/* ---------- lineups */
+.court { position: relative; border-radius: 12px; background: color-mix(in srgb, var(--accent) 7%, var(--panel-2)); border: 1px solid var(--line); padding: 10px 6px; }
+.court.nba { aspect-ratio: 1.05; max-height: 330px; width: 100%; }
+.court-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+.court-lines * { fill: none; stroke: color-mix(in srgb, var(--accent) 35%, var(--line)); stroke-width: .6; vector-effect: non-scaling-stroke; }
+.lu-slot { position: absolute; transform: translate(-50%, -50%); }
+.lu-chip { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 74px; text-align: center; }
+.lu-chip .head { border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line); }
+.lu-chip.chg .head { box-shadow: 0 0 0 2px var(--accent); }
+.lu-n { font-size: 11px; font-weight: 600; max-width: 74px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lu-s { font-size: 10px; color: var(--muted); }
+.lu-row { display: flex; justify-content: center; align-items: center; gap: 4px; padding: 4px 0; flex-wrap: wrap; }
+.lu-tag { font: 600 10px var(--mono); color: var(--muted); width: 22px; }
+.lu-sep { height: 1px; background: color-mix(in srgb, var(--neg) 40%, var(--line)); margin: 4px 0; }
+.court.nhl { background: color-mix(in srgb, var(--venue) 6%, var(--panel-2)); }
+.court.nfl { background: color-mix(in srgb, var(--pos) 7%, var(--panel-2)); }
+.ol { display: inline-flex; gap: 4px; margin: 0 6px; } .ol i { width: 14px; height: 14px; border-radius: 50%; background: var(--panel-3); border: 1px solid var(--line); }
+.lu-bench { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; }

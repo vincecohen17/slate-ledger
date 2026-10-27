@@ -275,6 +275,7 @@ class NBA:
             gp = len(self.logs.get(pid, []))
             out = status in ("Out", "Doubtful", "Suspension") or (inj and "out" in status.lower())
             players.append({"id": pid, "name": last["name"], "pos": last.get("pos"), "status": status,
+                            "starter": bool(last.get("starter")),
                             "note": (inj or {}).get("note"), "baseMin": round(m, 1), "out": bool(out),
                             "gp": gp, "teamGames": team_games})
         # redistribute minutes of players who are out (only if they have been playing)

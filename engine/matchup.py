@@ -205,6 +205,52 @@ def calibrate(prop_docs, min_n=12, strength=0.8):
     return {f"{k[0].split('_')[-1].upper()} {k[1]}": round(v, 2) for k, v in shifts.items()}
 
 
+def _head(refs, name, fallback=None):
+    return (refs.get("players", {}).get(R.norm(name)) or {}).get("headshot") or fallback
+
+
+def lineup_nba(players, refs):
+    """Projected starting five: last game's starters minus anyone out, filled by projected minutes."""
+    live = [p for p in players if not p.get("out")]
+    starters = [p for p in live if p.get("starter")][:5]
+    for p in sorted(live, key=lambda p: -p.get("projMin", 0)):
+        if len(starters) >= 5:
+            break
+        if p not in starters:
+            starters.append(p)
+    grp = lambda p: {"G": 0, "F": 1, "C": 2}.get(model_nba._pg(p.get("pos")), 1)
+    starters.sort(key=grp)
+    bench = [p for p in sorted(live, key=lambda p: -p.get("projMin", 0)) if p not in starters][:5]
+    card = lambda p: {"name": p["name"], "pos": p.get("pos"), "min": p.get("projMin"), "status": p.get("status"),
+                      "headshot": _head(refs, p["name"]), "changed": not p.get("starter")}
+    return {"kind": "nba", "starters": [card(p) for p in starters], "bench": [card(p) for p in bench],
+            "out": [p["name"] for p in players if p.get("out")][:6], "how": "last game's starters, injuries swapped for the next man up by projected minutes"}
+
+
+def lineup_nhl(players, goalie, refs):
+    live = [p for p in players if not p.get("out") and p.get("projToi")]
+    fwd = sorted([p for p in live if (p.get("pos") or "") != "D"], key=lambda p: -p["projToi"])[:12]
+    dmen = sorted([p for p in live if (p.get("pos") or "") == "D"], key=lambda p: -p["projToi"])[:6]
+    card = lambda p: {"name": p["name"], "pos": p.get("pos"), "toi": p.get("projToi"), "headshot": _head(refs, p["name"])}
+    return {"kind": "nhl", "lines": [[card(p) for p in fwd[i:i + 3]] for i in range(0, len(fwd), 3)],
+            "pairs": [[card(p) for p in dmen[i:i + 2]] for i in range(0, len(dmen), 2)],
+            "goalie": {"name": goalie.get("name"), "headshot": _head(refs, goalie.get("name") or "")},
+            "out": [p["name"] for p in players if p.get("out")][:6], "how": "forward lines and defense pairs grouped by projected ice time; confirm with morning skate"}
+
+
+def lineup_nfl(players, refs):
+    live = [p for p in players if not p.get("out")]
+    qb = [p for p in live if p["proj"].get("att")][:1]
+    rb = sorted([p for p in live if (p.get("pos") or "") in ("RB", "FB")], key=lambda p: -p["proj"].get("car", 0))[:2]
+    wr = sorted([p for p in live if p.get("pos") == "WR"], key=lambda p: -p["proj"].get("targets", 0))[:3]
+    te = sorted([p for p in live if p.get("pos") == "TE"], key=lambda p: -p["proj"].get("targets", 0))[:1]
+    card = lambda p, k: {"name": p["name"], "pos": p.get("pos"), "vol": round(p["proj"].get(k, 0), 1), "volKey": k,
+                         "headshot": _head(refs, p["name"], p.get("headshotNfl"))}
+    return {"kind": "nfl", "qb": [card(p, "att") for p in qb], "rb": [card(p, "car") for p in rb], "wr": [card(p, "targets") for p in wr],
+            "te": [card(p, "targets") for p in te], "out": [p["name"] for p in players if p.get("out")][:6],
+            "how": "skill positions by projected touches (attempts, carries, targets)"}
+
+
 def _player_cards(players, refs, keys, n=9, minutes_key="projMin"):
     out = []
     for p in players[:n + 4]:
@@ -287,7 +333,8 @@ def _nba(g, m, pdocs, inj, refs):
             "compare": compare, "factors": factors, "propEdges": [], "statKeys": keys,
             "statLabels": [model_nba.LABEL[k] for k in keys],
             "players": {"home": _player_cards(pj["sides"]["home"]["players"], refs, keys),
-                        "away": _player_cards(pj["sides"]["away"]["players"], refs, keys)}}
+                        "away": _player_cards(pj["sides"]["away"]["players"], refs, keys)},
+            "lineups": {s: lineup_nba(pj["sides"][s]["players"], refs) for s in ("home", "away")}}
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +408,8 @@ def _nhl(g, m, pdocs, inj, refs):
             "compare": compare, "factors": factors, "propEdges": [], "statKeys": keys,
             "statLabels": [model_nhl.LABEL[k] for k in keys],
             "players": {"home": _player_cards(pj["sides"]["home"]["players"], refs, keys, 9, "projToi"),
-                        "away": _player_cards(pj["sides"]["away"]["players"], refs, keys, 9, "projToi")}}
+                        "away": _player_cards(pj["sides"]["away"]["players"], refs, keys, 9, "projToi")},
+            "lineups": {s: lineup_nhl(pj["sides"][s]["players"], pj["sides"][s]["goalie"], refs) for s in ("home", "away")}}
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +478,8 @@ def _nfl(g, m, pdocs, inj, refs):
             "teams": {"home": team(th, "home", g["home"]), "away": team(ta, "away", g["away"])},
             "compare": compare, "factors": factors, "propEdges": [], "statKeys": keys, "statLabels": [model_nfl.LABEL[k] for k in keys],
             "players": {"home": _player_cards(pj["sides"]["home"]["players"], refs, keys, 10, "projMin"),
-                        "away": _player_cards(pj["sides"]["away"]["players"], refs, keys, 10, "projMin")}}
+                        "away": _player_cards(pj["sides"]["away"]["players"], refs, keys, 10, "projMin")},
+            "lineups": {s: lineup_nfl(pj["sides"][s]["players"], refs) for s in ("home", "away")}}
 
 
 # ---------------------------------------------------------------------------
