@@ -121,6 +121,12 @@ def book(key, title=None):
 DFS_BREAKEVEN = 0.5774
 
 # ---------------------------------------------------------------------------
+# Data quality
+MIN_DEC_PRICE = 1.015   # decimal prices at/under this (99c+) are placeholders with no liquidity
+MIN_BOOK = 0.98         # a two-sided quote whose implied probs sum outside [MIN_BOOK, MAX_BOOK]
+MAX_BOOK = 1.12         # is crossed or too wide to trust; it is shown but not used for the fair
+
+# ---------------------------------------------------------------------------
 # Signals
 EDGE_LEAN = 0.015    # 1.5 pp over fair: worth a look
 EDGE_STRONG = 0.03   # 3 pp: strong price

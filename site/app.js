@@ -240,7 +240,7 @@ function renderProps(g) {
       const key = `${player}|${r.point}`;
       h += `<tr data-row="${esc(key)}" style="cursor:pointer"><td>${esc(player)}${r.isMain ? "" : ` <span class="tag">alt</span>`}</td>
         <td class="num">${r.point ?? "–"}</td>
-        <td class="num">${f?.Over != null ? fairPct(f.Over) : f?.Yes != null ? fairPct(f.Yes) : "–"}${r.fair ? "" : f ? ` <span class="tag">model</span>` : ""}</td>
+        <td class="num">${f?.Over != null ? fairPct(f.Over) : f?.Yes != null ? fairPct(f.Yes) : "–"}${r.modelFair ? ` <span class="tag">model</span>` : ""}</td>
         <td class="num">${f?.Under != null ? fairPct(f.Under) : "–"}</td>
         <td class="num">${r.mean ?? "–"}</td>
         <td class="${ecls(bo?.edge)}">${bo ? `<span class="px">${am(bo.am)}</span><span class="ed">${esc(bo.name)} ${pct(bo.edge)}</span>` : "–"}</td>
@@ -253,7 +253,7 @@ function renderProps(g) {
       }
     }
   }
-  el.innerHTML = h + `</tbody></table></div><div class="note">Tap a row for every book. "model" = fair moved from the main line with a stat-spread model; pick'em % is our chance of that side vs ${(57.74).toFixed(1)}% to break even on a 2-pick.</div></div>`;
+  el.innerHTML = h + `</tbody></table></div><div class="note">Tap a row for every book. "model" = sharp fair from the main line, moved to this line with a stat-distribution model; pick'em % is our chance of that side vs ${(57.74).toFixed(1)}% to break even on a 2-pick.</div></div>`;
   el.querySelectorAll("[data-pm]").forEach((b) => b.onclick = () => { S.propMarket = b.dataset.pm; renderProps(g); });
   el.querySelectorAll("[data-row]").forEach((tr) => tr.onclick = () => {
     const k = tr.dataset.row; S.open.has(k) ? S.open.delete(k) : S.open.add(k); renderProps(g);
@@ -273,7 +273,7 @@ function renderEdges() {
     h += `<tr><td><a href="#/game/${e.gameId}/${e.market && !["h2h", "spreads", "totals"].includes(e.market) ? "props" : "lines"}">${esc(e.label)}</a></td>
       <td class="muted">${esc(e.matchup)}</td><td class="muted">${fmtTime(e.commence)}</td>
       <td>${esc(e.bookName)}</td><td class="num">${e.pickem ? "pick'em" : am(e.am)}</td>
-      <td class="num">${e.fairAm != null ? am(e.fairAm) : fairPct(e.fair)}</td>
+      <td class="num">${e.fairAm != null ? am(e.fairAm) : fairPct(e.fair)}${e.model ? ` <span class="tag">model</span>` : ""}</td>
       <td class="${ecls(e.edge)}"><span class="px">${pct(e.edge)}</span></td><td class="num">${e.ev != null ? pct(e.ev) : "–"}</td></tr>`;
   }
   appEl.innerHTML = h + `</tbody></table></div></div>`;

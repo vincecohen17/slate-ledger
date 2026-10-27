@@ -2,7 +2,7 @@ name: pull-odds
 on:
   workflow_dispatch:
     inputs:
-      mode: { description: "mock or live", default: "mock" }
+      mode: { description: "mock, live or rebuild", default: "mock" }
   push:
     branches: [main]
     paths: ["engine/run-request"]
@@ -31,7 +31,7 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           DATA_DIR: data
-          MODE: ${{ github.event.inputs.mode || 'mock' }}
+          MODE: ${{ github.event.inputs.mode || '' }}
         run: python engine/run.py
       - name: Save snapshot to the private data repo
         run: |

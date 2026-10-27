@@ -20,7 +20,20 @@ import build  # noqa: E402
 from api import OddsAPI, BudgetExceeded  # noqa: E402
 
 NOW = datetime.now(timezone.utc)
-MODE = os.environ.get("MODE", "mock")
+def _mode():
+    m = os.environ.get("MODE", "").strip()
+    if m:
+        return m
+    try:  # push-triggered runs read the mode from the first word of engine/run-request
+        w = open(os.path.join(os.path.dirname(__file__), "run-request")).read().split()
+        if w and w[0] in ("mock", "live", "rebuild"):
+            return w[0]
+    except OSError:
+        pass
+    return "mock"
+
+
+MODE = _mode()
 DATA_DIR = os.environ.get("DATA_DIR", "data")
 
 
@@ -48,7 +61,43 @@ def plan():
     return 168, 30, C.PROP_MARKETS, C.PROP_REGIONS, None
 
 
+def rebuild():
+    """Rebuild the board from the newest saved raw snapshots (zero credits)."""
+    import glob
+    days = sorted(glob.glob(os.path.join(DATA_DIR, "snapshots", "*")))
+    if not days:
+        sys.exit("no snapshots to rebuild from")
+    files = sorted(glob.glob(os.path.join(days[-1], "*.json.gz")))
+    stamp = os.path.basename(files[-1]).split("_")[0]
+    files = [f for f in files if os.path.basename(f).startswith(stamp + "_")]
+    game_docs, prop_docs = [], []
+    for f in files:
+        name = os.path.basename(f)[len(stamp) + 1:-8]
+        sport = next((s for s in C.SPORTS if name.startswith(s + "_")), None)
+        if not sport:
+            continue
+        data = json.load(gzip.open(f))
+        if name.endswith("_lines"):
+            game_docs += [build.build_game(ev, C.SPORTS[sport]) for ev in data if ev.get("bookmakers")]
+        else:
+            prop_docs += list(build.build_props(data, C.SPORTS[sport]).values())
+    prev = {}
+    try:
+        prev = json.load(open(os.path.join(DATA_DIR, "latest", "board.json")))["status"]
+    except Exception:
+        pass
+    edge_list = build.edges(game_docs, prop_docs)
+    status = dict(prev, mode="rebuild", rebuiltAt=iso(NOW), edges=len(edge_list), errors=[])
+    status.setdefault("updated", iso(NOW))
+    write_data_repo(game_docs, prop_docs, edge_list, dict(status, creditsThisRun=0))
+    if os.environ.get("FIREBASE_SERVICE_ACCOUNT"):
+        log(f"firestore: {write_firestore(game_docs, prop_docs, edge_list, status)} docs written")
+    log(f"rebuild: {len(game_docs)} games, {len(prop_docs)} prop docs, {len(edge_list)} edges")
+
+
 def main():
+    if MODE == "rebuild":
+        return rebuild()
     key = os.environ.get("ODDS_API_KEY")
     if not key:
         sys.exit("ODDS_API_KEY missing")

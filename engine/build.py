@@ -29,7 +29,8 @@ def _r(x, n=4):
 def _consensus(quotes, outcomes):
     """quotes: list of dicts with 'book' (config dict) and 'probs' {outcome: implied (vig-in or mid)}.
     Returns (fair dict, source label, total weight)."""
-    complete = [q for q in quotes if all(o in q["probs"] for o in outcomes)]
+    complete = [q for q in quotes if all(o in q["probs"] for o in outcomes)
+                and C.MIN_BOOK <= sum(q["probs"][o] for o in outcomes) <= C.MAX_BOOK]
     if not complete:
         return None, None, 0.0
     acc = {o: 0.0 for o in outcomes}
@@ -107,6 +108,26 @@ def _finish_line(line, quotes, outcomes):
     return line
 
 
+def _reprice(line, fair, source, weight):
+    """Replace a line's fair (e.g. with a model fair) and recompute every quote's edge."""
+    line["fair"] = {o: _r(p) for o, p in fair.items()}
+    line["fairAm"] = {o: M.american_from_prob(p) for o, p in fair.items()}
+    line["fairSource"], line["fairWeight"] = source, round(weight, 2)
+    best, best_venue = {}, {}
+    for q in line["quotes"]:
+        for o, pe in q["prices"].items():
+            if o in fair:
+                pe["edge"] = _r(fair[o] - pe["cost"])
+                pe["ev"] = _r(M.ev_per_dollar(fair[o], pe["cost"]))
+            if q["stale"]:
+                continue
+            for bucket, ok in ((best, True), (best_venue, q["venue"])):
+                if ok and (o not in bucket or pe["cost"] < bucket[o]["cost"]):
+                    bucket[o] = {"book": q["book"], "name": q["name"], "am": pe.get("allInAm", pe["am"]),
+                                 "cost": pe["cost"], "edge": pe.get("edge")}
+    line["best"], line["bestVenue"] = best, best_venue
+
+
 def _collect(bookmakers, market_key, keyfn):
     """Group a market's outcomes into lines. keyfn(outcome) -> (line_id, outcome_label, point)."""
     lines = {}
@@ -130,7 +151,7 @@ def _collect(bookmakers, market_key, keyfn):
                 q = L["quotes"].setdefault(b["key"], {"book": b, "dec": {}, "probs": {}, "updated": upd})
                 q["dec"][lab] = o.get("price")
                 continue
-            if not o.get("price") or o["price"] <= 1:
+            if not o.get("price") or o["price"] < C.MIN_DEC_PRICE:  # 99c+ = placeholder, no liquidity
                 continue
             L = lines.setdefault(lid, {"point": pt, "quotes": {}})
             q = L["quotes"].setdefault(b["key"], {"book": b, "dec": {}, "probs": {}, "updated": upd})
@@ -195,39 +216,82 @@ def build_game(ev, label):
 # ---------------------------------------------------------------------------
 # Player props
 
-# Rough standard deviation of a stat given its mean, used only to move a fair
-# probability from one line to a nearby line (e.g. a pick'em line 1 point off).
-def stat_sd(market, mean):
-    m = max(mean, 0.1)
-    if market in ("player_points",):
-        return 0.22 * m + 3.0
-    if market in ("player_points_rebounds_assists",):
-        return 0.20 * m + 4.0
-    if market in ("player_points_rebounds", "player_points_assists"):
-        return 0.21 * m + 3.5
-    if market.endswith("_yds"):
-        return {"player_pass_yds": 0.16 * m + 18}.get(market, 0.45 * m + 8)
-    if market in ("player_rush_reception_yds",):
+# Distribution of a stat, used only to move a sharp fair from the main line to
+# another line (alt ladders, pick'em lines). Counting stats use a negative
+# binomial with a per-stat dispersion k (variance = k * mean); yardage uses a normal.
+DISPERSION = {
+    "basketball_nba": {"player_points": 2.0, "player_rebounds": 1.5, "player_assists": 1.5,
+                       "player_threes": 1.3, "player_points_rebounds_assists": 2.5,
+                       "player_points_rebounds": 2.2, "player_points_assists": 2.2,
+                       "player_rebounds_assists": 1.7, "player_blocks": 1.2, "player_steals": 1.2,
+                       "player_blocks_steals": 1.25, "player_turnovers": 1.2},
+    "icehockey_nhl": {"player_points": 1.05, "player_goals": 1.03, "player_assists": 1.05,
+                      "player_shots_on_goal": 1.15, "player_blocked_shots": 1.2,
+                      "player_power_play_points": 1.03, "player_total_saves": 1.6},
+    "baseball_mlb": {"batter_hits": 1.0, "batter_total_bases": 1.6, "batter_rbis": 1.3,
+                     "batter_runs_scored": 1.1, "batter_hits_runs_rbis": 1.6, "batter_walks": 1.05,
+                     "batter_strikeouts": 1.05, "pitcher_strikeouts": 1.3, "pitcher_outs": 1.5,
+                     "pitcher_hits_allowed": 1.2, "pitcher_earned_runs": 1.4, "pitcher_walks": 1.1},
+    "americanfootball_nfl": {"player_receptions": 1.2, "player_pass_completions": 1.3,
+                             "player_pass_attempts": 1.4, "player_rush_attempts": 1.3,
+                             "player_pass_tds": 1.1, "player_pass_interceptions": 1.05,
+                             "player_sacks": 1.2, "player_tackles_assists": 1.3},
+}
+
+
+def _is_normal(market):
+    return market.endswith("_yds") or "longest" in market
+
+
+def _sd_normal(market, m):
+    if market == "player_pass_yds":
+        return 0.16 * m + 18
+    if market == "player_rush_reception_yds":
         return 0.42 * m + 9
-    # counting stats: over-dispersed Poisson
-    return math.sqrt(1.3 * m)
+    return 0.45 * m + 8
 
 
 def _phi(x):
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
-def p_over(market, mean, line):
-    sd = stat_sd(market, mean)
-    thresh = math.floor(line) + 0.5 if line != math.floor(line) else line  # integer stats
-    return 1 - _phi((thresh - mean) / sd)
+def _nb_cdf_tail(mean, k, t):
+    """P(X >= t) for a negative binomial with mean `mean` and variance k*mean (Poisson when k=1)."""
+    if t <= 0:
+        return 1.0
+    mean = max(mean, 1e-6)
+    cdf = 0.0
+    if k <= 1.0001:
+        p = math.exp(-mean)
+        for x in range(t):
+            cdf += p
+            p *= mean / (x + 1)
+    else:
+        r, q = mean / (k - 1), 1.0 / k          # successes, success prob
+        logp = r * math.log(q)                   # P(X=0)
+        for x in range(t):
+            cdf += math.exp(logp)
+            logp += math.log((x + r) / (x + 1)) + math.log(1 - q)
+    return max(0.0, min(1.0, 1 - cdf))
 
 
-def mean_from_line(market, line, fair_over):
-    lo, hi = 0.0, max(line * 3 + 10, 10)
+def p_over(market, mean, line, sport=""):
+    """Fair P(over) at `line`, pushes removed on whole-number lines."""
+    if _is_normal(market):
+        return 1 - _phi((line - mean) / _sd_normal(market, mean))
+    k = DISPERSION.get(sport, {}).get(market, 1.3)
+    if line == math.floor(line):
+        over = _nb_cdf_tail(mean, k, int(line) + 1)
+        push = _nb_cdf_tail(mean, k, int(line)) - over
+        return over / max(1e-9, 1 - push)
+    return _nb_cdf_tail(mean, k, int(math.floor(line)) + 1)
+
+
+def mean_from_line(market, line, fair_over, sport=""):
+    lo, hi = 0.0, max(line * 4 + 10, 10)
     for _ in range(60):
         mid = (lo + hi) / 2
-        if p_over(market, mid, line) < fair_over:
+        if p_over(market, mid, line, sport) < fair_over:
             lo = mid
         else:
             hi = mid
@@ -278,14 +342,16 @@ def build_props(ev, label):
             main = max(two_sided, key=lambda l: (l["fairWeight"], l["nBooks"]), default=None)
             mean = None
             if main and main["point"] is not None:
-                mean = mean_from_line(mk, main["point"], main["fair"]["Over"])
+                mean = mean_from_line(mk, main["point"], main["fair"]["Over"], ev["sport_key"])
                 main["isMain"] = True
             for l in plines:
-                # judge every pick'em line (and books' off lines) from the main line
+                # judge every pick'em line and every thin alt line from the main line's sharp fair
                 if mean is not None and l["point"] is not None:
-                    po = p_over(mk, mean, l["point"])
-                    if not l.get("fair") or l is not main and l.get("fairWeight", 0) < (main or {}).get("fairWeight", 0):
-                        l["modelFair"] = {"Over": _r(po), "Under": _r(1 - po)}
+                    po = p_over(mk, mean, l["point"], ev["sport_key"])
+                    thin = l is not main and l.get("fairWeight", 0) < 0.6 * main["fairWeight"]
+                    if (thin or not l.get("fair")) and l.get("quotes") and l["outcomes"] == ["Over", "Under"]:
+                        _reprice(l, {"Over": po, "Under": 1 - po}, "model from main line", main["fairWeight"])
+                        l["modelFair"] = True
                     for d in l["dfs"]:
                         d["fairOver"], d["fairUnder"] = _r(po), _r(1 - po)
                         side = "Over" if po >= 0.5 else "Under"
@@ -312,6 +378,8 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
     def scan(doc, line, label):
         if not line.get("fair") or line.get("fairWeight", 0) < min_weight:
             return
+        if line.get("modelFair") and min(line["fair"].values()) < 0.12:
+            return  # far-tail alt lines: the stat model is not trusted that far out
         for q in line["quotes"]:
             if not q["venue"] or q["stale"]:
                 continue
@@ -324,7 +392,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "label": label(o), "book": q["book"], "bookName": q["name"],
                         "am": pe.get("allInAm", pe["am"]), "fair": line["fair"][o],
                         "fairAm": line["fairAm"][o], "edge": e, "ev": pe.get("ev"),
-                        "fairWeight": line["fairWeight"],
+                        "fairWeight": line["fairWeight"], "model": bool(line.get("modelFair")),
                     })
 
     for g in game_docs:
