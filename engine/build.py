@@ -539,6 +539,11 @@ def build_props(ev, label):
                         # judge only the sides the app actually offers (goblins / demons are Over-only) against that
                         # side's own payout: the feed's price is the per-leg payout, so break-even = 1 / price
                         best = None
+                        # PrizePicks / Pick6 list goblin and demon lines as Over-only with a placeholder price, so only
+                        # their two-sided (standard) lines are judged; Underdog and Dabble quote real per-side payouts
+                        if d["book"] in ("prizepicks", "pick6") and not {"Over", "Under"} <= set(d["dec"]):
+                            d["alt"] = True
+                            continue
                         for side, ps in (("Over", po), ("Under", 1 - po)):
                             if side not in d["dec"] or not (0.15 <= ps <= 0.85):
                                 continue
