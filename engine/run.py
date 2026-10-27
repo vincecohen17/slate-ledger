@@ -226,6 +226,19 @@ def live():
         mups = {}
     api = OddsAPI(key, max_credits=min(2000, room))
     docs, edges_all = [], []
+    # games where Vince has an open prop bet also get live props (his projected profit on the Ledger uses them)
+    bet_games = set()
+    try:
+        _db = firestore_db()
+        if _db:
+            for snap in _db.collection("bets").where("status", "==", "pending").stream():
+                b = snap.to_dict() or {}
+                for leg in (b.get("legs") or []) + [b]:
+                    if leg.get("player") and leg.get("gameId"):
+                        bet_games.add(leg["gameId"])
+    except Exception:
+        pass
+    bet_games = set(sorted(bet_games)[:4])
     for s in sports:
         try:
             data = api.odds(s, C.GAME_MARKETS, None, bookmakers=C.EVENT_BOOKS)
@@ -260,7 +273,7 @@ def live():
                     if p:
                         l["model"] = {o: round(v, 4) for o, v in p.items()}
             props = []
-            want = pres.get("game") == g["id"]
+            want = pres.get("game") == g["id"] or g["id"] in bet_games
             if want and st and s in ("basketball_nba", "basketball_wnba", "icehockey_nhl", "americanfootball_nfl") \
                     and _age_min(ls["props"].get(g["id"])) >= C.LIVE_PROP_EVERY_MIN:
                 try:

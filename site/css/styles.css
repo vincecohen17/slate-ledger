@@ -464,3 +464,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .lg-ins { gap: 6px; } .lg-in { font-size: 13px; line-height: 1.45; } .lg-in.pos { color: var(--pos); } .lg-in.neg { color: var(--neg); }
 .lg-line { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
 .lg-line.dash { background: repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 9px); }
+
+/* projected profit */
+.pj-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 54px 64px; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.pj-bar { position: relative; height: 8px; background: var(--panel-3); border-radius: 4px; }
+.pj-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; }
+.pj-bar s { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--fg); opacity: .6; }
+.pj-row > .num { text-align: right; }
+@media (max-width: 520px) { .pj-row { grid-template-columns: minmax(0, 1fr) 54px 60px; } .pj-bar { grid-column: 1 / -1; grid-row: 2; } }

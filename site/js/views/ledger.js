@@ -5,10 +5,12 @@ import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, todayPT, $, 
 import { logSheet } from "./common.js";
 import { settleProfit } from "../promo.js";
 import { VENUES } from "../lab.js";
+import { projectedCard } from "../projected.js";
 
 let tab = "mine", filter = "pending", groupBy = "type";
 const inflight = new Set();
 
+const decA = (a) => a > 0 ? 1 + a / 100 : 1 + 100 / -a;
 const profitFor = (b, status) => settleProfit(b, b.promoId ? S.promos.get(b.promoId) : null, status);
 
 // the engine grades pending bets (bets/{id}.auto); apply it here, where the promo math lives
@@ -157,6 +159,8 @@ function mine(el) {
       <div class="kpi"><div class="k">Avg CLV</div><div class="v ${s.clv > 0 ? "pos" : s.clv < 0 ? "neg" : ""}">${s.clv != null ? pct(s.clv) : "–"}</div><div class="s">beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
       <div class="kpi"><div class="k">Open</div><div class="v">${pend.length}</div><div class="s">${money(pend.reduce((x, b) => x + (b.stake || 0), 0))} at risk</div></div>
     </div>
+    ${pend.length ? `<div class="sec-title">Open bets<span class="line"></span></div>${projectedCard({ items: pend, title: "Projected profit on open bets",
+        settledToday: bets.filter((b) => ["won", "lost", "push"].includes(b.status) && b.settledAt && new Date(b.settledAt).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }) === todayPT()).reduce((x, b) => x + (b.profit || 0), 0) })}` : ""}
     ${ins.length ? `<div class="sec-title">What the numbers say<span class="line"></span></div><div class="card col lg-ins">${ins.map(([t, x]) => `<div class="lg-in ${t}">${t === "pos" ? "▲" : t === "neg" ? "▼" : "●"} ${esc(x)}</div>`).join("")}</div>`
       : `<div class="card note" style="margin-top:12px">Takeaways appear once 8+ bets are settled with a closing price. Bets logged from the Edges, Picks, Promos and Lab screens grade themselves after the game; typed-in bets need a W/L tap.</div>`}
     <div class="sec-title">Running profit<span class="line"></span></div><div class="card">${plChart(settled)}</div>
@@ -183,12 +187,18 @@ function ours() {
   const ts = summarize(tailed), own = summarize([...S.bets.values()].filter((b) => !(b.pickId || b.source === "pick")));
   const recent = [...all].filter((p) => p.tier !== "likely").sort((a, b) => (b.commence || "").localeCompare(a.commence || "")).slice(0, 30);
   const u = (x) => `${x >= 0 ? "+" : ""}${(x || 0).toFixed(2)}u`;
+  const openPicks = all.filter((p) => ["open", "pending", undefined, null].includes(p.status) && p.tier !== "likely").map((p) => {
+    const prices = (p.playTo || []).filter((v) => v.inRange && typeof v.price === "number").map((v) => v.price);
+    const a = prices.length ? prices.reduce((x, y) => (decA(y) > decA(x) ? y : x)) : p.goodAt;
+    return a == null ? null : { ...p, label: p.selection, dec: decA(a), am: a };
+  }).filter(Boolean);
   return `<div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="k">Units</div><div class="v ${s.pl >= 0 ? "pos" : "neg"}">${u(s.pl)}</div><div class="s">${s.n} graded · ${s.w}-${s.l}${s.p ? "-" + s.p : ""}</div></div>
       <div class="kpi"><div class="k">ROI</div><div class="v">${s.roi != null ? pct(s.roi) : "–"}</div><div class="s">per unit risked</div></div>
       <div class="kpi"><div class="k">Avg CLV</div><div class="v ${s.clv > 0 ? "pos" : s.clv < 0 ? "neg" : ""}">${s.clv != null ? pct(s.clv) : "–"}</div><div class="s">beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
       <div class="kpi"><div class="k">Withdrawn</div><div class="v">${all.filter((p) => p.status === "void").length}</div><div class="s">before the game</div></div>
     </div>
+    ${openPicks.length ? `<div class="sec-title">Open picks<span class="line"></span></div>${projectedCard({ items: openPicks, title: "Projected units on open picks", fmt: u, units: true })}` : ""}
     <div class="sec-title">Units over time<span class="line"></span></div><div class="card">${plChart(graded.map(asBet), false, u)}</div>
     <div class="sec-title">By tier and league<span class="line"></span></div>
     <div class="card"><div style="overflow-x:auto"><table class="l10t lg-t"><thead><tr><th></th><th>Picks</th><th>Record</th><th>Units</th><th>ROI</th><th>Avg CLV</th><th>Beat close</th></tr></thead><tbody>

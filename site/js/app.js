@@ -63,7 +63,10 @@ function route() {
   // in play: the Live screen, or a game that started in the last five hours
   const gm = base === "game" ? S.games.get(a) : null;
   const inPlay = gm && new Date(gm.commence) < new Date() && Date.now() - new Date(gm.commence) < 5 * 3600000;
-  setView(base || "board", a || null, base === "live" || !!inPlay);
+  // the Ledger and Picks screens stay live while an open bet or pick is in play (projected profit updates)
+  const inPlayBet = (base === "ledger" || base === "picks") && [...S.bets.values(), ...S.picks.values()].some((x) => ["pending", "open"].includes(x.status)
+    && x.commence && new Date(x.commence) < new Date() && Date.now() - new Date(x.commence) < 5 * 3600000);
+  setView(base || "board", a || null, base === "live" || !!inPlay || inPlayBet);
   const nLive = S.live?.games?.length || 0;
   const ln = $("#nav a[data-r=live]"); if (ln) ln.innerHTML = nLive ? `Live <span class="pill live">${nLive}</span>` : "Live";
   $$("#nav a").forEach((x) => x.classList.toggle("on", x.dataset.r === (base === "game" || base === "final" ? "" : base)));

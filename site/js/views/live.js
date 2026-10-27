@@ -1,5 +1,6 @@
 // Live: games in play, our live win chance vs the live market, live edges; per-game live tab.
 import { finalCard } from "./final.js";
+import { projectedCard } from "../projected.js";
 import { S } from "../store.js";
 import { esc, am, prob, pct, both, bothP, teamLogo, headshot, ago, bookLogo, edgeBar, $$ } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
@@ -68,6 +69,8 @@ export function renderLive(el) {
   el.innerHTML = `<div class="row" style="justify-content:space-between;margin-top:14px;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Live</h2>
       <span class="tiny muted">${L?.updated ? `live prices ${ago(L.updated)} · refreshes every minute while this screen is open · ${L.creditsToday ?? 0} live credits today` : "waiting for the first live pull"}</span></div>
     <p class="note">Live prices move in seconds and our feed is about a minute behind, so treat every live edge as a lead: open the app, check the price is still there, then decide.</p>
+    ${(() => { const open = [...S.bets.values()].filter((b) => b.status === "pending" && b.commence && Date.now() - new Date(b.commence) > -3600000);
+      return open.length ? projectedCard({ items: open, title: "Your open bets right now" }) : ""; })()}
     ${games.length ? `<div class="grid">${games.map(liveCard).join("")}</div>` : `<div class="empty"><h3>No games in play</h3>Games show up here once they start.</div>`}
     ${(() => { const fin = (S.finals || []).filter((x) => Date.now() - new Date(x.commence) < 10 * 3600000 && (!x.tennis || x.gameId)).slice(0, 12);
       return fin.length ? `<div class="sec-title">Just finished<span class="line"></span></div><div class="grid tight">${fin.map(finalCard).join("")}</div>` : ""; })()}
