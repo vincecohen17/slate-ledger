@@ -138,8 +138,8 @@ def run_history():
             log("history: next run requested")
         except Exception as e:
             log(f"history: could not request the next run ({type(e).__name__})")
-    elif stop is None:
-        # everything fetched: replay the models over it
+    elif stop in (None, "budget"):
+        # everything fetched (or the history budget is used): replay the models over it
         import backtest
         backtest.main(DATA_DIR)
 
