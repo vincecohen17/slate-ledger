@@ -257,6 +257,10 @@ def live():
     ls["used"] = ls.get("used", 0) + api.used_run
     os.makedirs(os.path.dirname(fn), exist_ok=True)
     json.dump(ls, open(fn, "w"))
+    # small summary in the private data repo (what the Live screen shows), for checking without the site
+    json.dump([{"id": d["id"], "league": d["league"], "game": f"{d['away']} @ {d['home']}", "state": d["state"], "model": d["model"],
+                "edges": len(d["edges"]), "props": len(d["props"])} for d in docs],
+              open(os.path.join(DATA_DIR, "latest", "live.json"), "w"), indent=0)
     db = firestore_db()
     if db:
         batch, size = db.batch(), 0
