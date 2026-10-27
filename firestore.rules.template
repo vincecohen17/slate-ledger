@@ -1,0 +1,18 @@
+rules_version = '2';
+// Generated at deploy time: __ALLOWED_EMAIL__ is filled from the private data repo.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner() {
+      return request.auth != null
+        && request.auth.token.email == '__ALLOWED_EMAIL__'
+        && request.auth.token.email_verified == true;
+    }
+    // engine-written data: read-only for the owner (the engine writes with the admin SDK)
+    match /games/{id} { allow read: if owner(); }
+    match /props/{id} { allow read: if owner(); }
+    match /board/{id} { allow read: if owner(); }
+    // owner-written data
+    match /bets/{id}   { allow read, write: if owner(); }
+    match /promos/{id} { allow read, write: if owner(); }
+  }
+}
