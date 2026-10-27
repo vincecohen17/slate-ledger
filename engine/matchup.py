@@ -581,8 +581,12 @@ def _mlb(g, m, pdocs, inj, refs):
         return None
     H, A = pj["sides"]["home"], pj["sides"]["away"]
 
+    both_sp = all(pj["sides"][s].get("sp") for s in ("home", "away"))
+
     def probs(l):
         mk = l["market"]
+        if not both_sp:
+            return None       # a starter is TBA: no model opinion on game lines until both are posted
         period = "f5" if mk.endswith("_1st_5_innings") else "full" if not re.search(r"_1st_\d_innings$", mk) else None
         if period is None:
             return None
@@ -726,7 +730,7 @@ def _mlb(g, m, pdocs, inj, refs):
             factors.append({"side": side, "tone": "info", "text": f"{c['name']} ({c.get('hand') or '?'}HP): xERA {c['xera'] or '–'}, projected {c['proj']['k']} K over "
                             f"{c['proj']['outs'] / 3:.1f} innings" + (f"; mix {ars}" if ars else "")})
         elif not c:
-            factors.append({"side": side, "tone": "neg", "text": "No probable starter posted yet; the model uses a league-average arm"})
+            factors.append({"side": side, "tone": "neg", "text": "No probable starter posted yet: game-line model held back until both starters are known (props still use a league-average arm)"})
     pk = pj.get("park") or {}
     if pk:
         factors.append({"side": None, "tone": "pos" if (pk.get("runs") or 100) >= 104 else "neg" if (pk.get("runs") or 100) <= 96 else "info",
