@@ -302,3 +302,19 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .court.nfl { background: color-mix(in srgb, var(--pos) 7%, var(--panel-2)); }
 .ol { display: inline-flex; gap: 4px; margin: 0 6px; } .ol i { width: 14px; height: 14px; border-radius: 50%; background: var(--panel-3); border: 1px solid var(--line); }
 .lu-bench { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; }
+
+/* book logos */
+.bk { flex: none; display: inline-grid; place-items: center; border-radius: 5px; overflow: hidden; color: #fff; font-weight: 800; letter-spacing: -.02em; line-height: 1; vertical-align: middle; }
+.bk.img { background: #fff !important; box-shadow: 0 0 0 1px var(--line); }
+.bk img { width: 100%; height: 100%; object-fit: contain; }
+.bkt { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; vertical-align: middle; }
+.chip .bk { margin-right: 5px; }
+
+/* MLB: arsenal bars and batting order */
+.ars { display: grid; grid-template-columns: minmax(70px, 1fr) 70px 34px 64px 36px; gap: 6px; align-items: center; font-size: 12px; }
+.ars-bar { height: 6px; background: var(--panel-3); border-radius: 3px; overflow: hidden; }
+.ars-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.bo { display: flex; flex-direction: column; gap: 4px; }
+.bo-row { display: grid; grid-template-columns: 16px 30px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--line); }
+.bo-n { font: 700 12px var(--sans); color: var(--muted); text-align: center; }
+@media (max-width: 520px) { .bo-row { grid-template-columns: 14px 30px minmax(0, 1fr) auto; } .bo-row .spark { display: none; } .ars { grid-template-columns: minmax(60px, 1fr) 50px 30px 56px 30px; } }

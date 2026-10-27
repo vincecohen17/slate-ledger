@@ -1,12 +1,12 @@
 import { S } from "../store.js";
-import { esc, pct, ago, bindTips, $$ } from "../util.js";
+import { esc, pct, ago, bindTips, bookLogo, $$ } from "../util.js";
 
 let span = "total", focus = null;
 
 function divBars(rows, val, fmt, tip) {
   const max = Math.max(0.005, ...rows.map((r) => Math.abs(val(r))));
   return rows.map((r) => { const v = val(r);
-    return `<div class="hbar" data-book="${esc(r.book)}" style="cursor:pointer" data-tip="${esc(tip(r))}"><span class="ellip">${esc(r.name)} ${r.venue ? `<span class="pill v">yours</span>` : ""}</span>
+    return `<div class="hbar" data-book="${esc(r.book)}" style="cursor:pointer" data-tip="${esc(tip(r))}"><span class="ellip row" style="gap:6px">${bookLogo(r.book, r.name, 15)}${esc(r.name)} ${r.venue ? `<span class="pill v">yours</span>` : ""}</span>
       <div class="eb" style="height:12px"><div class="l">${v < 0 ? `<i style="width:${Math.abs(v) / max * 100}%"></i>` : ""}</div><div class="r">${v > 0 ? `<i style="width:${v / max * 100}%"></i>` : ""}</div></div>
       <span class="num small ${v > 0 ? "pos" : v < -0.02 ? "neg" : ""}" style="text-align:right">${fmt(v)}</span></div>`; }).join("");
 }

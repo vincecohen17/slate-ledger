@@ -67,6 +67,7 @@ class NHL:
         P, LP = self._season(ST.read_moneypuck(d, "teams", y - 1))
         pp_c, _ = self._season(ST.read_moneypuck(d, "teams", y, "5on4"))
         pk_c, _ = self._season(ST.read_moneypuck(d, "teams", y, "4on5"))
+        ev_c, _ = self._season(ST.read_moneypuck(d, "teams", y, "5on5"))
         L = LC or LP
         n_c = sum(t["gp"] for t in C.values()) / 2 if C else 0
         w = n_c / (n_c + 200) if LP else 1.0
@@ -91,9 +92,13 @@ class NHL:
                 t["ppXgf60"] = pp_c[ab]["xgf"]
             if ab in pk_c:
                 t["pkXga60"] = pk_c[ab]["xga"]
+            if ab in ev_c:      # even strength (5 on 5) per 60
+                t["evXgf60"], t["evXga60"] = ev_c[ab]["xgf"], ev_c[ab]["xga"]
+                t["evXgfPct"] = ev_c[ab]["xgf"] / ((ev_c[ab]["xgf"] + ev_c[ab]["xga"]) or 1)
             self.teams[ab] = t
         # ranks on the numbers shown (this season); the model itself uses the blended values
-        for key, asc in (("off", False), ("def", True), ("xgfPct", False), ("xgf60", False), ("xga60", True), ("ppXgf60", False), ("pkXga60", True)):
+        for key, asc in (("off", False), ("def", True), ("xgfPct", False), ("xgf60", False), ("xga60", True), ("ppXgf60", False), ("pkXga60", True),
+                         ("evXgf60", False), ("evXga60", True), ("evXgfPct", False)):
             ranked = sorted([t for t in self.teams.values() if t.get(key) is not None], key=lambda t: t[key], reverse=not asc)
             for i, t in enumerate(ranked):
                 t.setdefault("rank", {})[key] = i + 1

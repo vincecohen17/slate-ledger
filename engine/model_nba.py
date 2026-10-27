@@ -54,6 +54,9 @@ def _team_line(t, opp):
 
 
 class NBA:
+    GAME_MIN, OT_MIN, HCA, SD_MARGIN, SD_TOTAL = 48, 5, HCA, SD_MARGIN, SD_TOTAL
+    K_TEAM, MAX_MIN, ROT_MIN, LG_GAMES = K_TEAM, 42.0, 10, 150
+
     def __init__(self, cur_games, prior_games, injuries, today):
         self.today = today
         self.inj = injuries or {}
@@ -69,7 +72,7 @@ class NBA:
         for g in games:
             if "stats" not in g["home"] or "stats" not in g["away"]:
                 continue
-            mins = 53 if g.get("ot") else 48
+            mins = self.GAME_MIN + self.OT_MIN if g.get("ot") else self.GAME_MIN
             for side, other in (("home", "away"), ("away", "home")):
                 a, b = _team_line(g[side], g[other]), _team_line(g[other], g[side])
                 poss = (a["poss"] + b["poss"]) / 2
@@ -92,13 +95,13 @@ class NBA:
             poss = sum(t["poss"] for t in T.values()) or 1
             mins = sum(t["min"] for t in T.values()) or 1
             g = sum(t["g"] for t in T.values()) or 1
-            return {"rtg": 100 * sum(t["pf"] for t in T.values()) / poss, "pace": 48 * poss / mins,
+            return {"rtg": 100 * sum(t["pf"] for t in T.values()) / poss, "pace": self.GAME_MIN * poss / mins,
                     "ppg": sum(t["pf"] for t in T.values()) / g, "games": g / 2}
         LC, LP = league(C) if C else None, league(P) if P else None
         lc = LC or LP
         # league scoring environment: current season, leaning on last season until ~150 games
         if LC and LP:
-            w = LC["games"] / (LC["games"] + 150)
+            w = LC["games"] / (LC["games"] + self.LG_GAMES)
             self.lg_ppg = w * LC["ppg"] + (1 - w) * LP["ppg"]
         else:
             self.lg_ppg = lc["ppg"]
@@ -128,17 +131,17 @@ class NBA:
                 pv = cont * pv + (1 - cont) * 1.0
                 if cv is None:
                     return pv
-                return (cv * n + pv * K_TEAM) / (n + K_TEAM)
+                return (cv * n + pv * self.K_TEAM) / (n + self.K_TEAM)
 
             def plain(num, den):
                 cv = c.get(num, 0) / c[den] if c.get(den) else None
                 pv = p.get(num, 0) / p[den] if p.get(den) else None
                 if cv is None or pv is None:
                     return cv if pv is None else pv
-                return (cv * n + pv * K_TEAM) / (n + K_TEAM)
+                return (cv * n + pv * self.K_TEAM) / (n + self.K_TEAM)
             ro = rel("pf", "poss", 100, LC, LP, "rtg")
             rd = rel("pa", "poss", 100, LC, LP, "rtg")
-            rp = rel("poss", "min", 48, LC, LP, "pace")
+            rp = rel("poss", "min", self.GAME_MIN, LC, LP, "pace")
             last = [g for g in self.cur if abbr in (g["home"]["abbr"], g["away"]["abbr"])]
             last10 = []
             for g in last[-10:]:
@@ -280,13 +283,13 @@ class NBA:
                             "gp": gp, "teamGames": team_games})
         # redistribute minutes of players who are out (only if they have been playing)
         freed = sum(p["baseMin"] for p in players if p["out"] and p["gp"] >= max(1, team_games // 2))
-        rot = [p for p in players if not p["out"] and p["baseMin"] >= 10]
+        rot = [p for p in players if not p["out"] and p["baseMin"] >= self.ROT_MIN]
         tot = sum(p["baseMin"] for p in rot) or 1
         for p in players:
             if p["out"]:
                 p["projMin"] = 0.0
             elif p in rot:
-                p["projMin"] = round(min(42.0, p["baseMin"] + freed * p["baseMin"] / tot), 1)
+                p["projMin"] = round(min(self.MAX_MIN, p["baseMin"] + freed * p["baseMin"] / tot), 1)
             else:
                 p["projMin"] = p["baseMin"]
             if p["status"] == "Questionable":
@@ -325,8 +328,8 @@ class NBA:
                               "last10": {k: [round(x[k], 1) for x in logs] for k in ("pts", "reb", "ast", "fg3", "stl", "blk", "tov", "min")}})
             sides[side] = {"players": teamp, "freedMin": round(freed, 1)}
         # expected points
-        ph = self.lg_ppg * th["relO"] * ta["relD"] * pace_rel + HCA / 2
-        pa = self.lg_ppg * ta["relO"] * th["relD"] * pace_rel - HCA / 2
+        ph = self.lg_ppg * th["relO"] * ta["relD"] * pace_rel + self.HCA / 2
+        pa = self.lg_ppg * ta["relO"] * th["relD"] * pace_rel - self.HCA / 2
         for side, rr in (("home", rh), ("away", ra)):
             if rr == 1:
                 if side == "home":
@@ -347,14 +350,19 @@ class NBA:
                     "margin": round(ph - pa, 1), "total": round(ph + pa, 1), "sides": sides})
         return out
 
-    @staticmethod
-    def p_cover(margin, home_point):
+    def p_cover(self, margin, home_point):
         """P(home covers home_point) e.g. home -3.5 -> P(margin > 3.5)."""
-        return 1 - _phi((-home_point - margin) / SD_MARGIN)
+        return 1 - _phi((-home_point - margin) / self.SD_MARGIN)
 
-    @staticmethod
-    def p_over(total, line):
-        return 1 - _phi((line - total) / SD_TOTAL)
+    def p_over(self, total, line):
+        return 1 - _phi((line - total) / self.SD_TOTAL)
+
+
+class WNBA(NBA):
+    """Same model on WNBA box scores: 40-minute games, 40-game seasons (ratings settle faster),
+    smaller home edge and spreads. Spread/total sds are first estimates to be fit by backtest."""
+    GAME_MIN, OT_MIN, HCA, SD_MARGIN, SD_TOTAL = 40, 5, 2.0, 11.0, 15.0
+    K_TEAM, MAX_MIN, ROT_MIN, LG_GAMES = 10, 38.0, 8, 60
 
 
 def _phi(x):

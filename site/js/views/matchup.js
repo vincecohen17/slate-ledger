@@ -30,8 +30,10 @@ function modelVsMarket(mu, g) {
     rows.push({ k: `Total ${pt}`, mk, md, l: `Under ${pt}`, r: `Over ${pt}`, lean: md - mk, side: md > mk ? `Over ${pt}` : `Under ${pt}` });
   }
   if (!rows.length) return "";
-  const proj = mu.league === "NBA" ? `Model score ${esc(ab("away"))} ${mu.teams.away.pts} – ${esc(ab("home"))} ${mu.teams.home.pts}`
-    : `Expected goals ${esc(ab("away"))} ${mu.teams.away.goals} – ${esc(ab("home"))} ${mu.teams.home.goals}`;
+  const T = mu.teams;
+  const proj = T.away.pts != null ? `Model score ${esc(ab("away"))} ${T.away.pts} – ${esc(ab("home"))} ${T.home.pts}`
+    : T.away.runs != null ? `Model runs ${esc(ab("away"))} ${T.away.runs} – ${esc(ab("home"))} ${T.home.runs}`
+    : T.away.goals != null ? `Expected goals ${esc(ab("away"))} ${T.away.goals} – ${esc(ab("home"))} ${T.home.goals}` : "";
   return `<div class="card"><div class="row" style="justify-content:space-between;flex-wrap:wrap"><b>Model vs market</b><span class="tiny muted">${proj}</span></div>
     <div class="col" style="gap:14px;margin-top:12px">${rows.map((r) => `<div>
       <div class="row" style="justify-content:space-between"><span class="small">${esc(r.k)}</span>
@@ -42,7 +44,7 @@ function modelVsMarket(mu, g) {
 }
 
 function tape(mu, g) {
-  const n = mu.league === "NHL" ? 32 : 30;
+  const n = mu.nTeams || (mu.league === "NHL" ? 32 : 30);
   const w = (rank) => rank ? Math.max(6, (n + 1 - rank) / n * 100) : 0;
   const rows = mu.compare.map((r) => {
     const w = (rank) => rank ? Math.max(6, ((r.n || n) + 1 - rank) / (r.n || n) * 100) : 0;
@@ -102,6 +104,33 @@ function goalies(mu, g) {
     <div class="sides" style="margin-top:10px">${card(mu.teams.away, g.awayRef, g.away)}${card(mu.teams.home, g.homeRef, g.home)}</div></div>`;
 }
 
+// ---------- MLB starting pitchers (Statcast)
+function starters(mu, g) {
+  if (mu.league !== "MLB" || !mu.starters) return "";
+  const pc = (v, d = 1) => v == null ? "–" : `${(+v).toFixed(d)}%`;
+  const card = (sp, ref, name) => {
+    if (!sp) return `<div><div class="side-h">${teamLogo(ref, name, 22)}<span>Starter TBA</span></div><div class="tiny muted">No probable posted yet.</div></div>`;
+    const r = sp.rank || {}, pool = sp.pool || "";
+    const pill = (lab, v, rk) => `<span class="pill">${lab} ${v}${rk ? ` · #${rk}/${pool}` : ""}</span>`;
+    const ars = (sp.arsenal || []).map((a) => `<div class="ars"><span class="ellip">${esc(a.name || a.type)}</span>
+        <div class="ars-bar"><i style="width:${Math.min(100, a.usage || 0)}%"></i></div><span class="num tiny">${(a.usage || 0).toFixed(0)}%</span>
+        <span class="num tiny muted">whiff ${a.whiff != null ? a.whiff.toFixed(0) + "%" : "–"}</span>
+        <span class="num tiny ${a.rv100 != null && a.rv100 > 0.5 ? "pos" : a.rv100 != null && a.rv100 < -0.5 ? "neg" : "muted"}" title="run value per 100 pitches (pitcher's view)">${a.rv100 != null ? (a.rv100 > 0 ? "+" : "") + a.rv100.toFixed(1) : "–"}</span></div>`).join("");
+    const st = (sp.starts || []).map((x) => `<div class="gstart"><span class="tiny muted">${esc((x.date || "").slice(5).replace("-", "/"))}</span>
+        <span class="who"><span class="ellip tiny">vs ${esc(x.opp || "")}</span></span><span class="num">${esc(x.ip ?? "–")} IP</span>
+        <span class="num">${x.k ?? "–"} K · ${x.er ?? "–"} ER</span></div>`).join("");
+    const L = sp.last10 || {};
+    return `<div class="col" style="gap:6px"><div class="side-h">${headshot({ player: sp.name, headshot: sp.headshot }, 34)}<span>${esc(sp.name)}</span><span class="tiny muted">${esc(sp.hand || "")}HP${sp.velo ? ` · ${sp.velo.toFixed(1)} mph` : ""}</span></div>
+      <div class="row tiny" style="flex-wrap:wrap;gap:6px">${pill("xERA", sp.xera ?? "–", r.xera)}${pill("K", pc(sp.k), r.k_percent)}${pill("BB", pc(sp.bb), r.bb_percent)}${pill("whiff", pc(sp.whiff), r.whiff_percent)}${pill("barrel", pc(sp.barrel), r.barrel_batted_rate)}</div>
+      ${sp.proj ? `<div class="row tiny" style="flex-wrap:wrap;gap:6px"><span class="pill s">proj ${sp.proj.k} K</span><span class="pill s">${(sp.proj.outs / 3).toFixed(1)} IP</span><span class="pill s">${sp.proj.h} H · ${sp.proj.bb} BB · ${sp.proj.er} ER</span></div>` : ""}
+      ${L.k?.length ? `<div class="l10">${spark2(L.k, sp.proj?.k)}<span>strikeouts last ${L.k.length}: ${hitRate(L.k, sp.proj?.k)} the projection</span></div>` : ""}
+      ${ars ? `<div class="tiny muted" style="margin-top:4px">Arsenal · usage · whiff · run value/100</div>${ars}` : ""}
+      ${st ? `<div class="tiny muted" style="margin-top:4px">Recent starts</div>${st}` : ""}</div>`;
+  };
+  return `<div class="card"><b>Starting pitchers</b> <span class="tiny muted">Statcast · ranks among ${mu.starters.home?.pool || mu.starters.away?.pool || ""} pitchers with 50+ IP</span>
+    <div class="sides" style="margin-top:10px">${card(mu.starters.away, g.awayRef, g.away)}${card(mu.starters.home, g.homeRef, g.home)}</div></div>`;
+}
+
 // ---------- lineups
 function chip(p, sub) {
   return `<div class="lu-chip ${p.changed ? "chg" : ""}" title="${esc(p.name)}">${headshot({ player: p.name, headshot: p.headshot }, 38)}
@@ -120,6 +149,15 @@ function lineupCard(lu, ref, name) {
     body = `<div class="court nhl">${lu.lines.map((l, i) => `<div class="lu-row"><span class="lu-tag">L${i + 1}</span>${l.map((p) => chip(p, `${p.pos || ""} ${(p.toi || 0).toFixed(0)}m`)).join("")}</div>`).join("")}
       <div class="lu-sep"></div>${lu.pairs.map((l, i) => `<div class="lu-row"><span class="lu-tag">D${i + 1}</span>${l.map((p) => chip(p, `D ${(p.toi || 0).toFixed(0)}m`)).join("")}</div>`).join("")}
       <div class="lu-sep"></div><div class="lu-row"><span class="lu-tag">G</span>${chip(lu.goalie || {}, "likely")}</div></div>`;
+  } else if (lu.kind === "mlb") {
+    body = `<div class="bo">${(lu.order || []).map((p) => `<div class="bo-row">
+        <span class="bo-n">${p.slot}</span>${headshot({ player: p.name, headshot: p.headshot }, 30)}
+        <span class="col" style="gap:0;min-width:0"><span class="small ellip"><b>${esc(p.name)}</b> <span class="tiny muted">${esc(p.pos || "")} · bats ${esc(p.bats || "?")}</span></span>
+          <span class="tiny muted num">xwOBA ${p.xwoba != null ? p.xwoba.toFixed(3).replace(/^0/, "") : "–"}${p.plat && Math.abs(p.plat - 1) >= 0.02 ? ` · platoon ${p.plat > 1 ? "+" : ""}${Math.round((p.plat - 1) * 100)}%` : ""}</span></span>
+        <span class="col num tiny" style="align-items:flex-end;gap:0"><span>hit ${p.pHit != null ? Math.round(p.pHit * 100) + "%" : "–"} · HR ${p.pHr != null ? (p.pHr * 100).toFixed(0) + "%" : "–"}</span>
+          <span class="muted">${p.proj ? `${p.proj.tb.toFixed(2)} TB · ${p.proj.k.toFixed(2)} K` : ""}</span></span>
+        ${spark2(p.last10?.tb, 1.5, { w: 56, h: 20 })}</div>`).join("")}</div>
+      <div class="tiny ${lu.confirmed ? "pos" : "muted"}" style="margin-top:6px">${lu.confirmed ? "✓ lineup posted" : "projected lineup"}${lu.vsHand ? ` · vs ${esc(lu.vsHand)}HP` : ""} · sparkline: total bases last 10 vs 1.5</div>`;
   } else if (lu.kind === "nfl") {
     const vol = (p) => `${p.vol} ${p.volKey === "att" ? "att" : p.volKey === "car" ? "car" : "tgt"}`;
     body = `<div class="court nfl">
@@ -133,7 +171,7 @@ function lineupCard(lu, ref, name) {
 function lineups(mu, g) {
   if (!mu.lineups) return "";
   const how = mu.lineups.home?.how || "";
-  return `<div class="card"><b>Projected lineups</b> <span class="tiny muted">${esc(how)}</span>
+  return `<div class="card"><b>${mu.league === "MLB" ? "Batting orders" : "Projected lineups"}</b> <span class="tiny muted">${esc(how)}</span>
     <div class="sides" style="margin-top:10px">${lineupCard(mu.lineups.away, g.awayRef, g.away)}${lineupCard(mu.lineups.home, g.homeRef, g.home)}</div></div>`;
 }
 
@@ -141,14 +179,17 @@ const fmtS = (v, d) => v == null ? "–" : `${v > 0 ? "+" : ""}${(+v).toFixed(d)
 
 const PSTATS = {
   NBA: [["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["fg3", "3PM"], ["stl", "STL"], ["blk", "BLK"], ["tov", "TOV"]],
+  WNBA: [["pts", "PTS"], ["reb", "REB"], ["ast", "AST"], ["fg3", "3PM"], ["stl", "STL"], ["blk", "BLK"], ["tov", "TOV"]],
   NHL: [["sog", "SOG"], ["pts", "PTS"], ["g", "G"], ["a", "A"], ["blk", "BLK"], ["hits", "HIT"]],
   NFL: [["pass_yds", "PYD"], ["rush_yds", "RYD"], ["car", "CAR"], ["rec", "REC"], ["rec_yds", "RECYD"], ["td", "TD"]],
+  MLB: [["h", "H"], ["tb", "TB"], ["hr", "HR"], ["k", "K"], ["r", "R"], ["rbi", "RBI"], ["bb", "BB"], ["sb", "SB"]],
 };
-const MIN_KEY = { NBA: ["min", "MIN"], NHL: ["toi", "TOI"], NFL: ["targets", "TGT"] };
+const MIN_KEY = { MLB: ["pa", "PA"], NBA: ["min", "MIN"], WNBA: ["min", "MIN"], NHL: ["toi", "TOI"], NFL: ["targets", "TGT"] };
 // the stat and prop market that matter most for a player, for the sparkline and book line
 function keyStat(league, p) {
-  if (league === "NBA") return ["pts", "player_points"];
+  if (league === "NBA" || league === "WNBA") return ["pts", "player_points"];
   if (league === "NHL") return ["sog", "player_shots_on_goal"];
+  if (league === "MLB") return ["tb", "batter_total_bases"];
   if (league === "NFL") return p.proj?.att ? ["pass_yds", "player_pass_yds"] : /RB|FB/.test(p.pos || "") ? ["rush_yds", "player_rush_yds"] : ["rec_yds", "player_reception_yds"];
   return [null, null];
 }
@@ -215,12 +256,13 @@ function preview(g) {
 export function renderMatchup(el, g) {
   const mu = S.matchups.get(g.id);
   if (!mu) {
-    el.insertAdjacentHTML("beforeend", `${preview(g)}<div class="empty"><h3>No model for this game yet</h3>Models cover NBA, NHL, NFL, college football, MLB, soccer and tennis; this game is missing team data or a name match.</div>`);
+    el.insertAdjacentHTML("beforeend", `${preview(g)}<div class="empty"><h3>No model for this game yet</h3>Models cover NBA, WNBA, NHL, NFL, college football, MLB, soccer and tennis; this game is missing team data or a name match.</div>`);
     return;
   }
   el.insertAdjacentHTML("beforeend", `<div class="col" style="gap:12px">${preview(g)}
     <div class="mu-grid">${modelVsMarket(mu, g)}${factors(mu, g)}</div>
     ${tape(mu, g)}
+    ${starters(mu, g)}
     <div class="mu-grid">${injuries(mu, g)}${goalies(mu, g) || ""}</div>
     ${lineups(mu, g)}
     ${players(mu, g)}

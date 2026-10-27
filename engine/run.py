@@ -153,15 +153,28 @@ def auto():
     key = os.environ.get("ODDS_API_KEY")
     if not key:
         sys.exit("ODDS_API_KEY missing")
-    P = C.PLANS[C.PLAN]
     st = load_state()
+    plan_key = C.PLAN if C.PLAN != "auto" else st.get("plan", "free")
+    P = C.PLANS[plan_key]
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
     if st.get("day") != today:
         st.update(day=today, usedToday=0)
     active, force_at = presence()
     force = bool(force_at) and force_at != st.get("lastForce") and _age_min(force_at) < 15
-    paid = C.PLAN != "free"
+    paid = plan_key != "free"
     room = max(0, P["day_cap"] - st.get("usedToday", 0))
+    if not (active or force or paid) and C.PLAN == "auto" and _age_min(st.get("planCheck")) > 60:
+        probe = OddsAPI(key, max_credits=0)          # /sports is free: read the quota to notice an upgrade
+        try:
+            probe.sports()
+            st["planCheck"] = iso(NOW)
+            if probe.remaining is not None and probe.used_total is not None and probe.remaining + probe.used_total > 50_000:
+                st["plan"] = plan_key = "5m"
+                P, paid = C.PLANS["5m"], True
+                room = max(0, P["day_cap"] - st.get("usedToday", 0))
+            save_state(st)
+        except Exception:
+            pass
     if not (active or force or paid):
         log("site closed: nothing to do")
         return
@@ -170,6 +183,14 @@ def auto():
         return
     api = OddsAPI(key, max_credits=min(P["run_cap"], room))
     act = {s["key"] for s in api.sports() if s.get("active")}
+    if C.PLAN == "auto" and api.remaining is not None and api.used_total is not None:
+        detected = "5m" if api.remaining + api.used_total > 50_000 else "free"     # free key: 500 a month
+        if detected != plan_key:
+            log(f"plan detected from quota: {detected}")
+            plan_key, P, paid = detected, C.PLANS[detected], detected != "free"
+            st["plan"] = detected
+            room = max(0, P["day_cap"] - st.get("usedToday", 0))
+            api.max_credits = min(P["run_cap"], room)
     sports = [s for s in C.SPORTS if s in act] + sorted(s for s in act if s.startswith("tennis_") and C.wanted(s))
     errors, pulled = [], []
     horizon = iso(NOW + timedelta(days=7))
@@ -202,7 +223,7 @@ def auto():
     if P["props"]:
         queue = []
         for s, evs in soon.items():
-            if not C.EVENT_MARKETS.get(s):
+            if not C.event_markets(s):
                 continue
             for ev in evs:
                 hrs = (datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00")) - NOW).total_seconds() / 3600
@@ -215,7 +236,12 @@ def auto():
         n_events = 0
         for _, s, ev in queue:
             try:
-                data = api.event_odds(s, ev["id"], C.EVENT_MARKETS[s], bookmakers=C.EVENT_BOOKS)
+                bad = st.setdefault("badMarkets", {}).get(s, [])
+                data, rejected = api.event_odds_all(s, ev["id"], [m for m in C.event_markets(s) if m not in bad], C.EVENT_BOOKS)
+                if rejected:
+                    st["badMarkets"][s] = sorted(set(bad) | set(rejected))
+                if data is None:
+                    raise RuntimeError(f"no markets accepted for {C.label(s)}")
             except BudgetExceeded as e:
                 errors.append(f"budget stop after {len(pulled)} pulls ({e})")
                 break
@@ -242,7 +268,7 @@ def auto():
         prev = json.load(open(os.path.join(DATA_DIR, "latest", "board.json")))["status"]
     except Exception:
         pass
-    status = dict(prev, updated=iso(NOW) if api.used_run else prev.get("updated", iso(NOW)), mode="auto", plan=C.PLAN,
+    status = dict(prev, updated=iso(NOW) if api.used_run else prev.get("updated", iso(NOW)), mode="auto", plan=plan_key,
                   creditsRemaining=api.remaining if api.remaining is not None else prev.get("creditsRemaining"),
                   creditsThisRun=api.used_run, creditsToday=st["usedToday"], linesAt=st["lines"], errors=errors,
                   games={lg: sum(1 for g in game_docs if g["league"] == lg) for lg in sorted({g["league"] for g in game_docs})})
@@ -393,9 +419,9 @@ def run_stats(backfill=False):
     os.makedirs(os.path.join(DATA_DIR, "stats"), exist_ok=True)
     json.dump(diag, open(os.path.join(DATA_DIR, "stats", "last_run.json"), "w"), indent=1)   # private repo: full diagnostics
     log(f"stats sources: {sum(1 for v in diag['tennis'].values() if isinstance(v, int))} tennis files")
-    for lg in ("nba", "nhl", "nfl", "cfb", "epl", "ucl", "mls"):
+    for lg in stats.LEAGUES:
         n = stats.collect(lg, DATA_DIR, backfill=backfill)
-        inj = stats.injuries(lg, DATA_DIR)
+        inj = stats.injuries(lg, DATA_DIR) if lg in stats.PLAYER_LEAGUES else None
         log(f"stats {lg}: {n} games fetched, injuries for {len(inj or {})} teams")
     log(f"moneypuck: {stats.moneypuck(DATA_DIR)}")
 
@@ -446,9 +472,9 @@ def publish(game_docs, prop_docs, status, stamp):
     if MODE != "rebuild" or os.environ.get("REFRESH_STATS"):
         try:
             import stats
-            for lg in ("nba", "nhl", "nfl", "cfb", "epl", "ucl", "mls"):
+            for lg in stats.LEAGUES:
                 stats.collect(lg, DATA_DIR)
-                if lg in ("nba", "nhl", "nfl", "cfb"):
+                if lg in stats.PLAYER_LEAGUES:
                     stats.injuries(lg, DATA_DIR)
             stats.mlb(DATA_DIR)
             stats.moneypuck(DATA_DIR)

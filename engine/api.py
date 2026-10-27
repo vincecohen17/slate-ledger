@@ -12,6 +12,12 @@ class BudgetExceeded(Exception):
     pass
 
 
+class APIError(RuntimeError):
+    def __init__(self, msg, code=None, detail=""):
+        super().__init__(msg)
+        self.code, self.detail = code, detail
+
+
 class OddsAPI:
     def __init__(self, key, max_credits=None, reserve=C.RESERVE_CREDITS):
         self.key = key
@@ -48,7 +54,11 @@ class OddsAPI:
                     time.sleep(2 + attempt * 3)
                     continue
                 # message without the URL so the key never reaches a log
-                raise RuntimeError(f"Odds API {e.code} on {path}") from None
+                try:
+                    detail = e.read()[:400].decode("utf-8", "ignore").replace(self.key, "***")
+                except Exception:
+                    detail = ""
+                raise APIError(f"Odds API {e.code} on {path}", e.code, detail) from None
             except urllib.error.URLError:
                 if attempt < 2:
                     time.sleep(2)
@@ -78,3 +88,38 @@ class OddsAPI:
             units = len(regions)
         # usage counts markets returned; the estimate assumes about 60% of requested markets come back
         return self._get(f"/sports/{sport}/events/{event_id}/odds", p, est_cost=max(1, int(len(markets) * 0.6)) * units)
+
+    def event_odds_all(self, sport, event_id, markets, bookmakers, _depth=0):
+        """Every market for one event. If the API rejects a market for this sport (422), drop the ones it names,
+        or split the list in half until the bad ones are isolated. Returns (payload, rejected markets)."""
+        try:
+            return self.event_odds(sport, event_id, markets, bookmakers=bookmakers), []
+        except APIError as e:
+            if e.code != 422 or not markets:
+                raise
+            named = [m for m in markets if m in e.detail]
+            if named:
+                data, bad = self.event_odds_all(sport, event_id, [m for m in markets if m not in named], bookmakers, _depth + 1) \
+                    if len(named) < len(markets) else (None, [])
+                return data, named + bad
+            if len(markets) == 1 or _depth >= 6:
+                return None, list(markets)
+            half = len(markets) // 2
+            a, bad_a = self.event_odds_all(sport, event_id, markets[:half], bookmakers, _depth + 1)
+            b, bad_b = self.event_odds_all(sport, event_id, markets[half:], bookmakers, _depth + 1)
+            return merge_events(a, b), bad_a + bad_b
+
+
+def merge_events(a, b):
+    """Merge two event-odds payloads for the same event (bookmakers' market lists combined)."""
+    if not a or not b:
+        return a or b
+    out = dict(a)
+    books = {bm["key"]: dict(bm, markets=list(bm.get("markets", []))) for bm in a.get("bookmakers", [])}
+    for bm in b.get("bookmakers", []):
+        if bm["key"] in books:
+            books[bm["key"]]["markets"] += bm.get("markets", [])
+        else:
+            books[bm["key"]] = bm
+    out["bookmakers"] = list(books.values())
+    return out

@@ -1,5 +1,5 @@
 import { S } from "../store.js";
-import { esc, $$ } from "../util.js";
+import { esc, bookLogo, $$ } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 
 const F = { league: "All", type: "All", min: 0.015, venue: "All", logic: "All" };
@@ -12,7 +12,8 @@ export function renderEdges(el) {
     (F.logic === "All" || (F.logic === "Logic agrees" && e.logic === "agrees")) && (F.league === "All" || e.league === F.league) && (F.venue === "All" || e.bookName === F.venue) && e.edge >= F.min &&
     (F.type === "All" || (F.type === "Lines" && isLine(e)) || (F.type === "Props" && !isLine(e) && !e.pickem) || (F.type === "Pick'em" && e.pickem)) &&
     new Date(e.commence) > new Date(Date.now() - 5 * 60000));
-  const chips = (key, vals, fmt = (v) => v) => vals.map((v) => `<button class="chip ${F[key] === v ? "on" : ""}" data-f="${key}" data-v="${esc(v)}">${esc(fmt(v))}</button>`).join("");
+  const bookOf = Object.fromEntries(S.edges.map((e) => [e.bookName, e.book]));
+  const chips = (key, vals, fmt = (v) => v) => vals.map((v) => `<button class="chip ${F[key] === v ? "on" : ""}" data-f="${key}" data-v="${esc(v)}">${key === "venue" && bookOf[v] ? bookLogo(bookOf[v], v, 14) : ""}${esc(fmt(v))}</button>`).join("");
   el.innerHTML = `<div class="bar">${chips("league", leagues)}<span class="spacer"></span>${chips("type", ["All", "Lines", "Props", "Pick'em"])}</div>
     <div class="bar" style="margin-top:0">${chips("logic", ["All", "Logic agrees"])}<span class="spacer"></span>${chips("venue", venues)}<span class="spacer"></span>
       ${[0.015, 0.03, 0.05].map((m) => `<button class="chip ${F.min === m ? "on" : ""}" data-min="${m}">${(m * 100).toFixed(1)}%+</button>`).join("")}</div>

@@ -1,9 +1,9 @@
 import { S, savePromo, deletePromo, loadAllProps } from "../store.js";
-import { esc, am, pct, prob, fmtTime, money, amFromDec, uid, toast, todayPT, $, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, money, amFromDec, uid, toast, todayPT, bookLogo, $, $$ } from "../util.js";
 import { VENUES, venueName, parsePromo, describePromo, catalog, optimize } from "../lab.js";
 import { betImage, logSheet } from "./common.js";
 
-const SPORTS = ["NBA", "NFL", "NHL", "MLB", "NCAAF", "NCAAB", "EPL", "UCL", "MLS", "UFC"];
+const SPORTS = ["NBA", "WNBA", "NFL", "NHL", "MLB", "NCAAF", "NCAAB", "EPL", "UCL", "UEL", "MLS", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "Liga MX", "UFC", "Boxing"];
 const TYPES = [["profit_boost", "Profit boost (single)"], ["parlay_boost", "Parlay / combo boost"], ["bonus_bet", "Bonus bet (stake not returned)"],
                ["no_sweat", "No-sweat / refund as bonus"], ["dfs", "Pick'em promo"]];
 let draft = null, running = null;
@@ -35,7 +35,7 @@ function promoCard(p) {
   const pl = bets.reduce((s, b) => s + (b.profit ?? 0), 0);
   const expired = p.expires && p.expires < todayPT();
   return `<div class="card col" style="gap:8px">
-    <div class="row" style="justify-content:space-between"><b>${esc(p.title || venueName(p.venue))}</b>
+    <div class="row" style="justify-content:space-between"><b class="row" style="gap:6px">${bookLogo(p.venue, venueName(p.venue), 18)}${esc(p.title || venueName(p.venue))}</b>
       <span class="pill ${p.used ? "" : expired ? "neg" : "pos"}">${p.used ? "used" : expired ? "expired" : "active"}</span></div>
     <div class="small">${esc(describePromo(p))}</div>
     ${p.text ? `<div class="tiny muted">"${esc(p.text.slice(0, 220))}"</div>` : ""}

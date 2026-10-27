@@ -23,8 +23,17 @@ LEAGUES = {
     "soccer_epl": ("soccer/eng.1", "eng.1"),
     "soccer_uefa_champs_league": ("soccer/uefa.champions", "uefa.champions"),
     "soccer_usa_mls": ("soccer/usa.1", "usa.1"),
+    "basketball_wnba": ("basketball/wnba", "wnba"),
+    "soccer_uefa_europa_league": ("soccer/uefa.europa", "uefa.europa"),
+    "soccer_spain_la_liga": ("soccer/esp.1", "esp.1"),
+    "soccer_germany_bundesliga": ("soccer/ger.1", "ger.1"),
+    "soccer_italy_serie_a": ("soccer/ita.1", "ita.1"),
+    "soccer_france_ligue_one": ("soccer/fra.1", "fra.1"),
+    "soccer_mexico_ligamx": ("soccer/mex.1", "mex.1"),
 }
-ROSTER_SPORTS = {"basketball_nba", "icehockey_nhl", "americanfootball_nfl", "baseball_mlb"}
+ROSTER_SPORTS = {"basketball_nba", "basketball_wnba", "icehockey_nhl", "americanfootball_nfl", "baseball_mlb"}
+SOCCER_LOGO_IDS = {"eng.1": 23, "uefa.champions": 2, "usa.1": 19, "uefa.europa": 2310, "esp.1": 15, "ger.1": 10, "ita.1": 12,
+                   "fra.1": 9, "mex.1": 22}
 MAX_AGE = 20 * 3600
 
 
@@ -33,7 +42,7 @@ def league_logo(sport):
     if not slug:
         return None
     if "." in slug:
-        return f"https://a.espncdn.com/i/leaguelogos/soccer/500/{ {'eng.1': 23, 'uefa.champions': 2, 'usa.1': 19}[slug] }.png"
+        return f"https://a.espncdn.com/i/leaguelogos/soccer/500/{SOCCER_LOGO_IDS[slug]}.png"
     return f"https://a.espncdn.com/i/teamlogos/leagues/500/{slug}.png"
 
 

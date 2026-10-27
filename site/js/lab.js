@@ -93,7 +93,7 @@ function mkLeg(g, matchup, line, o, label, extra) {
 }
 
 export function priceAt(leg, venueKey) {
-  if (!venueKey || venueKey === "any") return leg.best ? { am: leg.best.am, cost: leg.best.cost, name: leg.best.name } : null;
+  if (!venueKey || venueKey === "any") return leg.best ? { am: leg.best.am, cost: leg.best.cost, name: leg.best.name, book: leg.best.book } : null;
   const v = leg.venues.find((x) => x.book === venueKey && !x.stale);
   return v ? { am: v.am, cost: v.cost, name: v.name } : null;
 }
@@ -167,7 +167,9 @@ export const evPerDollar = (p, dec, boost = 0) => p * (1 + (dec - 1) * (1 + boos
 
 // ---------- promo parsing from plain words
 const SPORT_WORDS = { nba: "NBA", nfl: "NFL", nhl: "NHL", mlb: "MLB", ncaaf: "NCAAF", "college football": "NCAAF",
-  ncaab: "NCAAB", "college basketball": "NCAAB", epl: "EPL", "premier league": "EPL", "champions league": "UCL", mls: "MLS", ufc: "UFC" };
+  ncaab: "NCAAB", "college basketball": "NCAAB", epl: "EPL", "premier league": "EPL", "champions league": "UCL", mls: "MLS", ufc: "UFC",
+  wnba: "WNBA", "europa league": "UEL", "la liga": "La Liga", laliga: "La Liga", bundesliga: "Bundesliga", "serie a": "Serie A",
+  "ligue 1": "Ligue 1", "liga mx": "Liga MX", boxing: "Boxing", tennis: "ATP", atp: "ATP", wta: "WTA" };
 
 export function parsePromo(text) {
   const t = " " + text.toLowerCase().replace(/\s+/g, " ") + " ";

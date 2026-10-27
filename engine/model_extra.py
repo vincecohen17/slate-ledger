@@ -1,4 +1,4 @@
-"""Skeleton models: soccer (Poisson team ratings), tennis (surface Elo), MLB (starters + team offense).
+"""First-version models: soccer (Poisson team ratings) and tennis (surface Elo). MLB lives in model_mlb.py.
 Each returns model lines for the board; they are first versions to be tuned with backtests."""
 import csv
 import io
@@ -116,70 +116,3 @@ class Tennis:
         if not ka or not kb:
             return None
         return 1 / (1 + 10 ** ((self.rating(kb, surface) - self.rating(ka, surface)) / 400))
-
-
-# ---------------------------------------------------------------------------
-# MLB
-
-class MLB:
-    def __init__(self, data_dir):
-        self.sched = ST.load_json(data_dir, "stats/mlb/schedule.json") or {}
-        teams = ST.load_json(data_dir, "stats/mlb/teams.json") or {}
-        self.pitchers = ST.load_json(data_dir, "stats/mlb/pitchers.json") or {}
-        self.off, self.pit = {}, {}
-        for sp in (teams.get("hitting", {}).get("stats") or [{}])[0].get("splits", []):
-            s, t = sp["stat"], sp["team"]["name"]
-            self.off[t] = {"rpg": s.get("runs", 0) / max(1, s.get("gamesPlayed", 1)), "ops": float(s.get("ops", 0) or 0),
-                           "kRate": s.get("strikeOuts", 0) / max(1, s.get("plateAppearances", 1))}
-        for sp in (teams.get("pitching", {}).get("stats") or [{}])[0].get("splits", []):
-            s, t = sp["stat"], sp["team"]["name"]
-            self.pit[t] = {"era": float(s.get("era", 4.2) or 4.2)}
-        self.lg_rpg = sum(t["rpg"] for t in self.off.values()) / len(self.off) if self.off else 4.4
-        self.lg_k = sum(t["kRate"] for t in self.off.values()) / len(self.off) if self.off else 0.22
-
-    def probable(self, team_name):
-        for d in self.sched.get("dates", []):
-            for g in d.get("games", []):
-                for s in ("home", "away"):
-                    t = g["teams"][s]
-                    if t["team"]["name"] == team_name and t.get("probablePitcher"):
-                        return t["probablePitcher"]
-        return None
-
-    def pitcher_line(self, pid):
-        p = (self.pitchers.get(str(pid)) or {}).get("people", [{}])[0]
-        for st in p.get("stats", []):
-            if st.get("type", {}).get("displayName") == "season" and st.get("splits"):
-                s = st["splits"][-1]["stat"]
-                ip = float(s.get("inningsPitched", "0") or 0)
-                gs = max(1, s.get("gamesStarted", 1) or 1)
-                bf = s.get("battersFaced", 0) or 1
-                hr, bb, k = s.get("homeRuns", 0), s.get("baseOnBalls", 0), s.get("strikeOuts", 0)
-                fip = (13 * hr + 3 * bb - 2 * k) / max(1, ip) + 3.1 if ip else None
-                return {"name": p.get("fullName"), "ip": ip, "ipPerStart": ip / gs, "kRate": k / bf, "bbRate": bb / bf,
-                        "era": float(s.get("era", 0) or 0), "fip": fip, "bfPerStart": bf / gs}
-        return None
-
-    def project_game(self, home, away):
-        oh, oa = self.off.get(home), self.off.get(away)
-        if not oh or not oa:
-            return None
-        out = {"sp": {}}
-        runs = {}
-        for side, team, opp_off, opp in (("home", home, oa, away), ("away", away, oh, home)):
-            pp = self.probable(team)
-            pl = self.pitcher_line(pp["id"]) if pp else None
-            out["sp"][side] = pl
-            starter = (pl["fip"] if pl and pl.get("fip") else 4.2) / 4.2
-            pen = self.pit.get(team, {}).get("era", 4.2) / 4.2
-            share = min(0.7, (pl["ipPerStart"] if pl else 5.2) / 9)
-            allow = share * starter + (1 - share) * pen
-            runs[opp] = self.lg_rpg * (opp_off["rpg"] / self.lg_rpg) * allow
-            if pl:
-                pl["kProj"] = round(pl["kRate"] * (pl["bfPerStart"] or 22) * (opp_off["kRate"] / self.lg_k), 2)
-        post = date.today().month in (10, 11)          # postseason: top starters and bullpens, colder nights
-        rh, ra = runs[home] * 1.02 * (0.86 if post else 1), runs[away] * 0.98 * (0.86 if post else 1)
-        margin = rh - ra
-        out.update(home={"runs": round(rh, 2)}, away={"runs": round(ra, 2)}, margin=round(margin, 2), total=round(rh + ra, 2),
-                   pHome=1 - _phi(-margin / 4.3))
-        return out

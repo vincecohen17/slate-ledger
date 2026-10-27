@@ -1,5 +1,5 @@
 import { S } from "../store.js";
-import { esc, am, pct, prob, fmtTime, fmtShortDay, units, todayPT, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, fmtShortDay, units, todayPT, bookTag, $$ } from "../util.js";
 import { betImage, bindLog } from "./common.js";
 
 const PILLARS = [["model", "Model"], ["advanced", "Adv stats"], ["matchup", "Matchup"], ["role", "Role"], ["context", "Context"], ["market", "Market"]];
@@ -15,7 +15,7 @@ export function pickCard(p) {
     return `<span class="pillar ${v === "support" ? "sup" : v === "against" ? "ag" : ""}">${ICON[v] || ""} ${t}</span>`;
   }).join("");
   const venues = (p.playTo || []).map((v) => `<div class="lrow" style="grid-template-columns:1fr auto auto">
-      <span>${esc(v.name || v.venue)}${v.line ? ` <span class="tiny muted">${esc(v.line)}</span>` : ""}</span>
+      <span>${bookTag(v.venue, v.name || v.venue, 15)}${v.line ? ` <span class="tiny muted">${esc(v.line)}</span>` : ""}</span>
       <span class="px">${esc(typeof v.price === "number" ? am(v.price) : v.price || "–")}</span>
       <span class="${v.inRange ? "pos" : "faint"}">${v.inRange ? "✓ in range" : "wait"}</span></div>`).join("");
   return `<div class="card col" style="gap:10px">

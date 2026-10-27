@@ -1,5 +1,5 @@
 import { S, saveBet, deleteBet } from "../store.js";
-import { esc, am, pct, money, fmtShortDay, bindTips, $, $$ } from "../util.js";
+import { esc, am, pct, money, fmtShortDay, bindTips, bookTag, $, $$ } from "../util.js";
 import { logSheet } from "./common.js";
 
 let filter = "pending";
@@ -67,7 +67,7 @@ export function renderLedger(el) {
     <div class="bar">${["pending", "settled", "all"].map((f) => `<button class="chip ${f === filter ? "on" : ""}" data-flt="${f}">${f[0].toUpperCase() + f.slice(1)}</button>`).join("")}</div>
     ${shown.length ? `<div class="panel scroll"><table><thead><tr><th>Bet</th><th>Venue</th><th>Odds</th><th>Stake</th><th>Fair</th><th>Result</th><th></th></tr></thead><tbody>
       ${shown.map((b) => `<tr><td style="white-space:normal;min-width:200px"><div>${esc(b.label)}</div><div class="tiny muted">${esc(b.matchup || "")} ${b.date ? "· " + esc(b.date) : ""}${b.promoId ? " · promo" : ""}</div></td>
-        <td>${esc(b.venueName || b.venue)}</td><td class="num">${am(b.am)}</td><td class="num">${money(b.stake)}</td>
+        <td>${bookTag(b.venue, b.venueName || b.venue, 15)}</td><td class="num">${am(b.am)}</td><td class="num">${money(b.stake)}</td>
         <td class="num">${b.fairAtLog != null ? Math.round(b.fairAtLog * 100) + "%" : "–"}</td>
         <td>${b.status === "pending" ? `<span class="row" style="gap:4px;justify-content:flex-end">${["won", "lost", "push", "void"].map((s) => `<button class="btn sm ghost" data-set="${b.id}|${s}">${s[0].toUpperCase()}</button>`).join("")}</span>`
           : `<span class="pill ${b.status === "won" ? "pos" : b.status === "lost" ? "neg" : ""}">${b.status}</span> <span class="num ${b.profit >= 0 ? "pos" : "neg"}">${money(b.profit)}</span>`}</td>

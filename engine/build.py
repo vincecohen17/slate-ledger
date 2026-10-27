@@ -312,6 +312,8 @@ DISPERSION = {
                              "player_pass_tds": 1.1, "player_pass_interceptions": 1.05,
                              "player_sacks": 1.2, "player_tackles_assists": 1.3},
 }
+DISPERSION["basketball_wnba"] = DISPERSION["basketball_ncaab"] = DISPERSION["basketball_nba"]
+DISPERSION["americanfootball_ncaaf"] = DISPERSION["americanfootball_nfl"]
 
 
 def _is_normal(market):
@@ -462,7 +464,13 @@ def build_props(ev, label):
 # Edge list across everything
 
 _PERIODS = {"q1": "1Q", "q2": "2Q", "q3": "3Q", "q4": "4Q", "h1": "1H", "h2": "2H", "p1": "1P", "p2": "2P", "p3": "3P",
-            "1st_1_innings": "1st inn", "1st_3_innings": "F3", "1st_5_innings": "F5", "1st_7_innings": "F7"}
+            "1st_1_innings": "1st inn", "1st_3_innings": "F3", "1st_5_innings": "F5", "1st_7_innings": "F7",
+            "s1": "1st set", "s2": "2nd set"}
+
+
+def market_qual(mk):
+    """unit qualifier for markets that are not counted in points/goals/runs"""
+    return " corners" if mk.endswith("_corners") else " cards" if mk.endswith("_cards") else " sets" if "_set_" in mk else ""
 
 
 def market_period(mk):
@@ -506,11 +514,11 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
             elif mk == "h2h_3way":
                 scan(g, l, lambda o: f"{o} (regulation)")
             elif "spreads" in mk:
-                scan(g, l, lambda o, l=l, g=g, pre=pre: f"{pre}{o} {(l['point'] if o == g['home'] else -l['point']):+g}")
+                scan(g, l, lambda o, l=l, g=g, pre=pre, q=market_qual(mk): f"{pre}{o} {(l['point'] if o == g['home'] else -l['point']):+g}{q}")
             elif "team_totals" in mk:
-                scan(g, l, lambda o, l=l, pre=pre: f"{pre}{l.get('team')} {o} {l['point']:g}")
+                scan(g, l, lambda o, l=l, pre=pre, q=market_qual(mk): f"{pre}{l.get('team')} {o} {l['point']:g}{q}")
             elif "totals" in mk:
-                scan(g, l, lambda o, l=l, pre=pre: f"{pre}{o} {l['point']:g}")
+                scan(g, l, lambda o, l=l, pre=pre, q=market_qual(mk): f"{pre}{o} {l['point']:g}{q}")
             else:
                 scan(g, l, lambda o, l=l, pre=pre, mk=mk: f"{pre}{mk.replace('_', ' ')}: {o}" + (f" {l['point']:g}" if l.get("point") is not None else ""))
     for p in prop_docs:

@@ -4,6 +4,7 @@
   * lets the edge list say whether sports logic agrees with the price.
 """
 import math
+import re
 
 import refs as R
 import stats as ST
@@ -13,11 +14,12 @@ import model_nhl
 import model_nfl
 import model_cfb
 import model_extra as MX
+import model_mlb as MLBM
 
 ALIAS = {"UTAH": "UTA", "GSW": "GS", "NOP": "NO", "SAS": "SA", "NYK": "NY", "WAS": "WSH", "UTH": "UTA"}
-SEASON = {"nba": ("2026-27", "2025-26"), "nhl": ("2026-27", "2025-26"), "nfl": ("2026", "2025"), "cfb": ("2026", "2025"),
-          "epl": ("2026-27", "2025-26"), "ucl": ("2026-27", "2025-26"), "mls": ("2026", "2025")}
-SOCCER = {"soccer_epl": "epl", "soccer_uefa_champs_league": "ucl", "soccer_usa_mls": "mls"}
+SEASON = {"nba": ("2026-27", "2025-26"), "wnba": ("2026", "2025"), "nhl": ("2026-27", "2025-26"), "nfl": ("2026", "2025"), "cfb": ("2026", "2025"),
+          "mls": ("2026", "2025"), **{lg: ("2026-27", "2025-26") for lg in ST.SOCCER if lg != "mls"}}
+SOCCER = {sport: lg for lg, (_, sport) in ST.SOCCER.items()}
 
 
 def _phi(x):
@@ -48,15 +50,15 @@ def build_all(game_docs, prop_docs, data_dir, today):
     out = {}
     models = {}
     inj = {}
-    for lg, sport in (("nba", "basketball_nba"), ("nhl", "icehockey_nhl"), ("nfl", "americanfootball_nfl"), ("cfb", "americanfootball_ncaaf")):
+    for lg, sport in (("nba", "basketball_nba"), ("wnba", "basketball_wnba"), ("nhl", "icehockey_nhl"), ("nfl", "americanfootball_nfl"), ("cfb", "americanfootball_ncaaf")):
         if not any(g["sport"] == sport for g in game_docs):
             continue
         try:
             cur, pri = SEASON[lg]
             inj[lg] = (ST.load_json(data_dir, f"stats/{lg}/injuries.json") or {}).get("teams", {})
             cg, pg = ST.load_games(lg, cur, data_dir), ST.load_games(lg, pri, data_dir)
-            if lg == "nba":
-                models[sport] = model_nba.NBA(cg, pg, inj[lg], today)
+            if lg in ("nba", "wnba"):
+                models[sport] = (model_nba.WNBA if lg == "wnba" else model_nba.NBA)(cg, pg, inj[lg], today)
             elif lg == "nhl":
                 models[sport] = model_nhl.NHL(data_dir, cg, pg, inj[lg])
             elif lg == "nfl":
@@ -74,9 +76,10 @@ def build_all(game_docs, prop_docs, data_dir, today):
                 print(f"model {lg} failed: {type(e).__name__}")
     if any(g["sport"] == "baseball_mlb" for g in game_docs):
         try:
-            models["baseball_mlb"] = MX.MLB(data_dir)
+            models["baseball_mlb"] = MLBM.MLB(data_dir)
+            inj["mlb"] = (ST.load_json(data_dir, "stats/mlb/injuries.json") or {}).get("teams", {})
         except Exception as e:
-            print(f"model mlb failed: {type(e).__name__}")
+            print(f"model mlb failed: {type(e).__name__}: {str(e)[:120]}")
     if any(g["sport"].startswith("tennis_") for g in game_docs):
         try:
             tm = MX.Tennis(data_dir)
@@ -94,7 +97,7 @@ def build_all(game_docs, prop_docs, data_dir, today):
             continue
         try:
             refs = R.load(g["sport"], data_dir)
-            fn = {"basketball_nba": _nba, "icehockey_nhl": _nhl, "americanfootball_nfl": _nfl, "americanfootball_ncaaf": _cfb,
+            fn = {"basketball_nba": _nba, "basketball_wnba": _nba, "icehockey_nhl": _nhl, "americanfootball_nfl": _nfl, "americanfootball_ncaaf": _cfb,
                   "baseball_mlb": _mlb}.get(g["sport"]) or (_soccer if g["sport"] in SOCCER else _tennis if g["sport"].startswith("tennis_") else None)
             if not fn:
                 continue
@@ -273,7 +276,8 @@ def _nba(g, m, pdocs, inj, refs):
     pj = m.project_game(h, a, g["commence"])
     if not pj:
         return None
-    pH = 1 - _phi(-pj["margin"] / model_nba.SD_MARGIN)
+    pH = 1 - _phi(-pj["margin"] / m.SD_MARGIN)
+    lg = "wnba" if g["sport"] == "basketball_wnba" else "nba"
 
     def probs(l):
         if l["market"] == "h2h":
@@ -292,7 +296,7 @@ def _nba(g, m, pdocs, inj, refs):
         return {"abbr": t["abbr"], "record": f"{t['w']}-{t['l']}", "games": t["games"], "continuity": t.get("continuity"),
                 "ortg": _fmt(t["ortg"]), "drtg": _fmt(t["drtg"]), "net": _fmt(t["net"]), "pace": _fmt(t["pace"]),
                 "rank": t.get("rank", {}), "last10": t["last10"], "rest": pj["rest"][side],
-                "injuries": _injuries(inj.get("nba"), t["abbr"], name), "freedMin": pj["sides"][side]["freedMin"],
+                "injuries": _injuries(inj.get(lg), t["abbr"], name), "freedMin": pj["sides"][side]["freedMin"],
                 "injuryPts": pj["sides"][side].get("injuryPts"), "pts": pj[side]["pts"]}
     compare = [
         {"k": "Net rating", "h": th["net"], "a": ta["net"], "hr": th["rank"].get("net"), "ar": ta["rank"].get("net"), "hi": True, "d": 1},
@@ -317,17 +321,19 @@ def _nba(g, m, pdocs, inj, refs):
         if (t.get("continuity") or 1) < 0.6:
             factors.append({"side": side, "tone": "info", "text": f"{t['abbr']} returned {t['continuity']:.0%} of last season's minutes; this season's games carry more weight"})
     if th["pace"] and ta["pace"]:
-        if th["rank"].get("pace", 99) <= 8 and ta["rank"].get("pace", 99) <= 8:
-            factors.append({"side": None, "tone": "info", "text": "Two top-8 pace teams: more possessions, totals and counting props up"})
-        if th["rank"].get("pace", 0) >= 23 and ta["rank"].get("pace", 0) >= 23:
-            factors.append({"side": None, "tone": "info", "text": "Two bottom-8 pace teams: fewer possessions"})
+        nt = len(m.teams)
+        q = max(2, round(nt * 0.27))
+        if th["rank"].get("pace", 99) <= q and ta["rank"].get("pace", 99) <= q:
+            factors.append({"side": None, "tone": "info", "text": f"Two top-{q} pace teams: more possessions, totals and counting props up"})
+        if th["rank"].get("pace", 0) > nt - q and ta["rank"].get("pace", 0) > nt - q:
+            factors.append({"side": None, "tone": "info", "text": f"Two bottom-{q} pace teams: fewer possessions"})
     sp = lines.get("spreads")
     if sp and sp.get("point") is not None:
         mkt_line = sp["point"]
         factors.append({"side": None, "tone": "info", "text": f"Model line {g['homeRef']['abbr'] if g.get('homeRef') else 'home'} {-pj['margin']:+.1f}, "
                         f"market {mkt_line:+g}; model total {pj['total']:.1f}"})
     keys = ["pts", "reb", "ast", "fg3"]
-    return {"id": g["id"], "league": "NBA", "home": g["home"], "away": g["away"], "commence": g["commence"],
+    return {"id": g["id"], "league": lg.upper(), "nTeams": len(m.teams), "home": g["home"], "away": g["away"], "commence": g["commence"],
             "model": {"margin": pj["margin"], "total": pj["total"], "pHome": round(pH, 4), "pace": pj["pace"], "lines": lines},
             "teams": {"home": team(th, "home", g["home"]), "away": team(ta, "away", g["away"])},
             "compare": compare, "factors": factors, "propEdges": [], "statKeys": keys,
@@ -378,8 +384,11 @@ def _nhl(g, m, pdocs, inj, refs):
                 "goalie": gl, "goals": pj[side]["goals"], "injuries": _injuries(inj.get("nhl"), t["abbr"], name)}
     compare = [
         {"k": "xGoals share", "h": th.get("xgfPct"), "a": ta.get("xgfPct"), "hr": th["rank"].get("xgfPct"), "ar": ta["rank"].get("xgfPct"), "hi": True, "pct": True},
-        {"k": "xGoals for /60", "h": th.get("xgf60"), "a": ta.get("xgf60"), "hr": th["rank"].get("xgf60"), "ar": ta["rank"].get("xgf60"), "hi": True, "d": 2},
-        {"k": "xGoals against /60", "h": th.get("xga60"), "a": ta.get("xga60"), "hr": th["rank"].get("xga60"), "ar": ta["rank"].get("xga60"), "hi": False, "d": 2},
+        {"k": "xGoals for /60 (all)", "h": th.get("xgf60"), "a": ta.get("xgf60"), "hr": th["rank"].get("xgf60"), "ar": ta["rank"].get("xgf60"), "hi": True, "d": 2},
+        {"k": "xGoals against /60 (all)", "h": th.get("xga60"), "a": ta.get("xga60"), "hr": th["rank"].get("xga60"), "ar": ta["rank"].get("xga60"), "hi": False, "d": 2},
+        {"k": "Even-strength xGF /60", "h": _fmt(th.get("evXgf60"), 2), "a": _fmt(ta.get("evXgf60"), 2), "hr": th["rank"].get("evXgf60"), "ar": ta["rank"].get("evXgf60"), "hi": True, "d": 2},
+        {"k": "Even-strength xGA /60", "h": _fmt(th.get("evXga60"), 2), "a": _fmt(ta.get("evXga60"), 2), "hr": th["rank"].get("evXga60"), "ar": ta["rank"].get("evXga60"), "hi": False, "d": 2},
+        {"k": "Even-strength xG share", "h": _fmt(th.get("evXgfPct"), 3), "a": _fmt(ta.get("evXgfPct"), 3), "hr": th["rank"].get("evXgfPct"), "ar": ta["rank"].get("evXgfPct"), "hi": True, "pct": True},
         {"k": "Power play xG per 2 min", "h": per2(th.get("ppXgf60")), "a": per2(ta.get("ppXgf60")), "hr": th["rank"].get("ppXgf60"), "ar": ta["rank"].get("ppXgf60"), "hi": True, "d": 3},
         {"k": "Penalty kill xGA per 2 min", "h": per2(th.get("pkXga60")), "a": per2(ta.get("pkXga60")), "hr": th["rank"].get("pkXga60"), "ar": ta["rank"].get("pkXga60"), "hi": False, "d": 3},
         {"k": "Goalie EV GSAx /60", "h": gh.get("ev60"), "a": ga.get("ev60"), "hr": gh.get("rank", {}).get("ev60"), "ar": ga.get("rank", {}).get("ev60"), "hi": True, "d": 2, "n": gh.get("pool")},
@@ -561,43 +570,191 @@ def _tennis(g, m, pdocs, inj, refs):
             "propEdges": [], "statKeys": [], "statLabels": [], "players": {"home": [], "away": []}}
 
 
+MLB_PROPS = {"batter_hits": "h", "batter_total_bases": "tb", "batter_home_runs": "hr", "batter_singles": "s1", "batter_doubles": "s2",
+             "batter_triples": "s3", "batter_walks": "bb", "batter_strikeouts": "k"}
+MLB_MEAN_PROPS = {"batter_rbis": "rbi", "batter_runs_scored": "r", "batter_hits_runs_rbis": "hrr", "batter_stolen_bases": "sb"}
+
+
 def _mlb(g, m, pdocs, inj, refs):
-    pj = m.project_game(g["home"], g["away"])
+    pj = m.project_game(g["home"], g["away"], g["commence"])
     if not pj:
         return None
-    sd = 4.3
+    H, A = pj["sides"]["home"], pj["sides"]["away"]
 
     def probs(l):
-        if l["market"] == "h2h":
-            return {g["home"]: pj["pHome"], g["away"]: 1 - pj["pHome"]}
-        if l["market"] in ("totals", "alternate_totals"):
-            po = 1 - _phi((l["point"] - pj["total"]) / 3.3)
-            return {"Over": po, "Under": 1 - po}
-        if l["market"] in ("spreads", "alternate_spreads"):
-            ph = 1 - _phi((-l["point"] - pj["margin"]) / sd)
+        mk = l["market"]
+        period = "f5" if mk.endswith("_1st_5_innings") else "full" if not re.search(r"_1st_\d_innings$", mk) else None
+        if period is None:
+            return None
+        base = re.sub(r"_1st_5_innings$", "", mk).replace("alternate_", "")
+        if base == "h2h":
+            ph = m.prob(pj, "win", period)
             return {g["home"]: ph, g["away"]: 1 - ph}
+        if base == "h2h_3_way":
+            w, t, a = m.prob(pj, "win3", period)
+            out = {g["home"]: w, g["away"]: a}
+            for o in l["outcomes"]:
+                if o not in out:
+                    out[o] = t
+            return out
+        if base == "spreads" and l.get("point") is not None:
+            ph = m.prob(pj, "cover", period, l["point"])
+            return {g["home"]: ph, g["away"]: 1 - ph}
+        if base == "totals" and l.get("point") is not None:
+            po = m.prob(pj, "over", period, l["point"])
+            return {"Over": po, "Under": 1 - po}
+        if base == "team_totals" and period == "full" and l.get("point") is not None:
+            side = "home" if R.norm(l.get("team") or "") == R.norm(g["home"]) else "away" if R.norm(l.get("team") or "") == R.norm(g["away"]) else None
+            if side:
+                po = m.prob(pj, "team_over", period, (side, l["point"]))
+                return {"Over": po, "Under": 1 - po}
     lines = _stamp_lines(g, probs)
+    hitters = H["lineup"] + A["lineup"]
+    sps = {s: pj["sides"][s].get("sp") for s in ("home", "away")}
     for d in pdocs:
-        if d["market"] != "pitcher_strikeouts":
-            continue
+        mk = d["market"].replace("_alternate", "")
         for r in d["rows"]:
-            for side in ("home", "away"):
-                sp = pj["sp"].get(side)
-                if sp and R.norm(sp["name"] or "") == R.norm(r["player"]) and r.get("point") is not None:
-                    po = B.p_over("pitcher_strikeouts", sp["kProj"], r["point"], "baseball_mlb")
-                    r["model"] = {"mean": sp["kProj"], "raw": sp["kProj"], "Over": round(po, 4), "Under": round(1 - po, 4)}
-    sp = pj["sp"]
-    fmt = lambda x, k, d=2: None if not x or x.get(k) is None else round(x[k], d)
-    compare = [{"k": "Starter FIP", "h": fmt(sp.get("home"), "fip"), "a": fmt(sp.get("away"), "fip"), "hi": False, "d": 2},
-               {"k": "Starter K rate", "h": fmt(sp.get("home"), "kRate", 3), "a": fmt(sp.get("away"), "kRate", 3), "hi": True, "pct": True},
-               {"k": "Starter innings per start", "h": fmt(sp.get("home"), "ipPerStart", 1), "a": fmt(sp.get("away"), "ipPerStart", 1), "hi": True, "d": 1},
-               {"k": "Offense runs per game", "h": round(m.off[g["home"]]["rpg"], 2), "a": round(m.off[g["away"]]["rpg"], 2), "hi": True, "d": 2},
-               {"k": "Offense OPS", "h": m.off[g["home"]]["ops"], "a": m.off[g["away"]]["ops"], "hi": True, "d": 3}]
-    factors = [{"side": s, "tone": "info", "text": f"Probable starter: {sp[s]['name']} (FIP {sp[s]['fip']:.2f}, projected {sp[s]['kProj']} strikeouts)"}
-               for s in ("away", "home") if sp.get(s)]
-    factors.append({"side": None, "tone": "info", "text": f"Model runs {pj['away']['runs']}-{pj['home']['runs']}, total {pj['total']}. First version: starters, bullpen ERA and team offense; Statcast and lineups come next."})
+            if mk.startswith("pitcher_"):
+                sp = next((x for x in sps.values() if x and R.norm(x.get("name") or "") == R.norm(r["player"])), None)
+                if not sp or not sp.get("proj"):
+                    continue
+                logs = (m.people.get(str(sp["id"])) or {}).get("pit") or []
+                key = {"pitcher_strikeouts": "k", "pitcher_outs": "outs", "pitcher_hits_allowed": "h", "pitcher_walks": "bb",
+                       "pitcher_earned_runs": "er"}.get(mk)
+                if key:
+                    r["last10"] = [x.get(key) for x in logs if x.get("gs")][-10:]
+                if mk == "pitcher_record_a_win":
+                    side = "home" if sp is sps["home"] else "away"
+                    pw = m.prob(pj, "win", "full")
+                    pw = pw if side == "home" else 1 - pw
+                    py = pw * _phi((sp["proj"]["outs"] - 14.5) / 3.4) * 0.88
+                    r["model"] = {"mean": round(py, 3), "Yes": round(py, 4), "No": round(1 - py, 4)}
+                    continue
+                if not key or r.get("point") is None:
+                    continue
+                mean = sp["proj"][key]
+                if mk == "pitcher_strikeouts":
+                    po = MLBM.p_over_dist(sp["kDist"], r["point"])
+                elif mk == "pitcher_outs":
+                    po = 1 - _phi((r["point"] - mean) / 3.4)
+                else:
+                    po = B.p_over(mk, max(mean, 0.01), r["point"], "baseball_mlb")
+                r["model"] = {"mean": mean, "raw": mean, "Over": round(po, 4), "Under": round(1 - po, 4)}
+                continue
+            b = _match_player(r["player"], hitters)
+            if not b or not b.get("proj"):
+                continue
+            logs = (m.people.get(str(b["id"])) or {}).get("hit") or []
+            stat = MLB_PROPS.get(mk) or MLB_MEAN_PROPS.get(mk)
+            lk = {"s2": "d2", "s3": "d3"}.get(stat, stat)
+            if stat:
+                r["last10"] = [x.get(lk) for x in logs][-10:]
+            if mk == "batter_home_runs" and r.get("point") is None or mk == "batter_first_home_run":
+                if mk == "batter_home_runs":
+                    py = 1 - b["dist"]["hr"][0]
+                    r["model"] = {"mean": b["proj"]["hr"], "Yes": round(py, 4), "No": round(1 - py, 4)}
+                continue
+            if r.get("point") is None or not stat:
+                continue
+            mean = b["proj"][stat]
+            po = MLBM.p_over_dist(b["dist"][stat], r["point"]) if stat in b["dist"] else B.p_over(mk, max(mean, 0.01), r["point"], "baseball_mlb")
+            r["model"] = {"mean": round(mean, 2), "raw": round(mean, 2), "Over": round(po, 4), "Under": round(1 - po, 4)}
+
+    def sp_card(side):
+        sp = sps.get(side)
+        if not sp:
+            return None
+        pid = str(sp["id"])
+        sv = m.pit[m.year].get(pid) or m.pit[m.year - 1].get(pid) or {}
+        logs = [x for x in ((m.people.get(pid) or {}).get("pit") or []) if x.get("gs")]
+        rk = m.pit_rank.get(pid, {})
+        return {"id": sp["id"], "name": sp["name"], "hand": sp.get("hand"), "headshot": MLBM.HEADSHOT.format(sp["id"]),
+                "xera": sv.get("xera"), "era": sv.get("p_era"), "xwoba": sv.get("xwoba"), "k": sv.get("k_percent"), "bb": sv.get("bb_percent"),
+                "whiff": sv.get("whiff_percent"), "barrel": sv.get("barrel_batted_rate"), "hardHit": sv.get("hard_hit_percent"),
+                "gb": sv.get("groundballs_percent"), "velo": sv.get("ff_avg_speed"), "ip": sv.get("p_formatted_ip"), "rank": rk, "pool": m.pit_pool,
+                "arsenal": (m.arsenal.get(pid) or [])[:6], "proj": sp.get("proj"),
+                "starts": [{"date": x.get("date"), "opp": x.get("opp"), "ip": x.get("ip"), "k": x.get("k"), "er": x.get("er"), "h": x.get("h"),
+                            "bb": x.get("bb"), "pitches": x.get("pitches")} for x in logs[-6:]][::-1],
+                "last10": {"k": [x.get("k") for x in logs][-10:], "outs": [x.get("outs") for x in logs][-10:]}}
+
+    def lineup_doc(side):
+        S = pj["sides"][side]
+        opp_sp = sps["away" if side == "home" else "home"] or {}
+        order = []
+        for i, b in enumerate(S["lineup"]):
+            sv = m.bat[m.year].get(str(b["id"])) or {}
+            logs = (m.people.get(str(b["id"])) or {}).get("hit") or []
+            order.append({"slot": i + 1, "id": b["id"], "name": b["name"], "pos": b.get("pos"), "bats": b.get("bats"),
+                          "headshot": MLBM.HEADSHOT.format(b["id"]), "xwoba": sv.get("xwoba"), "barrel": sv.get("barrel_batted_rate"),
+                          "plat": b.get("platX"), "proj": b.get("proj"), "pHr": round(1 - b["dist"]["hr"][0], 3) if b.get("dist") else None,
+                          "pHit": round(1 - b["dist"]["h"][0], 3) if b.get("dist") else None,
+                          "last10": {"tb": [x.get("tb") for x in logs][-10:], "h": [x.get("h") for x in logs][-10:]}})
+        return {"kind": "mlb", "confirmed": S["confirmed"], "order": order, "vsHand": opp_sp.get("hand"),
+                "how": "posted lineup" if S["confirmed"] else "projected from the team's last posted lineup; confirm before first pitch"}
+
+    def lineup_xwoba(side):
+        rows = pj["sides"][side]["lineup"]
+        v = [(m.bat[m.year].get(str(b["id"])) or {}).get("xwoba") for b in rows]
+        v = [x * (b.get("platX") or 1) for x, b in zip(v, rows) if x]
+        return round(sum(v) / len(v), 3) if v else None
+
+    def lineup_k(side):
+        rows = pj["sides"][side]["lineup"]
+        v = [b["vsSp"]["k"] for b in rows if b.get("vsSp")]
+        return round(sum(v) / len(v), 3) if v else None
+    sh, sa = sp_card("home"), sp_card("away")
+    f = lambda c, k: (c or {}).get(k)
+    pc = lambda v: None if v is None else round(v / 100, 3)
+    rk = lambda c, k: (c or {}).get("rank", {}).get(k)
+    pool = m.pit_pool
+    compare = [
+        {"k": "Starter xERA", "h": f(sh, "xera"), "a": f(sa, "xera"), "hr": rk(sh, "xera"), "ar": rk(sa, "xera"), "hi": False, "d": 2, "n": pool},
+        {"k": "Starter xwOBA allowed", "h": f(sh, "xwoba"), "a": f(sa, "xwoba"), "hr": rk(sh, "xwoba"), "ar": rk(sa, "xwoba"), "hi": False, "d": 3, "n": pool},
+        {"k": "Starter strikeout rate", "h": pc(f(sh, "k")), "a": pc(f(sa, "k")), "hr": rk(sh, "k_percent"), "ar": rk(sa, "k_percent"), "hi": True, "pct": True, "n": pool},
+        {"k": "Starter walk rate", "h": pc(f(sh, "bb")), "a": pc(f(sa, "bb")), "hr": rk(sh, "bb_percent"), "ar": rk(sa, "bb_percent"), "hi": False, "pct": True, "n": pool},
+        {"k": "Starter whiff rate", "h": pc(f(sh, "whiff")), "a": pc(f(sa, "whiff")), "hr": rk(sh, "whiff_percent"), "ar": rk(sa, "whiff_percent"), "hi": True, "pct": True, "n": pool},
+        {"k": "Starter barrel rate allowed", "h": pc(f(sh, "barrel")), "a": pc(f(sa, "barrel")), "hr": rk(sh, "barrel_batted_rate"), "ar": rk(sa, "barrel_batted_rate"), "hi": False, "pct": True, "n": pool},
+        {"k": "Lineup xwOBA (vs this hand)", "h": lineup_xwoba("home"), "a": lineup_xwoba("away"), "hi": True, "d": 3},
+        {"k": "Lineup K rate vs this starter", "h": lineup_k("home"), "a": lineup_k("away"), "hi": False, "pct": True},
+        {"k": "Bullpen / staff ERA", "h": (m.team_pit.get(H["team"]["name"]) or {}).get("era"),
+         "a": (m.team_pit.get(A["team"]["name"]) or {}).get("era"), "hi": False, "d": 2},
+    ]
+    factors = []
+    for side, c in (("away", sa), ("home", sh)):
+        if c and c.get("proj"):
+            ars = ", ".join(f"{a['name']} {a['usage']:.0f}%" for a in c["arsenal"][:3] if a.get("usage"))
+            factors.append({"side": side, "tone": "info", "text": f"{c['name']} ({c.get('hand') or '?'}HP): xERA {c['xera'] or '–'}, projected {c['proj']['k']} K over "
+                            f"{c['proj']['outs'] / 3:.1f} innings" + (f"; mix {ars}" if ars else "")})
+        elif not c:
+            factors.append({"side": side, "tone": "neg", "text": "No probable starter posted yet; the model uses a league-average arm"})
+    pk = pj.get("park") or {}
+    if pk:
+        factors.append({"side": None, "tone": "pos" if (pk.get("runs") or 100) >= 104 else "neg" if (pk.get("runs") or 100) <= 96 else "info",
+                        "text": f"{pj['venue']}: park runs index {pk.get('runs') or '–'}, home runs {pk.get('hr') or '–'} (100 = average, Statcast 3-year)"})
+    if pj.get("wxNote"):
+        factors.append({"side": None, "tone": "info", "text": f"Weather: {pj['wxNote']}; home-run factor x{pj['wx']:.2f}"})
+    for side in ("away", "home"):
+        if not pj["sides"][side]["confirmed"]:
+            factors.append({"side": side, "tone": "info", "text": "Lineup not posted yet: projected from the last posted lineup"})
+    factors.append({"side": None, "tone": "info", "text": f"Model runs {A['runs']:.2f}-{H['runs']:.2f} (first five {A['runsF5']:.2f}-{H['runsF5']:.2f}), "
+                    f"home win {pj['pHome']:.0%}"})
+
+    def batters(side):
+        out = []
+        for b in pj["sides"][side]["lineup"]:
+            logs = (m.people.get(str(b["id"])) or {}).get("hit") or []
+            out.append({"name": b["name"], "pos": b.get("pos"), "status": None, "out": False, "min": b["proj"]["pa"] if b.get("proj") else None,
+                        "headshot": MLBM.HEADSHOT.format(b["id"]), "proj": b.get("proj") or {},
+                        "last10": {k: [x.get(k) for x in logs][-10:] for k in ("pa", "h", "tb", "hr", "r", "rbi", "bb", "k", "sb")}})
+        return out
+    rec = lambda side: "{wins}-{losses}".format(**pj["sides"][side]["record"]) if pj["sides"][side].get("record") else None
     return {"id": g["id"], "league": "MLB", "home": g["home"], "away": g["away"], "commence": g["commence"],
             "model": {"pHome": round(pj["pHome"], 4), "total": pj["total"], "margin": pj["margin"], "lines": lines},
-            "teams": {"home": {"abbr": (g.get("homeRef") or {}).get("abbr"), "record": None, "runs": pj["home"]["runs"], "injuries": []},
-                      "away": {"abbr": (g.get("awayRef") or {}).get("abbr"), "record": None, "runs": pj["away"]["runs"], "injuries": []}},
-            "compare": compare, "factors": factors, "propEdges": [], "statKeys": [], "statLabels": [], "players": {"home": [], "away": []}}
+            "teams": {"home": {"abbr": (g.get("homeRef") or {}).get("abbr"), "record": rec("home"), "runs": round(H["runs"], 2),
+                               "injuries": _injuries(inj.get("mlb"), (g.get("homeRef") or {}).get("abbr"), g["home"])},
+                      "away": {"abbr": (g.get("awayRef") or {}).get("abbr"), "record": rec("away"), "runs": round(A["runs"], 2),
+                               "injuries": _injuries(inj.get("mlb"), (g.get("awayRef") or {}).get("abbr"), g["away"])}},
+            "starters": {"home": sh, "away": sa}, "park": pk, "weather": pj.get("weather"), "series": pj.get("series"),
+            "compare": compare, "factors": factors, "propEdges": [], "statKeys": ["h", "tb", "hr", "k"], "statLabels": ["H", "TB", "HR", "K"],
+            "players": {"home": batters("home"), "away": batters("away")},
+            "lineups": {"home": lineup_doc("home"), "away": lineup_doc("away")}}

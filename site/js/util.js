@@ -46,6 +46,36 @@ export function headshot(row, size = 48) {
   return `<span class="head" style="width:${size}px;height:${size}px">${ini}</span>`;
 }
 
+// ---------- books: logo from the book's own site icon, brand-colored monogram when there is none
+export const BOOKS = {
+  pinnacle: { d: "pinnacle.com", c: "#0b2a4a", m: "PIN" }, betfair_ex_eu: { d: "betfair.com", c: "#f6b908", m: "BF" },
+  matchbook: { d: "matchbook.com", c: "#1d1d1d", m: "MB" }, novig: { d: "novig.us", c: "#5b3df5", m: "NV" },
+  prophetx: { d: "prophetx.co", c: "#0d1b2a", m: "PX" }, kalshi: { d: "kalshi.com", c: "#00b386", m: "K" },
+  polymarket_us: { d: "polymarket.com", c: "#2d6cdf", m: "PM" }, polymarket: { d: "polymarket.com", c: "#2d6cdf", m: "PM" },
+  betopenly: { d: "betopenly.com", c: "#333", m: "BO" }, limitless: { d: "limitless.exchange", c: "#222", m: "LX" },
+  lowvig: { d: "lowvig.ag", c: "#1a4d8f", m: "LV" }, betonlineag: { d: "betonline.ag", c: "#c8102e", m: "BOL" },
+  circasports: { d: "circasports.com", c: "#111", m: "CIR" },
+  draftkings: { d: "draftkings.com", c: "#53d337", m: "DK", twin: "DraftKings" }, fanduel: { d: "fanduel.com", c: "#1493ff", m: "FD", twin: "FanDuel" },
+  fliff: { d: "getfliff.com", c: "#7b2ff7", m: "FL" }, courtside: { c: "#e4572e", m: "CS" }, bovada: { d: "bovada.lv", c: "#cc0000", m: "BOV" },
+  betmgm: { d: "betmgm.com", c: "#b9975b", m: "MGM" }, williamhill_us: { d: "caesars.com", c: "#0f3b2e", m: "CZR" },
+  betrivers: { d: "betrivers.com", c: "#123f78", m: "BR" }, espnbet: { d: "thescore.bet", c: "#1c1c1c", m: "SCR" },
+  fanatics: { d: "fanatics.com", c: "#e21b23", m: "FAN" }, prizepicks: { d: "prizepicks.com", c: "#6c2bd9", m: "PP" },
+  underdog: { d: "underdogfantasy.com", c: "#f2c94c", m: "UD" }, pick6: { d: "draftkings.com", c: "#53d337", m: "P6" },
+  dabble_us_dfs: { d: "dabble.com", c: "#ff5a1f", m: "DB" }, betr_us_dfs: { d: "betr.app", c: "#ff2f6d", m: "BTR" },
+  sleeper: { d: "sleeper.com", c: "#18202e", m: "SLP" }, chalkboard: { c: "#2b2b2b", m: "CB" }, boom: { d: "boomfantasy.com", c: "#ff6b00", m: "BM" },
+  parlayplay: { d: "parlayplay.io", c: "#3b82f6", m: "PLP" }, onyx: { c: "#111", m: "ONX" }, bookmaker: { d: "bookmaker.eu", c: "#004b87", m: "BKM" },
+};
+export function bookLogo(key, name, size = 18) {
+  const b = BOOKS[key] || {};
+  const mono = esc(b.m || (name || key || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase());
+  const st = `width:${size}px;height:${size}px;font-size:${Math.max(7, size / 2.6)}px;background:${esc(b.c || "var(--panel-3)")}`;
+  if (!b.d) return `<span class="bk" style="${st}" title="${esc(name || key)}">${mono}</span>`;
+  return `<span class="bk img" style="${st}" title="${esc(name || key)}${b.twin ? ` (same prices as ${esc(b.twin)})` : ""}"><img src="https://www.google.com/s2/favicons?domain=${b.d}&sz=64" alt="" loading="lazy"
+    onerror="this.parentNode.classList.remove('img');this.parentNode.textContent='${mono}'"></span>`;
+}
+// book name with its logo; DK Predictions / FanDuel Predicts note their twin books
+export const bookTag = (key, name, size = 16) => `<span class="bkt">${bookLogo(key, name, size)}<span class="ellip">${esc(name || key)}</span></span>`;
+
 export function leagueLogo(url, league, size = 18) {
   return url ? `<img class="lg-logo" style="width:${size}px;height:${size}px" src="${esc(url)}" alt="${esc(league)}" onerror="this.remove()">` : "";
 }
@@ -137,13 +167,15 @@ const PERIOD = { q1: "1st quarter", q2: "2nd quarter", q3: "3rd quarter", q4: "4
   "1st_5_innings": "first 5 innings", "1st_7_innings": "first 7 innings", s1: "1st set", s2: "2nd set" };
 const BASE = { h2h: "Moneyline", h2h_3way: "Regulation result (3-way)", h2h_3_way: "3-way result", spreads: "Spread", totals: "Total",
   team_totals: "Team total", btts: "Both teams to score", draw_no_bet: "Draw no bet", double_chance: "Double chance",
-  corners: "Corners", cards: "Cards", correct_score: "Correct score", halftime_fulltime: "Half time / full time", corners_1x2: "Corners 1X2" };
+  corners: "Corners", cards: "Cards", correct_score: "Correct score", halftime_fulltime: "Half time / full time", corners_1x2: "Corners 1X2",
+  set_spreads: "Set spread", set_totals: "Total sets", to_qualify: "To qualify", h2h_lay: "Moneyline (lay)" };
 export function marketInfo(mk) {
   let m = mk, alt = false, period = "";
   if (m.startsWith("alternate_")) { alt = true; m = m.slice(10); }
   for (const p of Object.keys(PERIOD)) if (m.endsWith("_" + p)) { period = PERIOD[p]; m = m.slice(0, -p.length - 1); break; }
   const kind = m.includes("team_totals") ? "team_totals" : m.includes("spreads") ? "spreads" : m.includes("totals") ? "totals" : m.startsWith("h2h") ? "h2h" : "other";
-  const base = BASE[m] || BASE[m.replace(/_(corners|cards)$/, "")] || m.replace(/_/g, " ");
+  const sub = (m.match(/_(corners|cards)$/) || [])[1];
+  const base = BASE[m] || (sub && BASE[m.replace(/_(corners|cards)$/, "")] ? `${BASE[m.replace(/_(corners|cards)$/, "")]} (${sub})` : null) || m.replace(/_/g, " ");
   const label = `${period ? period[0].toUpperCase() + period.slice(1) + " " : ""}${alt ? "alt " : ""}${period ? base.toLowerCase() : base}`;
   return { kind, alt, period, label: label[0].toUpperCase() + label.slice(1) };
 }

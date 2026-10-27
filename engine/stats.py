@@ -14,17 +14,29 @@ from datetime import date, datetime, timedelta, timezone
 
 ESPN = "https://site.api.espn.com/apis/site/v2/sports"
 UA = {"User-Agent": "Mozilla/5.0 (slate-ledger)"}
-PATHS = {"nba": "basketball/nba", "nhl": "hockey/nhl", "nfl": "football/nfl", "cfb": "football/college-football",
-         "epl": "soccer/eng.1", "ucl": "soccer/uefa.champions", "mls": "soccer/usa.1"}
+# soccer leagues: our label -> (ESPN path, Odds API sport key)
+SOCCER = {"epl": ("soccer/eng.1", "soccer_epl"), "ucl": ("soccer/uefa.champions", "soccer_uefa_champs_league"),
+          "uel": ("soccer/uefa.europa", "soccer_uefa_europa_league"), "mls": ("soccer/usa.1", "soccer_usa_mls"),
+          "laliga": ("soccer/esp.1", "soccer_spain_la_liga"), "bund": ("soccer/ger.1", "soccer_germany_bundesliga"),
+          "seriea": ("soccer/ita.1", "soccer_italy_serie_a"), "ligue1": ("soccer/fra.1", "soccer_france_ligue_one"),
+          "ligamx": ("soccer/mex.1", "soccer_mexico_ligamx")}
+PATHS = {"nba": "basketball/nba", "wnba": "basketball/wnba", "nhl": "hockey/nhl", "nfl": "football/nfl",
+         "cfb": "football/college-football", "mlb": "baseball/mlb", **{lg: v[0] for lg, v in SOCCER.items()}}
+LEAGUES = ["nba", "wnba", "nhl", "nfl", "cfb", *SOCCER]          # box scores / scores collected every stats run
+PLAYER_LEAGUES = ["nba", "wnba", "nhl", "nfl", "cfb"]           # leagues with injury reports we use
 EXTRA = {"cfb": "&groups=80"}       # FBS only
 SEASONS = {   # (label, scan from, scan to or None = through yesterday PT)
     "nba": [("2025-26", "2025-10-15", "2026-04-20"), ("2026-27", "2026-10-01", None)],
     "nhl": [("2025-26", "2025-10-01", "2026-04-20"), ("2026-27", "2026-10-01", None)],
     "nfl": [("2025", "2025-09-01", "2026-01-10"), ("2026", "2026-09-01", None)],
     "cfb": [("2025", "2025-08-20", "2026-01-20"), ("2026", "2026-08-20", None)],
+    "wnba": [("2025", "2025-05-14", "2025-10-20"), ("2026", "2026-05-01", None)],
     "epl": [("2025-26", "2025-08-14", "2026-05-25"), ("2026-27", "2026-08-14", None)],
     "ucl": [("2025-26", "2025-09-15", "2026-06-01"), ("2026-27", "2026-09-10", None)],
+    "uel": [("2025-26", "2025-09-20", "2026-05-25"), ("2026-27", "2026-09-20", None)],
     "mls": [("2025", "2025-02-20", "2025-12-10"), ("2026", "2026-02-20", None)],
+    "ligamx": [("2025-26", "2025-07-08", "2026-05-31"), ("2026-27", "2026-07-01", None)],
+    **{lg: [("2025-26", "2025-08-14", "2026-05-25"), ("2026-27", "2026-08-14", None)] for lg in ("laliga", "bund", "seriea", "ligue1")},
 }
 MONEYPUCK = "https://moneypuck.com/moneypuck/playerData/seasonSummary/{y}/regular/{kind}.csv"
 
@@ -89,7 +101,7 @@ def _players(lg, bx):
                                           "pos": (ath.get("position") or {}).get("abbreviation"),
                                           "starter": bool(a.get("starter")), "dnp": bool(a.get("didNotPlay"))})
                 for k, v in zip(keys, a.get("stats", [])):
-                    name = k if lg in ("nba", "nhl") else f"{gname}.{k}"
+                    name = k if lg in ("nba", "wnba", "nhl") else f"{gname}.{k}"
                     if any(x in k for x in ("-", "/")):
                         r[name] = list(_split(v))
                     else:
@@ -108,7 +120,7 @@ def parse_summary(lg, s, event):
     for t in s["boxscore"].get("teams", []):
         side = "home" if t["team"]["abbreviation"] == teams["home"]["abbr"] else "away"
         teams[side]["stats"] = _team_stats(lg, t)
-    ot = (event.get("status", {}).get("period") or 0) > {"nba": 4, "nhl": 3, "nfl": 4, "cfb": 4}.get(lg, 99)
+    ot = (event.get("status", {}).get("period") or 0) > {"nba": 4, "wnba": 4, "nhl": 3, "nfl": 4, "cfb": 4}.get(lg, 99)
     return {"id": event["id"], "date": comp.get("date"), "home": teams["home"], "away": teams["away"],
             "ot": ot, "players": _players(lg, s["boxscore"])}
 
@@ -423,28 +435,13 @@ def load_tennis(data_dir):
 MLBAPI = "https://statsapi.mlb.com/api/v1"
 
 
-def mlb(data_dir, season=2026):
-    d = os.path.join(data_dir, "stats", "mlb")
-    os.makedirs(d, exist_ok=True)
-    out = {}
+def mlb(data_dir, season=None):
+    """MLB: Statcast (Baseball Savant) + StatsAPI (schedule, lineups, rosters, game logs) + ESPN injuries."""
+    import stats_mlb
+    out = stats_mlb.collect(data_dir)
     try:
-        today = today_pt()
-        sched = _get(f"{MLBAPI}/schedule?sportId=1&startDate={today}&endDate={today + timedelta(days=2)}&hydrate=probablePitcher,team")
-        json.dump(sched, open(os.path.join(d, "schedule.json"), "w"), separators=(",", ":"))
-        out["schedule"] = sum(len(x.get("games", [])) for x in sched.get("dates", []))
-        th = _get(f"{MLBAPI}/teams/stats?season={season}&group=hitting&stats=season&sportId=1&gameType=R")
-        tp = _get(f"{MLBAPI}/teams/stats?season={season}&group=pitching&stats=season&sportId=1&gameType=R")
-        json.dump({"hitting": th, "pitching": tp}, open(os.path.join(d, "teams.json"), "w"), separators=(",", ":"))
-        pids = {g["teams"][s]["probablePitcher"]["id"] for x in sched.get("dates", []) for g in x.get("games", [])
-                for s in ("home", "away") if g["teams"][s].get("probablePitcher")}
-        pit = {}
-        for pid in pids:
-            try:
-                pit[pid] = _get(f"{MLBAPI}/people/{pid}?hydrate=stats(group=[pitching],type=[season,gameLog],season={season})")
-            except Exception:
-                pass
-        json.dump(pit, open(os.path.join(d, "pitchers.json"), "w"), separators=(",", ":"))
-        out["pitchers"] = len(pit)
+        inj = injuries("mlb", data_dir)
+        out["injuries"] = len(inj or {})
     except Exception as e:
-        out["error"] = type(e).__name__
+        out["injuries"] = type(e).__name__
     return out

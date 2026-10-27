@@ -10,6 +10,7 @@ API_BASE = "https://api.the-odds-api.com/v4"
 # Sports we cover. key -> short label used on the site.
 SPORTS = {
     "basketball_nba": "NBA",
+    "basketball_wnba": "WNBA",
     "icehockey_nhl": "NHL",
     "americanfootball_nfl": "NFL",
     "americanfootball_ncaaf": "NCAAF",
@@ -17,8 +18,15 @@ SPORTS = {
     "basketball_ncaab": "NCAAB",
     "soccer_epl": "EPL",
     "soccer_uefa_champs_league": "UCL",
+    "soccer_uefa_europa_league": "UEL",
     "soccer_usa_mls": "MLS",
+    "soccer_spain_la_liga": "La Liga",
+    "soccer_germany_bundesliga": "Bundesliga",
+    "soccer_italy_serie_a": "Serie A",
+    "soccer_france_ligue_one": "Ligue 1",
+    "soccer_mexico_ligamx": "Liga MX",
     "mma_mixed_martial_arts": "UFC",
+    "boxing_boxing": "Boxing",
 }
 
 def label(sport):
@@ -105,8 +113,10 @@ BOOKS = {
     "lowvig":         {"name": "LowVig",          "kind": "sharp",    "weight": 1.5},
     "betonlineag":    {"name": "BetOnline",       "kind": "sharp",    "weight": 1.5},
     "circasports":    {"name": "Circa",           "kind": "sharp",    "weight": 3.0},
-    "draftkings":     {"name": "DraftKings",      "kind": "book",     "weight": 0.5, "venue": True, "venueNote": "stand-in for DK Predictions"},
-    "fanduel":        {"name": "FanDuel",         "kind": "book",     "weight": 0.75, "venue": True, "venueNote": "stand-in for FanDuel Predicts"},
+    # DK Predictions and FanDuel Predicts carry the same prices as the DraftKings and FanDuel books,
+    # so the book feeds are shown under the names of the products Vince can use.
+    "draftkings":     {"name": "DK Predictions",  "kind": "book",     "weight": 0.5, "venue": True, "twin": "DraftKings"},
+    "fanduel":        {"name": "FanDuel Predicts", "kind": "book",    "weight": 0.75, "venue": True, "twin": "FanDuel"},
     "fliff":          {"name": "Fliff",           "kind": "book",     "weight": 0.0, "venue": True},
     "courtside":      {"name": "Courtside",       "kind": "book",     "weight": 0.0, "venue": True},
     "bovada":         {"name": "Bovada",          "kind": "book",     "weight": 0.25, "venue": True},
@@ -154,7 +164,7 @@ RESERVE_CREDITS = 40        # never go below this many remaining
 
 # ---------------------------------------------------------------------------
 # Plan + app-driven refresh
-PLAN = "free"            # "free" until the Odds API upgrade, then "5m"
+PLAN = "auto"            # "auto" reads the plan from the Odds API quota headers (500 = free, millions = 5m); or force "free" / "5m"
 PLANS = {
     # per-run and per-day credit ceilings; props only on the paid plan
     "free": {"run_cap": 40, "day_cap": 80, "props": False, "min_lines_age": 120},
@@ -168,40 +178,55 @@ CLOSE_WINDOW_MIN = 25    # always capture prices for games starting this soon (C
 CLOSE_STALE_MIN = 8
 
 # Books for event-level pulls: naming books costs 1 unit per 10 books, cheaper than whole regions.
-EVENT_BOOKS = ["pinnacle", "betfair_ex_eu", "novig", "prophetx", "kalshi", "polymarket_us", "draftkings",
+EVENT_BOOKS = ["pinnacle", "betfair_ex_eu", "novig", "prophetx", "kalshi", "polymarket_us", "polymarket", "draftkings",
                "fanduel", "betonlineag", "lowvig",
-               "prizepicks", "underdog", "pick6", "dabble_us_dfs", "bovada", "fliff", "betmgm",
-               "williamhill_us", "espnbet", "courtside"]
+               "prizepicks", "underdog", "pick6", "dabble_us_dfs", "betr_us_dfs", "bovada", "fliff", "betmgm", "espnbet"]
 
-# Every market The Odds API offers per sport (event endpoint). Cost counts only markets returned.
-_P = lambda *k: list(k)
-_ALT_GAME = ["alternate_spreads", "alternate_totals", "team_totals", "alternate_team_totals"]
-_PERIODS_BB = [f"{m}_{p}" for p in ("q1", "q2", "q3", "q4", "h1", "h2") for m in ("h2h", "spreads", "totals")] + \
-              [f"team_totals_{p}" for p in ("q1", "h1")] + [f"alternate_{m}_{p}" for p in ("q1", "h1") for m in ("spreads", "totals")]
-_PERIODS_HK = [f"{m}_{p}" for p in ("p1", "p2", "p3") for m in ("h2h", "spreads", "totals")] + ["h2h_3_way", "h2h_3_way_p1", "btts"]
-_INN = [f"{m}_1st_{n}_innings" for n in (1, 3, 5, 7) for m in ("h2h", "spreads", "totals")] + \
-       ["alternate_spreads_1st_5_innings", "alternate_totals_1st_5_innings", "h2h_3_way_1st_5_innings"]
-_NBA_P = ["player_points", "player_points_q1", "player_rebounds", "player_rebounds_q1", "player_assists", "player_assists_q1",
-          "player_threes", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers",
-          "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists",
-          "player_field_goals", "player_frees_made", "player_frees_attempts", "player_first_basket", "player_first_team_basket",
-          "player_double_double", "player_triple_double", "player_method_of_first_basket", "player_fantasy_points"]
-_NBA_ALT = [m + "_alternate" for m in ("player_points", "player_rebounds", "player_assists", "player_blocks", "player_steals",
-            "player_turnovers", "player_threes", "player_points_assists", "player_points_rebounds", "player_rebounds_assists",
-            "player_points_rebounds_assists", "player_fantasy_points")]
-_NFL_P = ["player_assists", "player_defensive_interceptions", "player_field_goals", "player_kicking_points", "player_pass_attempts",
-          "player_pass_completions", "player_pass_interceptions", "player_pass_longest_completion", "player_pass_rush_yds",
-          "player_pass_rush_reception_tds", "player_pass_rush_reception_yds", "player_pass_tds", "player_pass_yds", "player_pass_yds_q1",
-          "player_pats", "player_receptions", "player_reception_longest", "player_reception_tds", "player_reception_yds",
-          "player_rush_attempts", "player_rush_longest", "player_rush_reception_tds", "player_rush_reception_yds", "player_rush_tds",
-          "player_rush_yds", "player_sacks", "player_solo_tackles", "player_tackles_assists", "player_tds_over", "player_1st_td",
-          "player_anytime_td", "player_last_td"]
-_NFL_ALT = [m + "_alternate" for m in ("player_assists", "player_field_goals", "player_kicking_points", "player_pass_attempts",
-            "player_pass_completions", "player_pass_interceptions", "player_pass_longest_completion", "player_pass_rush_yds",
-            "player_pass_rush_reception_tds", "player_pass_rush_reception_yds", "player_pass_tds", "player_pass_yds", "player_pats",
-            "player_receptions", "player_reception_longest", "player_reception_tds", "player_reception_yds", "player_rush_attempts",
-            "player_rush_longest", "player_rush_reception_tds", "player_rush_reception_yds", "player_rush_tds", "player_rush_yds",
-            "player_sacks", "player_solo_tackles", "player_tackles_assists")]
+# Every market The Odds API offers per sport (event endpoint), from its betting-markets catalog.
+# Usage counts only the markets a game actually returns, so asking for everything costs nothing extra.
+_GAME_ALT = ["alternate_spreads", "alternate_totals", "team_totals", "alternate_team_totals"]
+_PERIOD_KINDS = ["h2h", "h2h_3_way", "spreads", "alternate_spreads", "totals", "alternate_totals", "team_totals", "alternate_team_totals"]
+
+
+def _periods(periods, kinds=_PERIOD_KINDS, extra=()):
+    return [f"{k}_{p}" for p in periods for k in list(kinds) + list(extra)]
+
+
+_QH = ("q1", "q2", "q3", "q4", "h1", "h2")
+_BB_GAME = _GAME_ALT + _periods(_QH)
+_FB_GAME = _GAME_ALT + _periods(_QH)
+_CBB_GAME = _GAME_ALT + _periods(("h1", "h2"))
+_HK_GAME = _GAME_ALT + ["h2h_3_way", "btts"] + _periods(("p1", "p2", "p3"), extra=("btts",))
+_MLB_GAME = _GAME_ALT + [f"{k}_1st_{n}_innings" for n in (1, 3, 5, 7)
+                         for k in ("h2h", "h2h_3_way", "spreads", "alternate_spreads", "totals", "alternate_totals")]
+_TEN_GAME = ["alternate_spreads", "alternate_totals", "h2h_s1", "h2h_s2", "spreads_s1", "alternate_set_spreads", "totals_s1",
+             "alternate_set_totals", "alternate_totals_s1", "alternate_totals_s2"]
+_SOC_GAME = ["alternate_spreads", "alternate_totals", "team_totals", "alternate_team_totals", "btts", "draw_no_bet", "double_chance",
+             "h2h_h1", "h2h_h2", "totals_h1", "totals_h2", "spreads_h1", "alternate_totals_h1", "btts_h1", "btts_h2", "double_chance_h1",
+             "alternate_spreads_corners", "alternate_totals_corners", "alternate_team_totals_corners", "corners_1x2",
+             "alternate_spreads_cards", "alternate_totals_cards", "correct_score", "correct_score_h1", "halftime_fulltime", "to_qualify"]
+
+_BB_P = ["player_points", "player_points_q1", "player_rebounds", "player_rebounds_q1", "player_assists", "player_assists_q1",
+         "player_threes", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers",
+         "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists",
+         "player_field_goals", "player_frees_made", "player_frees_attempts", "player_first_basket", "player_first_team_basket",
+         "player_double_double", "player_triple_double", "player_method_of_first_basket", "player_fantasy_points"]
+_BB_ALT = [m + "_alternate" for m in ("player_points", "player_rebounds", "player_assists", "player_blocks", "player_steals",
+           "player_turnovers", "player_threes", "player_points_assists", "player_points_rebounds", "player_rebounds_assists",
+           "player_points_rebounds_assists", "player_fantasy_points")]
+_FB_P = ["player_assists", "player_defensive_interceptions", "player_field_goals", "player_kicking_points", "player_pass_attempts",
+         "player_pass_completions", "player_pass_interceptions", "player_pass_longest_completion", "player_pass_rush_yds",
+         "player_pass_rush_reception_tds", "player_pass_rush_reception_yds", "player_pass_tds", "player_pass_yds", "player_pass_yds_q1",
+         "player_pats", "player_receptions", "player_reception_longest", "player_reception_tds", "player_reception_yds",
+         "player_rush_attempts", "player_rush_longest", "player_rush_reception_tds", "player_rush_reception_yds", "player_rush_tds",
+         "player_rush_yds", "player_sacks", "player_solo_tackles", "player_tackles_assists", "player_tds_over", "player_tds",
+         "player_1st_td", "player_anytime_td", "player_last_td"]
+_FB_ALT = [m + "_alternate" for m in ("player_assists", "player_field_goals", "player_kicking_points", "player_pass_attempts",
+           "player_pass_completions", "player_pass_interceptions", "player_pass_longest_completion", "player_pass_rush_yds",
+           "player_pass_rush_reception_tds", "player_pass_rush_reception_yds", "player_pass_tds", "player_pass_yds", "player_pats",
+           "player_receptions", "player_reception_longest", "player_reception_tds", "player_reception_yds", "player_rush_attempts",
+           "player_rush_longest", "player_rush_reception_tds", "player_rush_reception_yds", "player_rush_tds", "player_rush_yds",
+           "player_sacks", "player_solo_tackles", "player_tackles_assists")]
 _MLB_P = ["batter_home_runs", "batter_first_home_run", "batter_hits", "batter_total_bases", "batter_rbis", "batter_runs_scored",
           "batter_hits_runs_rbis", "batter_singles", "batter_doubles", "batter_triples", "batter_walks", "batter_strikeouts",
           "batter_stolen_bases", "batter_fantasy_score", "pitcher_strikeouts", "pitcher_record_a_win", "pitcher_hits_allowed",
@@ -216,19 +241,28 @@ _NHL_P = ["player_points", "player_power_play_points", "player_assists", "player
           "player_goal_scorer_last", "player_goal_scorer_anytime"]
 _NHL_ALT = [m + "_alternate" for m in ("player_points", "player_assists", "player_power_play_points", "player_goals",
             "player_shots_on_goal", "player_blocked_shots", "player_total_saves", "player_faceoffs_won", "player_time_on_ice")]
-_SOC_P = ["player_assists", "player_first_goal_scorer", "player_goal_scorer_anytime", "player_last_goal_scorer", "player_shots",
-          "player_shots_on_target", "player_to_receive_card", "player_to_receive_red_card", "player_shots_alternate",
-          "player_shots_on_target_alternate", "player_assists_alternate"]
-_SOC_G = ["btts", "draw_no_bet", "double_chance", "h2h_h1", "totals_h1", "spreads_h1", "btts_h1", "alternate_totals_corners",
-          "alternate_spreads_corners", "alternate_totals_cards", "corners_1x2", "correct_score", "halftime_fulltime"]
+_SOC_P = ["player_assists", "player_assists_alternate", "player_first_goal_scorer", "player_goal_scorer_anytime", "player_last_goal_scorer",
+          "player_shots", "player_shots_alternate", "player_shots_on_target", "player_shots_on_target_alternate",
+          "player_to_receive_card", "player_to_receive_red_card"]
+_SOCCER = _SOC_GAME + _SOC_P
 
 EVENT_MARKETS = {
-    "basketball_nba": _ALT_GAME + _PERIODS_BB + _NBA_P + _NBA_ALT,
-    "basketball_ncaab": _ALT_GAME + [m for m in _PERIODS_BB if "_q" not in m] + _NBA_P[:12] + _NBA_ALT[:6],
-    "americanfootball_nfl": _ALT_GAME + _PERIODS_BB + _NFL_P + _NFL_ALT,
-    "americanfootball_ncaaf": _ALT_GAME + _PERIODS_BB + _NFL_P + _NFL_ALT[:12],
-    "icehockey_nhl": _ALT_GAME + _PERIODS_HK + _NHL_P + _NHL_ALT,
-    "baseball_mlb": _ALT_GAME + _INN + _MLB_P + _MLB_ALT,
-    "soccer_epl": _SOC_G + _SOC_P, "soccer_uefa_champs_league": _SOC_G + _SOC_P, "soccer_usa_mls": _SOC_G + _SOC_P,
-    "mma_mixed_martial_arts": [],
+    "basketball_nba": _BB_GAME + _BB_P + _BB_ALT,
+    "basketball_wnba": _BB_GAME + _BB_P + _BB_ALT,
+    "basketball_ncaab": _CBB_GAME + _BB_P + _BB_ALT,
+    "americanfootball_nfl": _FB_GAME + _FB_P + _FB_ALT,
+    "americanfootball_ncaaf": _FB_GAME + _FB_P + _FB_ALT,
+    "icehockey_nhl": _HK_GAME + _NHL_P + _NHL_ALT,
+    "baseball_mlb": _MLB_GAME + _MLB_P + _MLB_ALT,
+    "mma_mixed_martial_arts": [], "boxing_boxing": [],
 }
+for _s in SPORTS:
+    if _s.startswith("soccer_"):
+        EVENT_MARKETS[_s] = _SOCCER
+
+
+def event_markets(sport):
+    """Event-level market list for a sport key (tennis tournaments come and go, so match by prefix)."""
+    if sport.startswith("tennis_"):
+        return _TEN_GAME
+    return EVENT_MARKETS.get(sport, [])
