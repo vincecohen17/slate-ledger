@@ -9,6 +9,7 @@ Player props get the same treatment, plus a line-shift model so pick'em lines
 that differ from the books' line can still be judged.
 """
 import math
+import re
 from datetime import datetime, timezone
 
 import config as C
@@ -310,8 +311,12 @@ DISPERSION = {
     "americanfootball_nfl": {"player_receptions": 1.2, "player_pass_completions": 1.3,
                              "player_pass_attempts": 1.4, "player_rush_attempts": 1.3,
                              "player_pass_tds": 1.1, "player_pass_interceptions": 1.05,
-                             "player_sacks": 1.2, "player_tackles_assists": 1.3},
+                             "player_sacks": 1.2, "player_tackles_assists": 1.3, "player_tds_over": 1.0,
+                             "player_rush_tds": 1.0, "player_reception_tds": 1.0, "player_rush_reception_tds": 1.0,
+                             "player_pass_rush_reception_tds": 1.0},
 }
+DISPERSION["basketball_nba"].update({"player_points_q1": 1.6, "player_rebounds_q1": 1.3, "player_assists_q1": 1.3,
+                                     "player_fantasy_points": 2.5})
 DISPERSION["basketball_wnba"] = DISPERSION["basketball_ncaab"] = DISPERSION["basketball_nba"]
 DISPERSION["americanfootball_ncaaf"] = DISPERSION["americanfootball_nfl"]
 
@@ -375,9 +380,87 @@ def mean_from_line(market, line, fair_over, sport=""):
     return (lo + hi) / 2
 
 
+# markets where exactly one player wins (first scorer etc.): each book's prices across the field de-vig to 1
+FIELD_MARKETS = {"player_first_basket": 1, "player_first_team_basket": 2, "player_1st_td": 1, "player_last_td": 1,
+                 "player_goal_scorer_first": 1, "player_goal_scorer_last": 1, "player_first_goal_scorer": 1,
+                 "player_last_goal_scorer": 1, "batter_first_home_run": 1}
+ONE_SIDED_MARGIN = {"sharp": 0.03, "exchange": 0.02, "book": 0.07, "other": 0.08}
+
+
+def _book_margins(bms):
+    """median overround of each book's two-sided player props in this event (to strip vig from Yes-only prices)"""
+    out = {}
+    for bm in bms:
+        ms = []
+        for m in bm.get("markets", []):
+            if not is_player_market(m["key"]):
+                continue
+            pairs = {}
+            for o in m["outcomes"]:
+                if o.get("name") in ("Over", "Under") and o.get("price"):
+                    pairs.setdefault((o.get("description"), o.get("point")), {})[o["name"]] = 1 / o["price"]
+            ms += [v["Over"] + v["Under"] - 1 for v in pairs.values() if len(v) == 2 and 0 < v["Over"] + v["Under"] - 1 < 0.2]
+        if len(ms) >= 5:
+            ms.sort()
+            out[bm["key"]] = ms[len(ms) // 2]
+    return out
+
+
+def _one_sided_fair(plines, mk, margins):
+    """Fair 'Yes' prices for markets nobody quotes two-sided. First-scorer style markets de-vig across the whole
+    field; anytime-style markets strip each book's measured prop margin (1.5x, since one-way prices carry more).
+    Returns {id(line): (fair_yes, weight)}."""
+    out = {}
+    lines = [l for l in plines if l.get("quotes") and l.get("outcomes") == ["Yes"]]
+    if not lines:
+        return out
+    if mk in FIELD_MARKETS:
+        tot, cnt = {}, {}
+        for l in lines:
+            for q in l["quotes"]:
+                pe = q["prices"].get("Yes")
+                if pe and not q["stale"]:
+                    tot[q["book"]] = tot.get(q["book"], 0) + 1 / pe["dec"]
+                    cnt[q["book"]] = cnt.get(q["book"], 0) + 1
+        top = max(cnt.values(), default=0)
+        ok = {b for b in tot if cnt[b] >= 0.6 * top and 0.9 * FIELD_MARKETS[mk] <= tot[b] <= 1.8 * FIELD_MARKETS[mk]}
+        for l in lines:
+            acc = ws = 0.0
+            for q in l["quotes"]:
+                pe = q["prices"].get("Yes")
+                if pe and q["book"] in ok:
+                    w = C.book(q["book"])["weight"] or 0.25
+                    acc += w * (1 / pe["dec"]) / tot[q["book"]] * FIELD_MARKETS[mk]
+                    ws += w
+            if ws:
+                out[id(l)] = (acc / ws, ws)
+        return out
+    for l in lines:
+        acc = ws = 0.0
+        for q in l["quotes"]:
+            pe = q["prices"].get("Yes")
+            if not pe or q["stale"]:
+                continue
+            m = margins.get(q["book"], ONE_SIDED_MARGIN.get(q["kind"], 0.08))
+            w = C.book(q["book"])["weight"] or 0.25
+            acc += w * min(0.99, (1 / pe["dec"]) / (1 + 1.5 * m))
+            ws += w
+        if ws and len([q for q in l["quotes"] if "Yes" in q["prices"]]) >= 2:
+            out[id(l)] = (acc / ws, ws * 0.5)
+    return out
+
+
+def _norm_outcome(o):
+    """some markets name the player in 'name' with no description: make every player outcome (player, Yes/No/Over/Under)"""
+    if not o.get("description") and o.get("name") not in ("Over", "Under", "Yes", "No"):
+        return {**o, "description": o.get("name"), "name": "Yes"}
+    return o
+
+
 def build_props(ev, label):
     """Returns {market: doc}. One Firestore doc per (event, market)."""
     bms = ev.get("bookmakers", [])
+    margins = _book_margins(bms)
     # fold alternate ladders into their base market so every line of a stat lives together
     merged = []
     for bm in bms:
@@ -385,6 +468,7 @@ def build_props(ev, label):
         for m in bm.get("markets", []):
             if not is_player_market(m["key"]):
                 continue
+            m = {**m, "outcomes": [_norm_outcome(o) for o in m.get("outcomes", [])]}
             base = base_market(m["key"])
             if base in mk_map:
                 mk_map[base]["outcomes"] = mk_map[base]["outcomes"] + m["outcomes"]
@@ -427,6 +511,13 @@ def build_props(ev, label):
                              "best": {}, "bestVenue": {}})
             by_player.setdefault(player, []).append(line)
 
+        allp = [l for pl in by_player.values() for l in pl]
+        os_fair = _one_sided_fair(allp, mk, margins)
+        for l in allp:
+            if id(l) in os_fair:
+                fy, w = os_fair[id(l)]
+                _reprice(l, {"Yes": fy}, "field de-vig" if mk in FIELD_MARKETS else "one-sided est.", w)
+                l["oneSided"] = True
         rows = []
         for player, plines in by_player.items():
             two_sided = [l for l in plines if l.get("fair") and "Over" in l["fair"]]
@@ -502,7 +593,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "label": label(o), "book": q["book"], "bookName": q["name"],
                         "am": pe.get("allInAm", pe["am"]), "fair": line["fair"][o],
                         "fairAm": line["fairAm"][o], "edge": e, "ev": pe.get("ev"),
-                        "fairWeight": line["fairWeight"], "model": bool(line.get("modelFair")),
+                        "fairWeight": line["fairWeight"], "model": bool(line.get("modelFair")), "est": bool(line.get("oneSided")),
                     })
 
     for g in game_docs:
@@ -524,7 +615,9 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
     for p in prop_docs:
         for l in p["rows"]:
             n0 = len(out)
-            scan(p, l, lambda o, l=l, p=p: f"{l['player']} {o} {l['point']} {p['market'].replace('player_', '').replace('_', ' ')}")
+            mname = re.sub(r"^(player|batter|pitcher)_", "", p["market"]).replace("_", " ")
+            scan(p, l, lambda o, l=l, mname=mname: f"{l['player']} {o} {l['point']:g} {mname}" if l.get("point") is not None
+                 else f"{l['player']} {mname}" + ("" if o == "Yes" else f": {o}"))
             for x in out[n0:]:
                 x["player"], x["headshot"], x["last10"], x["point"] = l["player"], l.get("headshot"), l.get("last10"), l.get("point")
             for d in l.get("dfs", []):
@@ -541,7 +634,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                     })
     # rank: model-derived fairs (alt lines, pick'em lines) count half until backtests earn them more trust
     for x in out:
-        w = 0.5 if x.get("model") or x.get("pickem") else 1.0
+        w = 0.5 if x.get("model") or x.get("pickem") or x.get("est") else 1.0
         w *= {"agrees": 1.5, "disagrees": 0.4}.get(x.get("logic"), 1.0)
         x["score"] = round(x["edge"] * w, 4)
     out.sort(key=lambda x: -x["score"])

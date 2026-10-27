@@ -17,7 +17,8 @@ MP2ESPN = {"LAK": "LA", "NJD": "NJ", "SJS": "SJ", "TBL": "TB"}
 K_TEAM = 20
 HOME = 1.04
 MARKETS = {"player_shots_on_goal": ["sog"], "player_points": ["pts"], "player_goals": ["g"], "player_assists": ["a"],
-           "player_blocked_shots": ["blk"], "player_total_saves": ["saves"], "player_goal_scorer_anytime": ["g"]}
+           "player_blocked_shots": ["blk"], "player_total_saves": ["saves"], "player_goal_scorer_anytime": ["g"],
+           "player_power_play_points": ["ppp"]}
 LABEL = {"sog": "SOG", "pts": "PTS", "g": "G", "a": "A", "blk": "BLK", "hits": "HIT", "saves": "SV"}
 
 
@@ -44,6 +45,19 @@ class NHL:
         self._teams(data_dir, cur_year)
         self._goalies(data_dir, cur_year)
         self._players()
+        self._ppp(data_dir, cur_year)
+
+    # ---------------- power-play points per game (MoneyPuck 5-on-4), this season regressed to last
+    def _ppp(self, d, y):
+        import refs as R
+        cur = {R.norm(r["name"]): (_f(r, "I_F_points"), _f(r, "games_played")) for r in ST.read_moneypuck(d, "skaters", y, "5on4")}
+        pri = {R.norm(r["name"]): (_f(r, "I_F_points"), _f(r, "games_played")) for r in ST.read_moneypuck(d, "skaters", y - 1, "5on4")}
+        self.ppp, self.norm = {}, R.norm
+        for n in set(cur) | set(pri):
+            cp, cg = cur.get(n, (0, 0))
+            pp, pg = pri.get(n, (0, 0))
+            prior = (pp + 0.08 * 20) / (pg + 20) if pg else 0.08
+            self.ppp[n] = (cp + prior * 15) / (cg + 15)
 
     # ---------------- teams
     def _season(self, rows):
@@ -270,7 +284,8 @@ class NHL:
                 env = mu / self.lg_gpg
                 proj = {"sog": r["sog"] * t * (op["sa"] ** 0.7) * (me["sf"] ** 0.3),
                         "g": r["g"] * t * env, "a": r["a"] * t * env, "pts": r["pts"] * t * env,
-                        "blk": r["blk"] * t * (op["sf"] ** 0.5), "hits": r["hits"] * t}
+                        "blk": r["blk"] * t * (op["sf"] ** 0.5), "hits": r["hits"] * t,
+                        "ppp": (self.ppp.get(self.norm(p["name"]), 0.0) if t else 0.0) * env}
                 logs = self.logs.get(p["id"], [])[-10:]
                 players.append({**p, "proj": {k: round(v, 2) for k, v in proj.items()},
                                 "last10": {k: [round(x[k], 1) for x in logs] for k in ("sog", "pts", "g", "a", "blk", "hits", "toi", "pp")}})

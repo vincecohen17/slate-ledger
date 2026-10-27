@@ -434,6 +434,11 @@ class MLB:
         ph, pa = _nb_pmf(H, K_TEAM_FULL), _nb_pmf(A, K_TEAM_FULL)
         h5, a5 = _nb_pmf(out["sides"]["home"]["runsF5"], K_TEAM_F5), _nb_pmf(out["sides"]["away"]["runsF5"], K_TEAM_F5)
         out["_pmf"] = {"full": (ph, pa), "f5": (h5, a5)}
+        # other inning splits scale off the first five (first inning ~23% of F5 runs; NRFI needs a heavier zero)
+        F5h, F5a = out["sides"]["home"]["runsF5"], out["sides"]["away"]["runsF5"]
+        for key, fh, fa, k in (("f1", F5h * 0.23, F5a * 0.23, 2.2), ("f3", F5h * 0.62, F5a * 0.62, 2.0),
+                               ("f7", F5h + (H - F5h) * 0.5, F5a + (A - F5a) * 0.5, 2.0)):
+            out["_pmf"][key] = (_nb_pmf(fh, k), _nb_pmf(fa, k))
         win = sum(ph[i] * pa[j] for i in range(30) for j in range(30) if i > j)
         tie = sum(ph[i] * pa[i] for i in range(30))
         out["pHome"] = win + HOME_XTRA * tie
@@ -442,12 +447,12 @@ class MLB:
 
     def prob(self, out, kind, period, point=None):
         """kind: win | win3 | cover (home, point) | over (total) | team_over (side, point)"""
-        ph, pa = out["_pmf"]["f5" if period == "f5" else "full"]
+        ph, pa = out["_pmf"].get(period, out["_pmf"]["full"])
         N = range(30)
         if kind == "win":
             w = sum(ph[i] * pa[j] for i in N for j in N if i > j)
             t = sum(ph[i] * pa[i] for i in N)
-            return w + HOME_XTRA * t if period != "f5" else w / max(1e-9, 1 - t)
+            return w + HOME_XTRA * t if period == "full" else w / max(1e-9, 1 - t)
         if kind == "win3":
             w = sum(ph[i] * pa[j] for i in N for j in N if i > j)
             t = sum(ph[i] * pa[i] for i in N)

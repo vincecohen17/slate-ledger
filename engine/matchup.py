@@ -114,6 +114,132 @@ def build_all(game_docs, prop_docs, data_dir, today):
     return out
 
 
+
+# ---------------------------------------------------------------------------
+# Game-line probabilities for every market shape (main, alternates, team totals, quarters/halves/periods)
+
+PERIOD_FRAC = {"q1": 0.25, "q2": 0.25, "q3": 0.25, "q4": 0.25, "h1": 0.5, "h2": 0.5, "p1": 1 / 3, "p2": 1 / 3, "p3": 1 / 3}
+
+
+def split_market(mk):
+    """'alternate_spreads_h1' -> ('spreads', 'h1'); 'team_totals' -> ('team_totals', None)"""
+    m = mk[10:] if mk.startswith("alternate_") else mk
+    for p in PERIOD_FRAC:
+        if m.endswith("_" + p):
+            return m[:-len(p) - 1], p
+    return m, None
+
+
+def _team_side(g, l):
+    t = R.norm(l.get("team") or "")
+    return "home" if t == R.norm(g["home"]) else "away" if t == R.norm(g["away"]) else None
+
+
+def normal_probs(g, margin, total, sd_m, sd_t):
+    """Score-difference / total model (basketball, football): normal margin and total, periods scale with time."""
+    def probs(l):
+        base, per = split_market(l["market"])
+        f = PERIOD_FRAC.get(per, 1.0) if per else 1.0
+        if per and per.startswith("p"):
+            return None
+        mg, tt, sm, st = margin * f, total * f, sd_m * math.sqrt(f), sd_t * math.sqrt(f)
+        pt = l.get("point")
+        if base == "h2h":
+            ph = 1 - _phi(-mg / sm)
+            return {g["home"]: ph, g["away"]: 1 - ph}
+        if base == "h2h_3_way":
+            tie = _phi((0.5 - mg) / sm) - _phi((-0.5 - mg) / sm)
+            ph = 1 - _phi((0.5 - mg) / sm)
+            out = {g["home"]: ph, g["away"]: max(0.0, 1 - ph - tie)}
+            for o in l.get("outcomes", []):
+                out.setdefault(o, tie)
+            return out
+        if base == "spreads" and pt is not None:
+            ph = 1 - _phi((-pt - mg) / sm)
+            return {g["home"]: ph, g["away"]: 1 - ph}
+        if base == "totals" and pt is not None:
+            po = 1 - _phi((pt - tt) / st)
+            return {"Over": po, "Under": 1 - po}
+        if base == "team_totals" and pt is not None:
+            side = _team_side(g, l)
+            if side:
+                mean = (tt + mg) / 2 if side == "home" else (tt - mg) / 2
+                po = 1 - _phi((pt - mean) / (math.sqrt(st ** 2 + sm ** 2) / 2))
+                return {"Over": po, "Under": 1 - po}
+    return probs
+
+
+def _pois(mu, n=14):
+    p, out = math.exp(-mu), []
+    for k in range(n):
+        out.append(p)
+        p *= mu / (k + 1)
+    return out
+
+
+def hockey_probs(g, m, pj):
+    """NHL: Poisson goals per team (regulation), OT/shootout 52% home; periods are a third of the game each."""
+    ph_full, pa_full = m._dist
+    mu_h = sum(i * p for i, p in enumerate(ph_full))
+    mu_a = sum(i * p for i, p in enumerate(pa_full))
+
+    def grid(per):
+        if per:
+            return _pois(mu_h / 3), _pois(mu_a / 3)
+        return ph_full, pa_full
+
+    def probs(l):
+        base, per = split_market(l["market"])
+        if per and not per.startswith("p"):
+            return None
+        ph, pa = grid(per)
+        N = range(min(len(ph), len(pa)))
+        P = lambda cond: sum(ph[i] * pa[j] for i in N for j in N if cond(i, j))
+        tie = P(lambda i, j: i == j)
+        pt = l.get("point")
+        if base == "h2h":
+            if per:     # period moneyline: a tie refunds
+                w = P(lambda i, j: i > j)
+                ph_ = w / max(1e-9, 1 - tie)
+            else:
+                ph_ = pj["pHomeWin"]
+            return {g["home"]: ph_, g["away"]: 1 - ph_}
+        if base == "h2h_3_way":
+            w = P(lambda i, j: i > j)
+            out = {g["home"]: w, g["away"]: 1 - w - tie}
+            for o in l.get("outcomes", []):
+                out.setdefault(o, tie)
+            return out
+        if base == "spreads" and pt is not None:
+            if per:
+                c = P(lambda i, j: i - j + pt > 0)
+                push = P(lambda i, j: i - j + pt == 0)
+                ph_ = c / max(1e-9, 1 - push)
+            else:
+                ph_ = m.p_home_cover(pt)
+            return {g["home"]: ph_, g["away"]: 1 - ph_}
+        if base == "totals" and pt is not None:
+            extra = 0 if per else 1          # a full-game tie adds the OT / shootout goal
+            o = P(lambda i, j: i + j + (extra if i == j else 0) > pt)
+            push = P(lambda i, j: i + j + (extra if i == j else 0) == pt)
+            po = o / max(1e-9, 1 - push)
+            return {"Over": po, "Under": 1 - po}
+        if base == "team_totals" and pt is not None:
+            side = _team_side(g, l)
+            if not side:
+                return None
+            share = 0.52 if side == "home" else 0.48
+            me, op = (ph, pa) if side == "home" else (pa, ph)
+            o = sum(me[i] * op[j] * ((1 if i > pt else 0) if (i != j or per) else ((1 if i + 1 > pt else 0) * share + (1 if i > pt else 0) * (1 - share)))
+                    for i in N for j in N)
+            push = sum(me[i] for i in N if i == pt) if per else 0
+            po = o / max(1e-9, 1 - push)
+            return {"Over": po, "Under": 1 - po}
+        if base == "btts":
+            y = (1 - ph[0]) * (1 - pa[0])
+            return {"Yes": y, "No": 1 - y}
+    return probs
+
 def _stamp_lines(g, prob_fn):
     """prob_fn(line) -> {outcome: model prob}"""
     res = {}
@@ -139,12 +265,18 @@ def _match_player(name, players):
     return cands[0] if len(cands) == 1 else None
 
 
+YES_POISSON = {"player_goal_scorer_anytime", "player_anytime_td"}      # P(at least one) from a Poisson mean
+
+
 def _stamp_props(pdocs, sides, markets, sport, goalie_fn=None):
+    """markets: {market: [stat keys summed]} or {market: {stat key: weight}} (quarter shares, fantasy scoring)."""
     allp = sides["home"]["players"] + sides["away"]["players"]
     for d in pdocs:
-        keys = markets.get(d["market"])
-        if not keys:
+        spec = markets.get(d["market"])
+        if not spec:
             continue
+        wts = spec if isinstance(spec, dict) else {k: 1.0 for k in spec}
+        keys = list(wts)
         for r in d["rows"]:
             if d["market"] == "player_total_saves" and goalie_fn:
                 gl = goalie_fn(r["player"])
@@ -157,18 +289,64 @@ def _stamp_props(pdocs, sides, markets, sport, goalie_fn=None):
                 if not p:
                     continue
                 l10 = p.get("last10") or {}
-                if all(k in l10 for k in keys):
+                if all(k in l10 for k in keys) and all(w == 1.0 for w in wts.values()):
                     r["last10"] = [round(sum(v), 1) for v in zip(*[l10[k] for k in keys])]
                 if p.get("out"):
                     continue
-                mean = sum(p["proj"].get(k, 0) for k in keys)
+                mean = sum(p["proj"].get(k, 0) * w for k, w in wts.items())
             if r.get("point") is None:
-                if d["market"] == "player_goal_scorer_anytime":
-                    py = 1 - math.exp(-mean)
-                    r["model"] = {"mean": round(mean, 2), "Yes": round(py, 4)}
+                if d["market"] in YES_POISSON:
+                    py = 1 - math.exp(-max(mean, 0))
+                    r["model"] = {"mean": round(mean, 2), "Yes": round(py, 4), "No": round(1 - py, 4)}
                 continue
             po = B.p_over(d["market"], max(mean, 0.01), r["point"], sport)
             r["model"] = {"mean": round(mean, 2), "raw": round(mean, 2), "Over": round(po, 4), "Under": round(1 - po, 4)}
+
+
+def _stamp_field(pdocs, market, shares, p_any=1.0):
+    """first-scorer style markets: P(player) = his share of the expected scoring x P(anyone scores)"""
+    tot = sum(v for v in shares.values() if v > 0)
+    if not tot:
+        return
+    for d in pdocs:
+        if d["market"] != market:
+            continue
+        for r in d["rows"]:
+            hit = next((v for n, v in shares.items() if R.norm(n) == R.norm(r["player"])), None)
+            if hit is None:
+                continue
+            py = p_any * hit / tot
+            r["model"] = {"mean": round(hit, 3), "Yes": round(py, 4), "No": round(1 - py, 4)}
+
+
+def _nb_ge(mean, k, t):
+    return B._nb_cdf_tail(max(mean, 0.01), k, t)
+
+
+def _nba_specials(pdocs, pj):
+    """double-double / triple-double (independent counts, NBA dispersion) and first basket (scoring share)"""
+    disp = B.DISPERSION["basketball_nba"]
+    allp = pj["sides"]["home"]["players"] + pj["sides"]["away"]["players"]
+    for d in pdocs:
+        if d["market"] not in ("player_double_double", "player_triple_double"):
+            continue
+        need = 2 if d["market"] == "player_double_double" else 3
+        for r in d["rows"]:
+            p = _match_player(r["player"], allp)
+            if not p or p.get("out"):
+                continue
+            ps = [_nb_ge(p["proj"].get(k, 0), disp.get(mk, 1.3), 10) for k, mk in
+                  (("pts", "player_points"), ("reb", "player_rebounds"), ("ast", "player_assists"), ("blk", "player_blocks"), ("stl", "player_steals"))]
+            dist = [1.0]
+            for q in ps:
+                dist = [a * (1 - q) + (dist[i - 1] * q if i else 0) for i, a in enumerate(dist + [0.0])]
+            py = sum(dist[need:])
+            r["model"] = {"mean": round(py, 3), "Yes": round(py, 4), "No": round(1 - py, 4)}
+    starters = {p["name"]: p["proj"].get("pts", 0) * (1.3 if p.get("starter") else 0.6) for p in allp if not p.get("out")}
+    _stamp_field(pdocs, "player_first_basket", starters, 1.0)
+    for side in ("home", "away"):       # first basket for his own team: share within the team
+        team = {p["name"]: p["proj"].get("pts", 0) * (1.3 if p.get("starter") else 0.6) for p in pj["sides"][side]["players"] if not p.get("out")}
+        _stamp_field(pdocs, "player_first_team_basket", team, 1.0)
 
 
 def _disagreements(pdocs):
@@ -279,17 +457,9 @@ def _nba(g, m, pdocs, inj, refs):
     pH = 1 - _phi(-pj["margin"] / m.SD_MARGIN)
     lg = "wnba" if g["sport"] == "basketball_wnba" else "nba"
 
-    def probs(l):
-        if l["market"] == "h2h":
-            return {g["home"]: pH, g["away"]: 1 - pH}
-        if l["market"] == "spreads":
-            ph = m.p_cover(pj["margin"], l["point"])
-            return {g["home"]: ph, g["away"]: 1 - ph}
-        if l["market"] == "totals":
-            po = m.p_over(pj["total"], l["point"])
-            return {"Over": po, "Under": 1 - po}
-    lines = _stamp_lines(g, probs)
+    lines = _stamp_lines(g, normal_probs(g, pj["margin"], pj["total"], m.SD_MARGIN, m.SD_TOTAL))
     _stamp_props(pdocs, pj["sides"], model_nba.MARKETS, g["sport"])
+    _nba_specials(pdocs, pj)
     th, ta = m.teams[h], m.teams[a]
 
     def team(t, side, name):
@@ -352,16 +522,7 @@ def _nhl(g, m, pdocs, inj, refs):
     if not pj:
         return None
 
-    def probs(l):
-        if l["market"] == "h2h":
-            return {g["home"]: pj["pHomeWin"], g["away"]: 1 - pj["pHomeWin"]}
-        if l["market"] == "spreads":
-            ph = m.p_home_cover(l["point"])
-            return {g["home"]: ph, g["away"]: 1 - ph}
-        if l["market"] == "totals":
-            po = m.p_over(l["point"])
-            return {"Over": po, "Under": 1 - po}
-    lines = _stamp_lines(g, probs)
+    lines = _stamp_lines(g, hockey_probs(g, m, pj))
 
     def goalie_mean(name):
         for side in ("home", "away"):
@@ -370,6 +531,10 @@ def _nhl(g, m, pdocs, inj, refs):
                 return gl
         return None
     _stamp_props(pdocs, pj["sides"], model_nhl.MARKETS, g["sport"], goalie_mean)
+    g_share = {p["name"]: p["proj"].get("g", 0) for s_ in ("home", "away") for p in pj["sides"][s_]["players"] if not p.get("out")}
+    p_goal = 1 - math.exp(-(pj["home"]["goals"] + pj["away"]["goals"]))
+    _stamp_field(pdocs, "player_goal_scorer_first", g_share, p_goal)
+    _stamp_field(pdocs, "player_goal_scorer_last", g_share, p_goal)
     th, ta = m.teams[h], m.teams[a]
     gh, ga = pj["sides"]["home"]["goalie"], pj["sides"]["away"]["goalie"]
 
@@ -426,17 +591,7 @@ def _nhl(g, m, pdocs, inj, refs):
 
 def _line_probs(g, pj, m):
     pH = 1 - _phi(-pj["margin"] / m.SD_MARGIN)
-
-    def probs(l):
-        if l["market"] == "h2h":
-            return {g["home"]: pH, g["away"]: 1 - pH}
-        if l["market"] in ("spreads", "alternate_spreads"):
-            ph = m.p_cover(pj["margin"], l["point"])
-            return {g["home"]: ph, g["away"]: 1 - ph}
-        if l["market"] in ("totals", "alternate_totals"):
-            po = m.p_over(pj["total"], l["point"])
-            return {"Over": po, "Under": 1 - po}
-    return pH, probs
+    return pH, normal_probs(g, pj["margin"], pj["total"], m.SD_MARGIN, m.SD_TOTAL)
 
 
 def _nfl(g, m, pdocs, inj, refs):
@@ -447,14 +602,11 @@ def _nfl(g, m, pdocs, inj, refs):
     pH, probs = _line_probs(g, pj, m)
     lines = _stamp_lines(g, probs)
     _stamp_props(pdocs, pj["sides"], model_nfl.MARKETS, g["sport"])
-    for d in pdocs:     # anytime TD: Poisson on projected touchdowns
-        if d["market"] != "player_anytime_td":
-            continue
-        for r in d["rows"]:
-            p = _match_player(r["player"], pj["sides"]["home"]["players"] + pj["sides"]["away"]["players"])
-            if p and not p.get("out"):
-                py = 1 - math.exp(-p["proj"].get("td", 0))
-                r["model"] = {"mean": round(p["proj"].get("td", 0), 2), "Yes": round(py, 4), "No": round(1 - py, 4)}
+    nfl_all = pj["sides"]["home"]["players"] + pj["sides"]["away"]["players"]
+    td_share = {p["name"]: p["proj"].get("td", 0) for p in nfl_all if not p.get("out")}
+    p_any_td = 1 - math.exp(-max(0.1, (pj["home"]["pts"] + pj["away"]["pts"]) / 7.0 * 0.92))
+    _stamp_field(pdocs, "player_1st_td", td_share, p_any_td * 0.93)       # ~7% of first TDs go to defense/special teams
+    _stamp_field(pdocs, "player_last_td", td_share, p_any_td * 0.93)
     th, ta = m.teams[h], m.teams[a]
     pct = lambda v: None if v is None else round(v, 3)
 
@@ -587,10 +739,9 @@ def _mlb(g, m, pdocs, inj, refs):
         mk = l["market"]
         if not both_sp:
             return None       # a starter is TBA: no model opinion on game lines until both are posted
-        period = "f5" if mk.endswith("_1st_5_innings") else "full" if not re.search(r"_1st_\d_innings$", mk) else None
-        if period is None:
-            return None
-        base = re.sub(r"_1st_5_innings$", "", mk).replace("alternate_", "")
+        mi = re.search(r"_1st_(\d)_innings$", mk)
+        period = f"f{mi.group(1)}" if mi else "full"
+        base = re.sub(r"_1st_\d_innings$", "", mk).replace("alternate_", "")
         if base == "h2h":
             ph = m.prob(pj, "win", period)
             return {g["home"]: ph, g["away"]: 1 - ph}
@@ -663,6 +814,10 @@ def _mlb(g, m, pdocs, inj, refs):
             mean = b["proj"][stat]
             po = MLBM.p_over_dist(b["dist"][stat], r["point"]) if stat in b["dist"] else B.p_over(mk, max(mean, 0.01), r["point"], "baseball_mlb")
             r["model"] = {"mean": round(mean, 2), "raw": round(mean, 2), "Over": round(po, 4), "Under": round(1 - po, 4)}
+
+    hr_share = {b["name"]: b["proj"]["hr"] for b in hitters if b.get("proj")}
+    p_any_hr = 1 - math.exp(-sum(hr_share.values()))
+    _stamp_field(pdocs, "batter_first_home_run", hr_share, p_any_hr)
 
     def sp_card(side):
         sp = sps.get(side)

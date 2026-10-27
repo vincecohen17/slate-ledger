@@ -22,7 +22,9 @@ MARKETS = {"player_pass_yds": ["pass_yds"], "player_pass_attempts": ["att"], "pl
            "player_pass_tds": ["ptd"], "player_pass_interceptions": ["int"], "player_rush_yds": ["rush_yds"],
            "player_rush_attempts": ["car"], "player_receptions": ["rec"], "player_reception_yds": ["rec_yds"],
            "player_rush_reception_yds": ["rush_yds", "rec_yds"], "player_pass_rush_yds": ["pass_yds", "rush_yds"],
-           "player_anytime_td": ["td"]}
+           "player_anytime_td": ["td"], "player_tds_over": ["td"], "player_rush_reception_tds": ["td"],
+           "player_reception_tds": ["rectd"], "player_rush_tds": ["rushtd"],
+           "player_pass_rush_reception_yds": ["pass_yds", "rush_yds", "rec_yds"]}
 LABEL = {"pass_yds": "PYD", "rush_yds": "RYD", "rec": "REC", "rec_yds": "RECYD", "td": "TD", "att": "ATT", "car": "CAR"}
 
 
@@ -240,6 +242,7 @@ class NFL:
                 if p["attShare"]:
                     proj.update(att=att, cmp=att * p["cmp"], pass_yds=att * p["ypa"] * pf, ptd=att * p["ptd"] * pf, int=att * p["int"])
                 proj["td"] = tg * p["rectd"] + cr * p["rushtd"]
+                proj["rectd"], proj["rushtd"] = tg * p["rectd"], cr * p["rushtd"]
                 if p["out"]:
                     proj = {k: 0.0 for k in proj}
                 logs = [r for r in self.plog.get(p["id"], [])][-10:]

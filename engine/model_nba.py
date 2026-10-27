@@ -25,7 +25,11 @@ MARKETS = {"player_points": ["pts"], "player_rebounds": ["reb"], "player_assists
            "player_blocks": ["blk"], "player_steals": ["stl"], "player_turnovers": ["tov"],
            "player_points_rebounds_assists": ["pts", "reb", "ast"], "player_points_rebounds": ["pts", "reb"],
            "player_points_assists": ["pts", "ast"], "player_rebounds_assists": ["reb", "ast"],
-           "player_blocks_steals": ["blk", "stl"]}
+           "player_blocks_steals": ["blk", "stl"],
+           # first-quarter props: about a quarter of the game's production (starters play more of the first)
+           "player_points_q1": {"pts": 0.27}, "player_rebounds_q1": {"reb": 0.26}, "player_assists_q1": {"ast": 0.26},
+           # fantasy score (PrizePicks/Underdog scoring)
+           "player_fantasy_points": {"pts": 1.0, "reb": 1.2, "ast": 1.5, "blk": 3.0, "stl": 3.0, "tov": -1.0}}
 LABEL = {"pts": "PTS", "reb": "REB", "ast": "AST", "fg3": "3PM", "stl": "STL", "blk": "BLK", "tov": "TOV"}
 
 
