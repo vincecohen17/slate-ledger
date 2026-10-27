@@ -640,6 +640,10 @@ def _record_failure(e):
 if __name__ == "__main__":
     try:
         main()
+        try:
+            os.remove(os.path.join(DATA_DIR, "latest", "last_error.json"))
+        except OSError:
+            pass
     except SystemExit:
         raise
     except Exception as e:

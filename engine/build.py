@@ -526,6 +526,19 @@ def build_props(ev, label):
             if main and main["point"] is not None:
                 mean = mean_from_line(mk, main["point"], main["fair"]["Over"], ev["sport_key"])
                 main["isMain"] = True
+            # pick'em apps post several lines per player (standard plus discounted / boosted ones such as PrizePicks
+            # goblins and demons, which pay differently and are often Over-only). Only the line closest to the sharp
+            # main line is the standard 57.7% break-even pick; the rest are shown but not judged.
+            std = {}
+            if main and main["point"] is not None:
+                for l in plines:
+                    for d in l["dfs"]:
+                        if l["point"] is None:
+                            continue
+                        gap = abs(l["point"] - main["point"])
+                        if d["book"] not in std or gap < std[d["book"]][0]:
+                            std[d["book"]] = (gap, id(l))
+            tol = lambda pt: max(1.5, 0.12 * abs(pt or 0))
             for l in plines:
                 # judge every pick'em line and every thin alt line from the main line's sharp fair
                 if mean is not None and l["point"] is not None:
@@ -536,6 +549,10 @@ def build_props(ev, label):
                         l["modelFair"] = True
                     for d in l["dfs"]:
                         d["fairOver"], d["fairUnder"] = _r(po), _r(1 - po)
+                        sb = std.get(d["book"])
+                        if not sb or sb[1] != id(l) or sb[0] > tol(main["point"]):
+                            d["alt"] = True         # goblin / demon style line: different payout, not judged
+                            continue
                         side = "Over" if po >= 0.5 else "Under"
                         pside = max(po, 1 - po)
                         d["side"], d["p"] = side, _r(pside)
