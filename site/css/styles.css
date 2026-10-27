@@ -278,3 +278,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .l10t { width: 100%; font-size: 12px; } .l10t td, .l10t th { padding: 3px 6px; text-align: right; } .l10t td:first-child, .l10t th:first-child { text-align: left; }
 .pr { cursor: pointer; }
 .pr-detail { grid-column: 1 / -1; overflow-x: auto; }
+.corr .pill { white-space: normal; text-align: left; }
+@media (max-width: 560px) {
+  .leg { grid-template-columns: auto 1fr auto; }
+  .leg select { grid-column: 2 / 3; grid-row: 2; }
+}

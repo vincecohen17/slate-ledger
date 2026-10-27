@@ -44,6 +44,23 @@ def test_three_way_kept_apart():
     assert ml["outcomes"] == ["A", "H"] and abs(sum(ml["fair"].values()) - 1) < 1e-3 and ml["fair"]["H"] > 0.5
     assert any(l["market"] == "h2h_3way" for l in g["lines"])
 
+def test_extra_markets_and_alt_props():
+    ev = {"id": "g3", "sport_key": "basketball_nba", "commence_time": T, "home_team": "H", "away_team": "A",
+          "bookmakers": [bm("pinnacle", {
+              "alternate_spreads": [{"name": "H", "price": 2.6, "point": -9.5}, {"name": "A", "price": 1.5, "point": 9.5}],
+              "team_totals": [{"name": "Over", "description": "H", "price": 1.9, "point": 112.5}, {"name": "Under", "description": "H", "price": 1.9, "point": 112.5}],
+              "h2h_q1": [{"name": "H", "price": 1.8}, {"name": "A", "price": 2.0}],
+              "player_points": [{"name": "Over", "description": "P1", "price": 1.9, "point": 24.5}, {"name": "Under", "description": "P1", "price": 1.9, "point": 24.5}],
+              "player_points_alternate": [{"name": "Over", "description": "P1", "price": 3.0, "point": 29.5}]})]}
+    g = {"lines": []}
+    build.add_extra_lines(ev, g)
+    mk = {l["market"] for l in g["lines"]}
+    assert {"alternate_spreads", "team_totals", "h2h_q1"} <= mk and "player_points" not in mk
+    tt = [l for l in g["lines"] if l["market"] == "team_totals"][0]
+    assert tt["team"] == "H" and abs(sum(tt["fair"].values()) - 1) < 1e-3
+    docs = build.build_props(ev, "NBA")
+    assert list(docs) == ["player_points"] and {r["point"] for r in docs["player_points"]["rows"]} == {24.5, 29.5}
+
 def test_props():
     def ou(p, line, over, under, who="P1"):
         return [{"name": "Over", "description": who, "price": over, "point": line},

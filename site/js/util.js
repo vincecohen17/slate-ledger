@@ -130,3 +130,20 @@ export function hitRate(vals, line, side = "Over") {
   const n = v.filter((x) => side === "Under" ? x < line : x > line).length;
   return `${n}/${v.length} ${side === "Under" ? "under" : "over"}`;
 }
+
+// ---------- market names (every Odds API game market)
+const PERIOD = { q1: "1st quarter", q2: "2nd quarter", q3: "3rd quarter", q4: "4th quarter", h1: "1st half", h2: "2nd half",
+  p1: "1st period", p2: "2nd period", p3: "3rd period", "1st_1_innings": "1st inning", "1st_3_innings": "first 3 innings",
+  "1st_5_innings": "first 5 innings", "1st_7_innings": "first 7 innings", s1: "1st set", s2: "2nd set" };
+const BASE = { h2h: "Moneyline", h2h_3way: "Regulation result (3-way)", h2h_3_way: "3-way result", spreads: "Spread", totals: "Total",
+  team_totals: "Team total", btts: "Both teams to score", draw_no_bet: "Draw no bet", double_chance: "Double chance",
+  corners: "Corners", cards: "Cards", correct_score: "Correct score", halftime_fulltime: "Half time / full time", corners_1x2: "Corners 1X2" };
+export function marketInfo(mk) {
+  let m = mk, alt = false, period = "";
+  if (m.startsWith("alternate_")) { alt = true; m = m.slice(10); }
+  for (const p of Object.keys(PERIOD)) if (m.endsWith("_" + p)) { period = PERIOD[p]; m = m.slice(0, -p.length - 1); break; }
+  const kind = m.includes("team_totals") ? "team_totals" : m.includes("spreads") ? "spreads" : m.includes("totals") ? "totals" : m.startsWith("h2h") ? "h2h" : "other";
+  const base = BASE[m] || BASE[m.replace(/_(corners|cards)$/, "")] || m.replace(/_/g, " ");
+  const label = `${period ? period[0].toUpperCase() + period.slice(1) + " " : ""}${alt ? "alt " : ""}${period ? base.toLowerCase() : base}`;
+  return { kind, alt, period, label: label[0].toUpperCase() + label.slice(1) };
+}

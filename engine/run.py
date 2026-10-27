@@ -4,7 +4,8 @@ Env:
   ODDS_API_KEY              The Odds API key (GitHub secret)
   FIREBASE_SERVICE_ACCOUNT  service-account JSON (GitHub secret); omit to skip Firestore
   DATA_DIR                  checkout of the private data repo
-  MODE                      mock (one capped pull) | live (tiered schedule)
+  MODE                      auto (app-driven, tiered; the scheduled default) | mock (one capped pull)
+                            | rebuild (no credits) | stats | probe
 Logs carry counts only: this repo is public, so no prices, picks or keys.
 """
 import gzip
@@ -29,7 +30,7 @@ def _mode():
         return m
     try:  # push-triggered runs read the mode from the first word of engine/run-request
         w = open(os.path.join(os.path.dirname(__file__), "run-request")).read().split()
-        if w and w[0] in ("mock", "live", "rebuild", "probe", "stats"):
+        if w and w[0] in ("mock", "live", "auto", "rebuild", "probe", "stats"):
             return w[0]
     except OSError:
         pass
@@ -57,6 +58,200 @@ def save_raw(sport, kind, payload):
         json.dump(payload, f, separators=(",", ":"))
 
 
+RAW = lambda *p: os.path.join(DATA_DIR, "latest", "raw", *p)
+
+
+def cache_put(name, payload):
+    os.makedirs(RAW(), exist_ok=True)
+    with open(RAW(name), "w") as f:
+        json.dump(payload, f, separators=(",", ":"))
+
+
+def load_cache(keep_hours=6):
+    """Current raw state: lines_<sport>.json (sport-level) + event_<id>.json (alternates, periods, props)."""
+    import glob
+    cutoff = iso(NOW - timedelta(hours=keep_hours))
+    games, events = {}, {}
+    for fn in glob.glob(RAW("lines_*.json")):
+        sport = os.path.basename(fn)[6:-5]
+        for ev in json.load(open(fn)):
+            if ev.get("bookmakers") and ev["commence_time"] >= cutoff:
+                games[ev["id"]] = (sport, ev)
+    for fn in glob.glob(RAW("event_*.json")):
+        ev = json.load(open(fn))
+        if ev.get("commence_time", "") < cutoff:
+            os.remove(fn)          # finished games leave the cache (snapshots keep the history)
+            continue
+        events[ev["id"]] = ev
+    game_docs, prop_docs = [], []
+    for gid, (sport, ev) in games.items():
+        g = build.build_game(ev, C.SPORTS.get(sport, sport))
+        if gid in events:
+            build.add_extra_lines(events[gid], g)
+            prop_docs += list(build.build_props(events[gid], C.SPORTS.get(sport, sport)).values())
+        game_docs.append(g)
+    return game_docs, prop_docs
+
+
+def load_state():
+    try:
+        return json.load(open(os.path.join(DATA_DIR, "latest", "refresh_state.json")))
+    except Exception:
+        return {"lines": {}, "events": {}, "day": None, "usedToday": 0}
+
+
+def save_state(st):
+    os.makedirs(os.path.join(DATA_DIR, "latest"), exist_ok=True)
+    json.dump(st, open(os.path.join(DATA_DIR, "latest", "refresh_state.json"), "w"), separators=(",", ":"))
+
+
+_DB = None
+
+
+def firestore_db():
+    global _DB
+    if _DB is None and os.environ.get("FIREBASE_SERVICE_ACCOUNT"):
+        import firebase_admin
+        from firebase_admin import credentials, firestore
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(credentials.Certificate(json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT"])))
+        _DB = firestore.client()
+    return _DB
+
+
+def presence():
+    """(active, force_at): the site writes presence/owner {at, force?} while it is open."""
+    db = firestore_db()
+    if not db:
+        return False, None
+    try:
+        d = db.document("presence/owner").get()
+        x = d.to_dict() or {}
+    except Exception:
+        return False, None
+    at = x.get("at")
+    active = bool(at) and (NOW - datetime.fromisoformat(at.replace("Z", "+00:00"))).total_seconds() < C.ACTIVE_MINUTES * 60
+    return active, x.get("force")
+
+
+def _age_min(ts):
+    if not ts:
+        return 1e9
+    return (NOW - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 60
+
+
+def _limit(table, hours_to_start):
+    for h, m in table:
+        if hours_to_start <= h:
+            return m
+    return None
+
+
+def auto():
+    """App-driven refresh: spend credits only while the site is open (plus close capture on the paid
+    plan), and only on what is stale for how soon it starts."""
+    key = os.environ.get("ODDS_API_KEY")
+    if not key:
+        sys.exit("ODDS_API_KEY missing")
+    P = C.PLANS[C.PLAN]
+    st = load_state()
+    today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
+    if st.get("day") != today:
+        st.update(day=today, usedToday=0)
+    active, force_at = presence()
+    force = bool(force_at) and force_at != st.get("lastForce") and _age_min(force_at) < 15
+    paid = C.PLAN != "free"
+    room = max(0, P["day_cap"] - st.get("usedToday", 0))
+    if not (active or force or paid):
+        log("site closed: nothing to do")
+        return
+    if room <= 0:
+        log("daily credit ceiling reached")
+        return
+    api = OddsAPI(key, max_credits=min(P["run_cap"], room))
+    act = {s["key"] for s in api.sports() if s.get("active")}
+    sports = [s for s in C.SPORTS if s in act]
+    errors, pulled = [], []
+    horizon = iso(NOW + timedelta(days=7))
+    soon = {}
+    for s in sports:
+        evs = api.events(s, commenceTimeFrom=iso(NOW - timedelta(minutes=5)), commenceTimeTo=horizon)
+        if evs:
+            soon[s] = sorted(evs, key=lambda e: e["commence_time"])
+    # game lines: one call per sport
+    for s, evs in soon.items():
+        hrs = (datetime.fromisoformat(evs[0]["commence_time"].replace("Z", "+00:00")) - NOW).total_seconds() / 3600
+        age = _age_min(st["lines"].get(s))
+        lim = max(_limit(C.LINES_STALE, hrs) or 240, P["min_lines_age"])
+        close = paid and hrs * 60 <= C.CLOSE_WINDOW_MIN and age > C.CLOSE_STALE_MIN
+        if not (close or ((active or force) and age > lim)):
+            continue
+        try:
+            data = api.odds(s, C.GAME_MARKETS, C.GAME_REGIONS, commenceTimeTo=horizon)
+        except BudgetExceeded as e:
+            errors.append(f"budget stop ({e})")
+            break
+        except RuntimeError as e:
+            errors.append(str(e))
+            continue
+        cache_put(f"lines_{s}.json", data)
+        save_raw(s, "lines", data)
+        st["lines"][s] = iso(NOW)
+        pulled.append(f"{C.SPORTS[s]} lines")
+    # event markets (alternates, periods, every prop): paid plan only
+    if P["props"]:
+        queue = []
+        for s, evs in soon.items():
+            if not C.EVENT_MARKETS.get(s):
+                continue
+            for ev in evs:
+                hrs = (datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00")) - NOW).total_seconds() / 3600
+                age = _age_min(st["events"].get(ev["id"]))
+                lim = _limit(C.PROPS_STALE, hrs)
+                close = hrs * 60 <= C.CLOSE_WINDOW_MIN and age > C.CLOSE_STALE_MIN
+                if close or ((active or force) and lim is not None and age > lim):
+                    queue.append((hrs, s, ev))
+        queue.sort(key=lambda x: x[0])
+        n_events = 0
+        for _, s, ev in queue:
+            try:
+                data = api.event_odds(s, ev["id"], C.EVENT_MARKETS[s], bookmakers=C.EVENT_BOOKS)
+            except BudgetExceeded as e:
+                errors.append(f"budget stop after {len(pulled)} pulls ({e})")
+                break
+            except RuntimeError as e:
+                errors.append(str(e))
+                st["events"][ev["id"]] = iso(NOW)     # do not retry a failing event until it is stale again
+                continue
+            cache_put(f"event_{ev['id']}.json", data)
+            save_raw(s, f"event_{ev['id']}", data)
+            st["events"][ev["id"]] = iso(NOW)
+            n_events += 1
+        pulled.append(f"{n_events} events")
+    st["usedToday"] = st.get("usedToday", 0) + api.used_run
+    if force:
+        st["lastForce"] = force_at
+    stale_stats = _age_min(st.get("stats")) > 20
+    if not api.used_run and not stale_stats:
+        save_state(st)
+        log(f"active={active} nothing stale")
+        return
+    game_docs, prop_docs = load_cache()
+    prev = {}
+    try:
+        prev = json.load(open(os.path.join(DATA_DIR, "latest", "board.json")))["status"]
+    except Exception:
+        pass
+    status = dict(prev, updated=iso(NOW) if api.used_run else prev.get("updated", iso(NOW)), mode="auto", plan=C.PLAN,
+                  creditsRemaining=api.remaining if api.remaining is not None else prev.get("creditsRemaining"),
+                  creditsThisRun=api.used_run, creditsToday=st["usedToday"], linesAt=st["lines"], errors=errors,
+                  games={lg: sum(1 for g in game_docs if g["league"] == lg) for lg in sorted({g["league"] for g in game_docs})})
+    st["stats"] = iso(NOW)
+    save_state(st)
+    publish(game_docs, prop_docs, status, stamp=NOW.strftime("%Y-%m-%dT%H%M%S"))
+    log(f"active={active} force={force} pulled {pulled} credits {api.used_run} (today {st['usedToday']}), left {api.remaining}")
+
+
 def plan():
     """What to pull this run. Returns (horizon_hours, prop_window_hours, prop_markets, prop_regions, cap)."""
     if MODE == "mock":
@@ -65,8 +260,18 @@ def plan():
 
 
 def rebuild():
-    """Rebuild the board from the newest saved raw snapshots (zero credits)."""
+    """Rebuild the board from the raw cache (or the newest snapshots) for zero credits."""
     import glob
+    if glob.glob(RAW("lines_*.json")):
+        game_docs, prop_docs = load_cache()
+        prev = {}
+        try:
+            prev = json.load(open(os.path.join(DATA_DIR, "latest", "board.json")))["status"]
+        except Exception:
+            pass
+        status = dict(prev, mode="rebuild", rebuiltAt=iso(NOW), errors=[], creditsThisRun=0)
+        status.setdefault("updated", iso(NOW))
+        return publish(game_docs, prop_docs, status, stamp=f"cache-{prev.get('updated', '')}")
     days = sorted(glob.glob(os.path.join(DATA_DIR, "snapshots", "*")))
     if not days:
         sys.exit("no snapshots to rebuild from")
@@ -81,8 +286,11 @@ def rebuild():
             continue
         data = json.load(gzip.open(f))
         if name.endswith("_lines"):
+            cache_put(f"lines_{sport}.json", data)
             game_docs += [build.build_game(ev, C.SPORTS[sport]) for ev in data if ev.get("bookmakers")]
         else:
+            if data.get("id"):
+                cache_put(f"event_{data['id']}.json", data)
             prop_docs += list(build.build_props(data, C.SPORTS[sport]).values())
     prev = {}
     try:
@@ -102,6 +310,8 @@ def main():
         return run_stats(backfill="backfill" in open(os.path.join(os.path.dirname(__file__), "run-request")).read())
     if MODE == "rebuild":
         return rebuild()
+    if MODE in ("auto", "live"):
+        return auto()
     key = os.environ.get("ODDS_API_KEY")
     if not key:
         sys.exit("ODDS_API_KEY missing")
@@ -130,6 +340,7 @@ def main():
             errors.append(str(e))
             continue
         save_raw(s, "lines", data)
+        cache_put(f"lines_{s}.json", data)
         raw_by_sport[s] = data
         for ev in data:
             if ev.get("bookmakers"):
@@ -158,6 +369,7 @@ def main():
             errors.append(str(e))
             continue
         save_raw(s, f"props_{ev['id']}", data)
+        cache_put(f"event_{ev['id']}.json", data)
         docs = build.build_props(data, C.SPORTS[s])
         prop_docs.extend(docs.values())
         n_props += 1
@@ -281,12 +493,7 @@ def write_data_repo(game_docs, prop_docs, edge_list, status):
 
 
 def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(), mups=None, previews=()):
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-
-    cred = credentials.Certificate(json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT"]))
-    firebase_admin.initialize_app(cred)
-    db = firestore.client()
+    db = firestore_db()
 
     hash_file = os.path.join(DATA_DIR, "latest", "hashes.json")
     try:

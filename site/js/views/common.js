@@ -15,7 +15,7 @@ export function betImage(item, size = 42) {
 
 export function edgeCard(e) {
   const g = S.games.get(e.gameId);
-  const href = `#/game/${e.gameId}/${["h2h", "spreads", "totals"].includes(e.market) ? "lines" : "props"}`;
+  const href = `#/game/${e.gameId}/${/^(player|batter|pitcher)_/.test(e.market || "") ? "props" : "lines"}`;
   return `<div class="card">
     <div class="bet">
       ${betImage(e)}

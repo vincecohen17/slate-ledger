@@ -220,6 +220,75 @@ def build_game(ev, label):
 
 
 # ---------------------------------------------------------------------------
+# Extra game markets from the event endpoint (alternates, team totals, periods, specials)
+
+PLAYER_PREFIX = ("player_", "batter_", "pitcher_")
+
+
+def is_player_market(mk):
+    return mk.startswith(PLAYER_PREFIX)
+
+
+def base_market(mk):
+    return mk[:-len("_alternate")] if mk.endswith("_alternate") else mk
+
+
+def add_extra_lines(ev, game):
+    """Append every non-player market of an event payload to the game doc's lines."""
+    home, away = ev["home_team"], ev["away_team"]
+    bms = ev.get("bookmakers", [])
+    markets = sorted({m["key"] for bm in bms for m in bm.get("markets", []) if not is_player_market(m["key"])})
+    have = {(l["market"], l["id"]) for l in game["lines"]}
+    for mk in markets:
+        if mk in ("h2h", "spreads", "totals"):
+            continue
+        if "spreads" in mk:
+            def kf(o, mk=mk):
+                pt = o.get("point") or 0
+                hp = pt if o["name"] == home else -pt
+                return (f"{mk}:{hp:+g}", o["name"], hp)
+            for lid, L in _collect(bms, mk, kf).items():
+                if (mk, lid) not in have:
+                    game["lines"].append(_finish_line({"market": mk, "id": lid, "point": L["point"]}, list(L["quotes"].values()), [away, home]))
+        elif "team_totals" in mk:
+            def kf(o, mk=mk):
+                team = o.get("description") or "?"
+                return (f"{mk}:{team}:{o.get('point')}", o["name"], o.get("point"))
+            for lid, L in _collect(bms, mk, kf).items():
+                team = lid.split(":")[1]
+                line = _finish_line({"market": mk, "id": lid, "point": L["point"], "team": team}, list(L["quotes"].values()), ["Over", "Under"])
+                game["lines"].append(line)
+        elif "totals" in mk:
+            def kf(o, mk=mk):
+                return (f"{mk}:{o.get('point')}", o["name"], o.get("point"))
+            for lid, L in _collect(bms, mk, kf).items():
+                game["lines"].append(_finish_line({"market": mk, "id": lid, "point": L["point"]}, list(L["quotes"].values()), ["Over", "Under"]))
+        else:   # h2h_q1, h2h_3_way, btts, draw_no_bet, double_chance, ...
+            def kf(o, mk=mk):
+                pt = o.get("point")
+                return (f"{mk}" + (f":{pt}" if pt is not None else ""), o["name"] + (f" ({o['description']})" if o.get("description") else ""), pt)
+            for lid, L in _collect(bms, mk, kf).items():
+                names = []
+                for q in L["quotes"].values():
+                    for n in q["dec"]:
+                        if n not in names:
+                            names.append(n)
+                order = [n for n in (away, home, "Draw", "Yes", "No") if n in names] + [n for n in names if n not in (away, home, "Draw", "Yes", "No")]
+                if len(order) > 6:
+                    continue   # correct score style markets: too many outcomes to de-vig sensibly here
+                game["lines"].append(_finish_line({"market": mk, "id": lid, "point": L["point"]}, list(L["quotes"].values()), order))
+    # main flags for per-period markets: most books, closest to a coin flip
+    groups = {}
+    for l in game["lines"]:
+        if l["market"] not in ("h2h", "spreads", "totals") and l.get("fair") and not l["market"].startswith("alternate"):
+            groups.setdefault((l["market"], l.get("team")), []).append(l)
+    for ls in groups.values():
+        best = max(ls, key=lambda l: (l["nBooks"], -abs(list(l["fair"].values())[0] - 0.5)))
+        best["isMain"] = True
+    return game
+
+
+# ---------------------------------------------------------------------------
 # Player props
 
 # Distribution of a stat, used only to move a sharp fair from the main line to
@@ -307,6 +376,20 @@ def mean_from_line(market, line, fair_over, sport=""):
 def build_props(ev, label):
     """Returns {market: doc}. One Firestore doc per (event, market)."""
     bms = ev.get("bookmakers", [])
+    # fold alternate ladders into their base market so every line of a stat lives together
+    merged = []
+    for bm in bms:
+        mk_map = {}
+        for m in bm.get("markets", []):
+            if not is_player_market(m["key"]):
+                continue
+            base = base_market(m["key"])
+            if base in mk_map:
+                mk_map[base]["outcomes"] = mk_map[base]["outcomes"] + m["outcomes"]
+            else:
+                mk_map[base] = {**m, "key": base}
+        merged.append({**bm, "markets": list(mk_map.values())})
+    bms = merged
     markets = sorted({m["key"] for bm in bms for m in bm.get("markets", [])})
     docs = {}
     for mk in markets:
@@ -378,6 +461,17 @@ def build_props(ev, label):
 # ---------------------------------------------------------------------------
 # Edge list across everything
 
+_PERIODS = {"q1": "1Q", "q2": "2Q", "q3": "3Q", "q4": "4Q", "h1": "1H", "h2": "2H", "p1": "1P", "p2": "2P", "p3": "3P",
+            "1st_1_innings": "1st inn", "1st_3_innings": "F3", "1st_5_innings": "F5", "1st_7_innings": "F7"}
+
+
+def market_period(mk):
+    for k, v in _PERIODS.items():
+        if mk.endswith("_" + k):
+            return v + " "
+    return ""
+
+
 def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
     out = []
 
@@ -405,14 +499,20 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
 
     for g in game_docs:
         for l in g["lines"]:
-            if l["market"] == "h2h":
+            mk = l["market"]
+            pre = market_period(mk)
+            if mk == "h2h":
                 scan(g, l, lambda o: f"{o} ML")
-            elif l["market"] == "h2h_3way":
+            elif mk == "h2h_3way":
                 scan(g, l, lambda o: f"{o} (regulation)")
-            elif l["market"] == "spreads":
-                scan(g, l, lambda o, l=l, g=g: f"{o} {(l['point'] if o == g['home'] else -l['point']):+g}")
+            elif "spreads" in mk:
+                scan(g, l, lambda o, l=l, g=g, pre=pre: f"{pre}{o} {(l['point'] if o == g['home'] else -l['point']):+g}")
+            elif "team_totals" in mk:
+                scan(g, l, lambda o, l=l, pre=pre: f"{pre}{l.get('team')} {o} {l['point']:g}")
+            elif "totals" in mk:
+                scan(g, l, lambda o, l=l, pre=pre: f"{pre}{o} {l['point']:g}")
             else:
-                scan(g, l, lambda o, l=l: f"{o} {l['point']:g}")
+                scan(g, l, lambda o, l=l, pre=pre, mk=mk: f"{pre}{mk.replace('_', ' ')}: {o}" + (f" {l['point']:g}" if l.get("point") is not None else ""))
     for p in prop_docs:
         for l in p["rows"]:
             n0 = len(out)

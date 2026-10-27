@@ -1,5 +1,5 @@
 import { S, loadProps, propsFor } from "../store.js";
-import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wpBar, signPt, mktName, edgeCls, bindTips, spark, hitRate, both, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wpBar, signPt, mktName, edgeCls, bindTips, spark, hitRate, both, marketInfo, $$ } from "../util.js";
 import { edgeCard, ladder, bindLog } from "./common.js";
 import { pickCard } from "./picks.js";
 import { renderMatchup } from "./matchup.js";
@@ -30,7 +30,8 @@ function hero(g) {
 }
 
 function sidesBlock(g, l, limit, all) {
-  const lab = (o) => l.market === "spreads" ? `${o} ${signPt(o === g.home ? l.point : -l.point)}` : l.market === "totals" ? `${o} ${l.point}` : o;
+  const k = marketInfo(l.market).kind;
+  const lab = (o) => k === "spreads" ? `${o} ${signPt(o === g.home ? l.point : -l.point)}` : k === "team_totals" ? `${l.team} ${o} ${l.point}` : k === "totals" ? `${o} ${l.point}` : o;
   const ref = (o) => o === g.home ? g.homeRef : o === g.away ? g.awayRef : null;
   return `<div class="sides">${l.outcomes.map((o) => `<div><div class="side-h">${ref(o) || o === g.home || o === g.away ? teamLogo(ref(o), o, 22) : ""}<span>${esc(lab(o))}</span></div>${ladder(l, o, limit, all)}</div>`).join("")}</div>`;
 }
@@ -49,15 +50,35 @@ function overview(g) {
 }
 
 function lines(g) {
-  const order = { h2h: 0, spreads: 1, totals: 2, h2h_3way: 3 };
-  const ls = [...g.lines].sort((a, b) => order[a.market] - order[b.market] || (b.isMain ? 1 : 0) - (a.isMain ? 1 : 0) || (a.point ?? 0) - (b.point ?? 0));
-  return ls.map((l) => {
-    const key = g.id + l.id, all = open.has(key);
-    const t = l.market === "h2h" ? "Moneyline" : l.market === "h2h_3way" ? "Regulation result (3-way)" : l.market === "spreads" ? `Spread · ${esc(g.homeRef?.abbr || g.home)} ${signPt(l.point)}` : `Total ${l.point}`;
-    return `<div class="panel"><h3><span>${t} ${l.isMain && l.market !== "h2h" ? `<span class="pill s">main</span>` : ""}</span>
-      <span class="row"><span class="tiny muted">fair from ${esc(l.fairSource || "–")}</span><button class="btn sm ghost" data-all="${esc(key)}">${all ? "Key books" : `All ${l.nBooks} books`}</button></span></h3>
-      <div class="pad">${sidesBlock(g, l, 7, all)}</div></div>`;
-  }).join("");
+  // group: main markets first, then each period, alternates collapsed behind a button
+  const groups = new Map();
+  for (const l of g.lines) {
+    const info = marketInfo(l.market);
+    const key = info.period + "|" + info.kind + (l.team ? "|" + l.team : "");
+    if (!groups.has(key)) groups.set(key, { info, team: l.team, lines: [] });
+    groups.get(key).lines.push(l);
+  }
+  const rank = (x) => (x.info.period ? 10 : 0) + ({ h2h: 0, spreads: 1, totals: 2, team_totals: 3, other: 4 }[x.info.kind] ?? 5);
+  const out = [];
+  for (const grp of [...groups.values()].sort((a, b) => rank(a) - rank(b))) {
+    const ls = grp.lines.sort((a, b) => (b.isMain ? 1 : 0) - (a.isMain ? 1 : 0) || (a.point ?? 0) - (b.point ?? 0));
+    const key = g.id + "|" + grp.info.period + grp.info.kind + (grp.team || "");
+    const showAll = open.has(key);
+    const main = ls.filter((l) => l.isMain || (!grp.info.alt && ls.length === 1));
+    const shown = showAll ? ls : (main.length ? main : ls.slice(0, 1));
+    for (const l of shown) {
+      const info = marketInfo(l.market);
+      const t = `${info.label}${l.team ? " · " + esc(l.team) : ""}${info.kind === "spreads" ? ` · ${esc(g.homeRef?.abbr || g.home)} ${signPt(l.point)}` : info.kind === "totals" || info.kind === "team_totals" ? ` ${l.point}` : ""}`;
+      const bk = g.id + l.id, all = open.has(bk);
+      out.push(`<div class="panel"><h3><span>${t} ${l.isMain && info.kind !== "h2h" ? `<span class="pill s">main</span>` : ""}</span>
+        <span class="row"><span class="tiny muted">fair from ${esc(l.fairSource || "–")}</span><button class="btn sm ghost" data-all="${esc(bk)}">${all ? "Key books" : `All ${l.nBooks} books`}</button></span></h3>
+        <div class="pad">${sidesBlock(g, l, 7, all)}</div></div>`);
+    }
+    if (ls.length > shown.length || showAll && ls.length > 1) {
+      out.push(`<button class="btn sm ghost" style="margin:-4px 0 10px" data-all="${esc(key)}">${showAll ? "Hide" : "Show"} ${ls.length - (showAll ? 1 : shown.length)} more ${esc(grp.info.label.toLowerCase())} lines</button>`);
+    }
+  }
+  return out.join("");
 }
 
 function propCard(player, rows, market) {

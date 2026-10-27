@@ -1,5 +1,5 @@
 import { auth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut } from "./fb.js";
-import { S, start, stop, onChange } from "./store.js";
+import { S, start, stop, onChange, startPresence, stopPresence, requestRefresh } from "./store.js";
 import { $, $$, esc, ago } from "./util.js";
 import { renderBoard } from "./views/board.js";
 import { renderGame } from "./views/game.js";
@@ -40,10 +40,13 @@ function renderStatus() {
   const s = S.status;
   if (!s) { $("#status").innerHTML = `<span class="muted">waiting for first pull</span>`; return; }
   const old = Date.now() - new Date(s.updated) > 30 * 60000;
-  $("#status").innerHTML = `<span><i class="dot ${old ? "old" : ""}"></i>${ago(s.updated)}</span>
-    <span class="hide-sm">${s.mode === "live" ? "" : esc(s.mode) + " · "}${s.creditsRemaining ?? "?"} credits</span>
+  const waiting = S.refreshAsked && S.refreshAsked > s.updated && Date.now() - new Date(S.refreshAsked) < 15 * 60000;
+  $("#status").innerHTML = `<span title="Prices update every few minutes while the site is open"><i class="dot ${old ? "old" : ""}"></i>prices ${ago(s.updated)}</span>
+    <button class="btn sm ghost" id="rf" title="Ask for fresh prices now (next engine run, usually within 5 minutes)" ${waiting ? "disabled" : ""}>${waiting ? "refresh queued" : "↻ refresh"}</button>
+    <span class="hide-sm">${s.plan === "free" || s.mode === "mock" ? "free plan · " : ""}${s.creditsRemaining ?? "?"} credits</span>
     <button class="btn sm ghost hide-sm" id="so2" title="Sign out">Sign out</button>`;
   const so = $("#so2"); if (so) so.onclick = () => signOut(auth);
+  const rf = $("#rf"); if (rf) rf.onclick = async () => { await requestRefresh(); renderStatus(); };
 }
 
 let lastRoute = "", scrollKeep = {};
@@ -73,8 +76,9 @@ onChange(() => {
 });
 
 onAuthStateChanged(auth, (user) => {
-  if (!user) { stop(); return signinView(); }
+  if (!user) { stop(); stopPresence(); return signinView(); }
   $("#nav").hidden = false;
   start();
+  startPresence();
   route();
 });

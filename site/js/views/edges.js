@@ -3,7 +3,7 @@ import { esc, $$ } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 
 const F = { league: "All", type: "All", min: 0.015, venue: "All", logic: "All" };
-const isLine = (e) => ["h2h", "spreads", "totals"].includes(e.market);
+const isLine = (e) => !/^(player|batter|pitcher)_/.test(e.market || "");
 
 export function renderEdges(el) {
   const leagues = ["All", ...new Set(S.edges.map((e) => e.league))];

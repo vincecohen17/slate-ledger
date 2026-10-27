@@ -68,7 +68,13 @@ class OddsAPI:
         p.update(kw)
         return self._get(f"/sports/{sport}/odds", p, est_cost=len(markets) * len(regions))
 
-    def event_odds(self, sport, event_id, markets, regions):
-        p = {"markets": ",".join(markets), "regions": ",".join(regions), "oddsFormat": "decimal"}
-        return self._get(f"/sports/{sport}/events/{event_id}/odds", p,
-                         est_cost=len(markets) * len(regions))
+    def event_odds(self, sport, event_id, markets, regions=None, bookmakers=None):
+        p = {"markets": ",".join(markets), "oddsFormat": "decimal"}
+        if bookmakers:
+            p["bookmakers"] = ",".join(bookmakers)
+            units = -(-len(bookmakers) // 10)
+        else:
+            p["regions"] = ",".join(regions)
+            units = len(regions)
+        # usage counts markets returned; the estimate assumes about 60% of requested markets come back
+        return self._get(f"/sports/{sport}/events/{event_id}/odds", p, est_cost=max(1, int(len(markets) * 0.6)) * units)

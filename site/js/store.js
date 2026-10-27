@@ -64,3 +64,14 @@ export const saveBet = (b) => setDoc(doc(db, "bets", b.id), JSON.parse(JSON.stri
 export const deleteBet = (id) => deleteDoc(doc(db, "bets", id));
 export const savePromo = (p) => setDoc(doc(db, "promos", p.id), JSON.parse(JSON.stringify(p)));
 export const deletePromo = (id) => deleteDoc(doc(db, "promos", id));
+
+// ---------- presence: tells the engine the site is open, so it refreshes prices only while you use it
+let beat = null;
+const ping = (extra = {}) => setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), ...extra }, { merge: true }).catch(() => {});
+export function startPresence() {
+  const on = () => { if (document.visibilityState === "visible") { ping(); clearInterval(beat); beat = setInterval(ping, 120000); } else { clearInterval(beat); beat = null; } };
+  document.addEventListener("visibilitychange", on);
+  on();
+}
+export function stopPresence() { clearInterval(beat); beat = null; }
+export function requestRefresh() { S.refreshAsked = new Date().toISOString(); return ping({ force: S.refreshAsked }); }

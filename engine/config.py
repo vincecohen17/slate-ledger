@@ -137,3 +137,85 @@ STALE_MINUTES = 20   # a book's market is stale if this far behind the freshest 
 MONTHLY_CREDITS = {"free": 500, "5m": 5_000_000}
 MOCK_MAX_CREDITS = 260      # hard ceiling for one mock run
 RESERVE_CREDITS = 40        # never go below this many remaining
+
+
+# ---------------------------------------------------------------------------
+# Plan + app-driven refresh
+PLAN = "free"            # "free" until the Odds API upgrade, then "5m"
+PLANS = {
+    # per-run and per-day credit ceilings; props only on the paid plan
+    "free": {"run_cap": 40, "day_cap": 80, "props": False, "min_lines_age": 120},
+    "5m": {"run_cap": 6000, "day_cap": 150_000, "props": True, "min_lines_age": 0},
+}
+ACTIVE_MINUTES = 7       # the site counts as open if it pinged within this many minutes
+# staleness (minutes) by how soon the game starts: (starts within hours, max age)
+LINES_STALE = [(3, 5), (12, 15), (36, 60), (9999, 240)]
+PROPS_STALE = [(3, 10), (12, 30), (36, 180)]          # no props beyond 36h
+CLOSE_WINDOW_MIN = 25    # always capture prices for games starting this soon (CLV / grading)
+CLOSE_STALE_MIN = 8
+
+# Books for event-level pulls: naming books costs 1 unit per 10 books, cheaper than whole regions.
+EVENT_BOOKS = ["pinnacle", "betfair_ex_eu", "novig", "prophetx", "kalshi", "polymarket_us", "draftkings",
+               "fanduel", "betonlineag", "lowvig",
+               "prizepicks", "underdog", "pick6", "dabble_us_dfs", "bovada", "fliff", "betmgm",
+               "williamhill_us", "espnbet", "courtside"]
+
+# Every market The Odds API offers per sport (event endpoint). Cost counts only markets returned.
+_P = lambda *k: list(k)
+_ALT_GAME = ["alternate_spreads", "alternate_totals", "team_totals", "alternate_team_totals"]
+_PERIODS_BB = [f"{m}_{p}" for p in ("q1", "q2", "q3", "q4", "h1", "h2") for m in ("h2h", "spreads", "totals")] + \
+              [f"team_totals_{p}" for p in ("q1", "h1")] + [f"alternate_{m}_{p}" for p in ("q1", "h1") for m in ("spreads", "totals")]
+_PERIODS_HK = [f"{m}_{p}" for p in ("p1", "p2", "p3") for m in ("h2h", "spreads", "totals")] + ["h2h_3_way", "h2h_3_way_p1", "btts"]
+_INN = [f"{m}_1st_{n}_innings" for n in (1, 3, 5, 7) for m in ("h2h", "spreads", "totals")] + \
+       ["alternate_spreads_1st_5_innings", "alternate_totals_1st_5_innings", "h2h_3_way_1st_5_innings"]
+_NBA_P = ["player_points", "player_points_q1", "player_rebounds", "player_rebounds_q1", "player_assists", "player_assists_q1",
+          "player_threes", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers",
+          "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists",
+          "player_field_goals", "player_frees_made", "player_frees_attempts", "player_first_basket", "player_first_team_basket",
+          "player_double_double", "player_triple_double", "player_method_of_first_basket", "player_fantasy_points"]
+_NBA_ALT = [m + "_alternate" for m in ("player_points", "player_rebounds", "player_assists", "player_blocks", "player_steals",
+            "player_turnovers", "player_threes", "player_points_assists", "player_points_rebounds", "player_rebounds_assists",
+            "player_points_rebounds_assists", "player_fantasy_points")]
+_NFL_P = ["player_assists", "player_defensive_interceptions", "player_field_goals", "player_kicking_points", "player_pass_attempts",
+          "player_pass_completions", "player_pass_interceptions", "player_pass_longest_completion", "player_pass_rush_yds",
+          "player_pass_rush_reception_tds", "player_pass_rush_reception_yds", "player_pass_tds", "player_pass_yds", "player_pass_yds_q1",
+          "player_pats", "player_receptions", "player_reception_longest", "player_reception_tds", "player_reception_yds",
+          "player_rush_attempts", "player_rush_longest", "player_rush_reception_tds", "player_rush_reception_yds", "player_rush_tds",
+          "player_rush_yds", "player_sacks", "player_solo_tackles", "player_tackles_assists", "player_tds_over", "player_1st_td",
+          "player_anytime_td", "player_last_td"]
+_NFL_ALT = [m + "_alternate" for m in ("player_assists", "player_field_goals", "player_kicking_points", "player_pass_attempts",
+            "player_pass_completions", "player_pass_interceptions", "player_pass_longest_completion", "player_pass_rush_yds",
+            "player_pass_rush_reception_tds", "player_pass_rush_reception_yds", "player_pass_tds", "player_pass_yds", "player_pats",
+            "player_receptions", "player_reception_longest", "player_reception_tds", "player_reception_yds", "player_rush_attempts",
+            "player_rush_longest", "player_rush_reception_tds", "player_rush_reception_yds", "player_rush_tds", "player_rush_yds",
+            "player_sacks", "player_solo_tackles", "player_tackles_assists")]
+_MLB_P = ["batter_home_runs", "batter_first_home_run", "batter_hits", "batter_total_bases", "batter_rbis", "batter_runs_scored",
+          "batter_hits_runs_rbis", "batter_singles", "batter_doubles", "batter_triples", "batter_walks", "batter_strikeouts",
+          "batter_stolen_bases", "batter_fantasy_score", "pitcher_strikeouts", "pitcher_record_a_win", "pitcher_hits_allowed",
+          "pitcher_walks", "pitcher_earned_runs", "pitcher_outs"]
+_MLB_ALT = ["batter_total_bases_alternate", "batter_home_runs_alternate", "batter_hits_alternate", "batter_rbis_alternate",
+            "batter_walks_alternate", "batter_strikeouts_alternate", "batter_runs_scored_alternate", "batter_hits_runs_rbis_alternate",
+            "batter_singles_alternate", "batter_doubles_alternate", "batter_triples_alternate", "batter_fantasy_score_alternate",
+            "pitcher_hits_allowed_alternate", "pitcher_walks_alternate", "pitcher_earned_runs_alternate",
+            "pitcher_strikeouts_alternate", "pitcher_outs_alternate"]
+_NHL_P = ["player_points", "player_power_play_points", "player_assists", "player_blocked_shots", "player_shots_on_goal",
+          "player_goals", "player_total_saves", "player_faceoffs_won", "player_time_on_ice", "player_goal_scorer_first",
+          "player_goal_scorer_last", "player_goal_scorer_anytime"]
+_NHL_ALT = [m + "_alternate" for m in ("player_points", "player_assists", "player_power_play_points", "player_goals",
+            "player_shots_on_goal", "player_blocked_shots", "player_total_saves", "player_faceoffs_won", "player_time_on_ice")]
+_SOC_P = ["player_assists", "player_first_goal_scorer", "player_goal_scorer_anytime", "player_last_goal_scorer", "player_shots",
+          "player_shots_on_target", "player_to_receive_card", "player_to_receive_red_card", "player_shots_alternate",
+          "player_shots_on_target_alternate", "player_assists_alternate"]
+_SOC_G = ["btts", "draw_no_bet", "double_chance", "h2h_h1", "totals_h1", "spreads_h1", "btts_h1", "alternate_totals_corners",
+          "alternate_spreads_corners", "alternate_totals_cards", "corners_1x2", "correct_score", "halftime_fulltime"]
+
+EVENT_MARKETS = {
+    "basketball_nba": _ALT_GAME + _PERIODS_BB + _NBA_P + _NBA_ALT,
+    "basketball_ncaab": _ALT_GAME + [m for m in _PERIODS_BB if "_q" not in m] + _NBA_P[:12] + _NBA_ALT[:6],
+    "americanfootball_nfl": _ALT_GAME + _PERIODS_BB + _NFL_P + _NFL_ALT,
+    "americanfootball_ncaaf": _ALT_GAME + _PERIODS_BB + _NFL_P + _NFL_ALT[:12],
+    "icehockey_nhl": _ALT_GAME + _PERIODS_HK + _NHL_P + _NHL_ALT,
+    "baseball_mlb": _ALT_GAME + _INN + _MLB_P + _MLB_ALT,
+    "soccer_epl": _SOC_G + _SOC_P, "soccer_uefa_champs_league": _SOC_G + _SOC_P, "soccer_usa_mls": _SOC_G + _SOC_P,
+    "mma_mixed_martial_arts": [],
+}

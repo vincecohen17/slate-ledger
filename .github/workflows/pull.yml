@@ -7,10 +7,10 @@ on:
     branches: [main]
     paths: ["engine/run-request"]
   schedule:
-    # one free-tier refresh before tonight's games (3:07 PM PT, Oct 27)
+    # one free-tier full pull before tonight's games (3:07 PM PT, Oct 27)
     - cron: "7 22 27 10 *"
-    # live schedule turns on after the 5M upgrade:
-    # - cron: "*/5 15-23,0-5 * * *"
+    # app-driven refresh: every 5 minutes the engine checks whether the site is open and what is stale
+    - cron: "*/5 * * * *"
 concurrency: { group: pull, cancel-in-progress: false }
 jobs:
   pull:
@@ -33,7 +33,7 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           DATA_DIR: data
-          MODE: ${{ github.event.inputs.mode || (github.event_name == 'schedule' && 'mock') || '' }}
+          MODE: ${{ github.event.inputs.mode || (github.event.schedule == '7 22 27 10 *' && 'mock') || (github.event_name == 'schedule' && 'auto') || '' }}
         run: python engine/run.py
       - name: Save snapshot to the private data repo
         run: |

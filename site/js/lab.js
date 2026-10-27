@@ -1,6 +1,6 @@
 // Bet-lab math: leg catalog, same-game correlation, parlay pricing, promo parsing + optimizer.
 import { S } from "./store.js";
-import { mktName, signPt } from "./util.js";
+import { mktName, signPt, marketInfo } from "./util.js";
 
 // ---------- venues (promo venue -> engine book key used for its prices)
 export const VENUES = [
@@ -46,9 +46,14 @@ export function catalog() {
       if (!l.fair) continue;
       for (const o of l.outcomes) {
         let label, dir = 0, ou = 0;
-        if (l.market === "h2h" || l.market === "h2h_3way") { label = l.market === "h2h" ? `${o} ML` : `${o} (regulation)`; dir = o === g.home ? 1 : o === g.away ? -1 : 0; }
-        else if (l.market === "spreads") { const pt = o === g.home ? l.point : -l.point; label = `${o} ${signPt(pt)}`; dir = o === g.home ? 1 : -1; }
-        else { label = `${o} ${l.point}`; ou = o === "Over" ? 1 : -1; }
+        const info = marketInfo(l.market);
+        const pre = info.period ? `${info.period} ` : "";
+        if (info.kind === "h2h") { label = l.market === "h2h" ? `${o} ML` : `${pre}${o}${l.market.includes("3") ? " (3-way)" : " ML"}`; dir = o === g.home ? 1 : o === g.away ? -1 : 0; }
+        else if (info.kind === "spreads") { const pt = o === g.home ? l.point : -l.point; label = `${pre}${o} ${signPt(pt)}`; dir = o === g.home ? 1 : -1; }
+        else if (info.kind === "team_totals") { label = `${pre}${l.team} ${o} ${l.point}`; ou = o === "Over" ? 1 : -1; dir = 0; }
+        else if (info.kind === "totals") { label = `${pre}${o} ${l.point}`; ou = o === "Over" ? 1 : -1; }
+        else { label = `${info.label}: ${o}${l.point != null ? " " + l.point : ""}`; }
+        if (info.period) { dir *= 0.6; ou *= 0.6; }   // periods move with the full game, not one-for-one
         legs.push(mkLeg(g, matchup, l, o, label, { kind: "line", market: l.market, dir, ou, main: !!l.isMain }));
       }
     }
@@ -108,16 +113,16 @@ export function corr(a, b) {
   if (a.gameId !== b.gameId) return 0;
   const lineA = a.kind === "line", lineB = b.kind === "line";
   if (lineA && lineB) {
-    const teamA = a.market !== "totals", teamB = b.market !== "totals";
-    if (teamA && teamB && (!a.dir || !b.dir)) return 0;
-    if (teamA && teamB) return .85 * a.dir * b.dir;
-    if (!teamA && !teamB) return .9 * a.ou * b.ou;
+    const ka = marketInfo(a.market).kind, kb = marketInfo(b.market).kind;
+    const teamA = ka === "h2h" || ka === "spreads", teamB = kb === "h2h" || kb === "spreads";
+    if (teamA && teamB) return a.dir && b.dir ? .85 * Math.sign(a.dir) * Math.sign(b.dir) * Math.min(1, Math.abs(a.dir * b.dir) * 1.2) : 0;
+    if (!teamA && !teamB && a.ou && b.ou) return (ka === kb ? .9 : .6) * Math.sign(a.ou) * Math.sign(b.ou) * Math.min(1, Math.abs(a.ou * b.ou) * 1.2);
     return 0;
   }
   if (lineA !== lineB) {
     const [l, p] = lineA ? [a, b] : [b, a];
     const sc = SCORING.test(p.market);
-    if (l.market === "totals") {
+    if (marketInfo(l.market).kind === "totals") {
       if (/pitcher_strikeouts/.test(p.market)) return -.15 * l.ou * p.ou;
       if (/total_saves/.test(p.market)) return .15 * l.ou * p.ou;
       return (sc ? .22 : .1) * l.ou * p.ou;
