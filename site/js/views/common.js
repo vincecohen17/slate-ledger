@@ -21,7 +21,7 @@ export function edgeCard(e) {
       ${betImage(e)}
       <div class="col"><a class="what" href="${href}" style="text-decoration:none">${esc(e.label)}</a>
         <span class="sub ellip">${esc(e.matchup)} · ${fmtTime(e.commence)}</span></div>
-      <div class="price"><div class="big">${e.pickem ? "pick'em" : am(e.am)}</div><div class="tiny muted">${e.pickem ? "" : prob(1 / decFromAm(e.am), 1)}</div><div class="tiny muted" style="margin-top:3px">${bookTag(e.book, e.bookName, 14)}</div></div>
+      <div class="price"><div class="big">${e.pickem ? "pick'em" : am(e.am)}</div><div class="tiny muted">${e.pickem ? `needs ${prob(e.be ?? 0.5774, 1)}` : prob(1 / decFromAm(e.am), 1)}</div><div class="tiny muted" style="margin-top:3px">${bookTag(e.book, e.bookName, 14)}</div></div>
     </div>
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}

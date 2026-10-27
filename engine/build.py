@@ -526,19 +526,6 @@ def build_props(ev, label):
             if main and main["point"] is not None:
                 mean = mean_from_line(mk, main["point"], main["fair"]["Over"], ev["sport_key"])
                 main["isMain"] = True
-            # pick'em apps post several lines per player (standard plus discounted / boosted ones such as PrizePicks
-            # goblins and demons, which pay differently and are often Over-only). Only the line closest to the sharp
-            # main line is the standard 57.7% break-even pick; the rest are shown but not judged.
-            std = {}
-            if main and main["point"] is not None:
-                for l in plines:
-                    for d in l["dfs"]:
-                        if l["point"] is None:
-                            continue
-                        gap = abs(l["point"] - main["point"])
-                        if d["book"] not in std or gap < std[d["book"]][0]:
-                            std[d["book"]] = (gap, id(l))
-            tol = lambda pt: 0.5 if abs(pt or 0) <= 3 else max(1.0, 0.1 * abs(pt))
             for l in plines:
                 # judge every pick'em line and every thin alt line from the main line's sharp fair
                 if mean is not None and l["point"] is not None:
@@ -549,17 +536,19 @@ def build_props(ev, label):
                         l["modelFair"] = True
                     for d in l["dfs"]:
                         d["fairOver"], d["fairUnder"] = _r(po), _r(1 - po)
-                        sb = std.get(d["book"])
-                        if not sb or sb[1] != id(l) or sb[0] > tol(main["point"]):
-                            d["alt"] = True         # goblin / demon style line: different payout, not judged
-                            continue
-                        side = "Over" if po >= 0.5 else "Under"
-                        pside = max(po, 1 - po)
-                        if pside > 0.8:
-                            d["alt"] = True         # a lopsided "standard" line is really a discounted/boosted one
-                            continue
-                        d["side"], d["p"] = side, _r(pside)
-                        d["edge"] = _r(pside - C.DFS_BREAKEVEN)
+                        # judge only the sides the app actually offers (goblins / demons are Over-only) against that
+                        # side's own payout: the feed's price is the per-leg payout, so break-even = 1 / price
+                        best = None
+                        for side, ps in (("Over", po), ("Under", 1 - po)):
+                            if side not in d["dec"] or not (0.15 <= ps <= 0.85):
+                                continue
+                            px = d["dec"][side]
+                            be = 1 / px if px and px > 1 else C.DFS_BREAKEVEN
+                            e = ps - be
+                            if best is None or e > best[2]:
+                                best = (side, ps, e, be)
+                        if best:
+                            d["side"], d["p"], d["edge"], d["be"] = best[0], _r(best[1]), _r(best[2]), _r(best[3])
                 rows.append(l)
             if mean is not None:
                 for l in plines:
@@ -643,14 +632,15 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
             for d in l.get("dfs", []):
                 if d.get("edge") is not None and d["edge"] >= 0.02:
                     mp = (l.get("model") or {}).get(d["side"])
-                    logic = None if mp is None else "agrees" if mp >= C.DFS_BREAKEVEN + 0.01 else "disagrees" if mp < C.DFS_BREAKEVEN - 0.02 else "neutral"
+                    be = d.get("be") or C.DFS_BREAKEVEN
+                    logic = None if mp is None else "agrees" if mp >= be + 0.01 else "disagrees" if mp < be - 0.02 else "neutral"
                     out.append({"modelP": mp, "logic": logic,
                         "gameId": p["id"], "league": p["league"], "commence": p["commence"],
                         "matchup": f"{p['away']} @ {p['home']}", "market": p["market"],
                         "label": f"{l['player']} {d['side']} {d['point']} {p['market'].replace('player_', '').replace('_', ' ')}",
                         "book": d["book"], "bookName": d["name"], "am": None, "pickem": True,
                         "player": l["player"], "headshot": l.get("headshot"), "last10": l.get("last10"), "point": d["point"],
-                        "fair": d["p"], "edge": d["edge"], "fairWeight": l.get("fairWeight"),
+                        "fair": d["p"], "edge": d["edge"], "fairWeight": l.get("fairWeight"), "be": d.get("be"),
                     })
     # rank: model-derived fairs (alt lines, pick'em lines) count half until backtests earn them more trust
     for x in out:

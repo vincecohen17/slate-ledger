@@ -95,7 +95,7 @@ function propCard(player, rows, market) {
     const f = r.fair || {};
     const po = f.Over ?? f.Yes, pu = f.Under ?? f.No;
     const bo = r.bestVenue?.Over || r.bestVenue?.Yes, bu = r.bestVenue?.Under || r.bestVenue?.No;
-    const pk = (r.dfs || []).filter((d) => d.side).map((d) => `<span class="pill ${d.edge >= 0.02 ? "pos" : ""}" title="${esc(d.name)} line ${d.point}: our ${d.side} chance ${prob(d.p)} vs 57.7% to break even">${bookLogo(d.book, d.name, 13)} ${esc(d.name)} ${d.side[0]} ${prob(d.p)}</span>`).join(" ");
+    const pk = (r.dfs || []).filter((d) => d.side).map((d) => `<span class="pill ${d.edge >= 0.02 ? "pos" : ""}" title="${esc(d.name)} line ${d.point}: our ${d.side} chance ${prob(d.p)} vs ${prob(d.be ?? 0.5774, 1)} to break even at this line's payout">${bookLogo(d.book, d.name, 13)} ${esc(d.name)} ${d.side[0]} ${prob(d.p)}</span>`).join(" ");
     return `<div class="pl">
       <div class="pl-h"><b class="num">${r.point ?? ""}</b><span class="tiny muted">${r.isMain ? "main line" : r.modelFair ? "alt · market model" : "alt"}</span></div>
       ${r.model?.Over != null ? `<div class="row tiny" style="gap:6px;margin-top:4px"><span class="pill ${r.model.Over - (po ?? 0.5) >= 0.04 ? "pos" : r.model.Over - (po ?? 0.5) <= -0.04 ? "neg" : ""}">our model ${r.model.mean} · O ${prob(r.model.Over)}</span></div>` : ""}
