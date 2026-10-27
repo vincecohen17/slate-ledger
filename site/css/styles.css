@@ -408,3 +408,26 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .bt-roi i { position: absolute; top: 0; bottom: 0; border-radius: 4px; } .bt-roi i.pos { background: var(--pos); } .bt-roi i.neg { background: var(--neg); }
 .pk-void > :not(.pk-vbar):not(.pcase.risk) { opacity: .55; }
 .pk-vbar { font-size: 12.5px; font-weight: 600; color: var(--neg); border: 1px solid var(--neg); border-radius: 8px; padding: 6px 9px; }
+
+/* promo board */
+.pr-hits { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow-y: auto; }
+.pr-hit { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: var(--panel-2, var(--panel)); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; min-width: 0; }
+.pr-hit:hover { border-color: var(--accent); }
+.pr-tgt { gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+.pr-prev { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--panel-3); }
+.pr-worth { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; border-top: 1px dashed var(--line); padding-top: 8px; }
+.pr-big { font: 700 26px var(--mono, ui-monospace, monospace); line-height: 1.1; }
+.pr-best { max-width: 60%; text-align: right; } @media (max-width: 520px) { .pr-best { max-width: 100%; text-align: left; } }
+.pr-dim > * { opacity: .6; }
+.pr-conv { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.pr-cv { display: grid; grid-template-columns: 110px 1fr 40px; gap: 8px; align-items: center; }
+.pr-cvb, .pr-evb { height: 7px; background: var(--panel-3); border-radius: 4px; overflow: hidden; }
+.pr-cvb i { display: block; height: 100%; background: var(--accent); }
+.pr-evb i { display: block; height: 100%; } .pr-evb i.pos { background: var(--pos); } .pr-evb i.neg { background: var(--neg); }
+.pr-leg { gap: 8px; padding: 2px 0; min-width: 0; }
+.pr-opt { display: flex; flex-direction: column; gap: 4px; }
+.pr-ck { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.pill.warn { color: var(--accent); border-color: var(--accent); }
+.pr-grid { align-items: start; }
+.pr-best { max-width: 100%; text-align: left; }
+.pr-tgt { flex-wrap: wrap; } .pr-tgt b { min-width: 0; flex: 1 1 160px; }

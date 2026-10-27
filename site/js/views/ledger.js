@@ -1,20 +1,12 @@
 import { S, saveBet, deleteBet } from "../store.js";
 import { esc, am, pct, money, fmtShortDay, bindTips, bookTag, $, $$ } from "../util.js";
 import { logSheet } from "./common.js";
+import { settleProfit } from "../promo.js";
 
 let filter = "pending";
 
 function profitFor(b, status) {
-  if (status === "push" || status === "void") return 0;
-  const p = b.promoId ? S.promos.get(b.promoId) : null;
-  if (status === "lost") return p?.type === "bonus_bet" ? 0 : -b.stake;
-  let win = b.stake * (b.dec - 1);
-  if (p && ["profit_boost", "parlay_boost"].includes(p.type)) {
-    let extra = win * (p.boost || 0);
-    if (p.maxWin) extra = Math.min(extra, p.maxWin);
-    win += extra;
-  }
-  return Math.round(win * 100) / 100;
+  return settleProfit(b, b.promoId ? S.promos.get(b.promoId) : null, status);
 }
 
 function plChart(settled) {
