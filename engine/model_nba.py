@@ -115,7 +115,7 @@ class NBA:
                 if pr_team == r["team"]:
                     cont_min[r["team"]] += r["min"]
         self.teams = {}
-        for abbr in set(C) | {a for a, t in P.items() if t["g"] >= 20}:
+        for abbr in {a for a, t in C.items() if t["g"] >= 2 or a in P} | {a for a, t in P.items() if t["g"] >= 20}:   # drops all-star sides
             c, p = C.get(abbr, {}), P.get(abbr, {})
             n = c.get("g", 0)
             cont = cont_min[abbr] / all_min[abbr] if all_min[abbr] else 1.0

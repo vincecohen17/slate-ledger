@@ -160,7 +160,7 @@ def auto():
     if st.get("day") != today:
         st.update(day=today, usedToday=0)
     active, force_at = presence()
-    force = bool(force_at) and force_at != st.get("lastForce") and _age_min(force_at) < 15
+    force = (bool(force_at) and force_at != st.get("lastForce") and _age_min(force_at) < 15) or MODE == "refresh"
     paid = plan_key != "free"
     room = max(0, P["day_cap"] - st.get("usedToday", 0))
     if not (active or force or paid) and C.PLAN == "auto" and _age_min(st.get("planCheck")) > 60:
@@ -337,7 +337,7 @@ def main():
         return run_stats(backfill="backfill" in open(os.path.join(os.path.dirname(__file__), "run-request")).read())
     if MODE == "rebuild":
         return rebuild()
-    if MODE in ("auto", "live"):
+    if MODE in ("auto", "live", "refresh"):     # refresh = a forced pull (Claude's pick runs ask for one first)
         return auto()
     key = os.environ.get("ODDS_API_KEY")
     if not key:
