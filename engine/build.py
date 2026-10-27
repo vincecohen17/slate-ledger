@@ -392,7 +392,9 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
             for o, pe in q["prices"].items():
                 e = pe.get("edge")
                 if e is not None and e >= min_edge:
-                    out.append({
+                    mp = (line.get("model") or {}).get(o)
+                    logic = None if mp is None else "agrees" if mp >= pe["cost"] + 0.01 else "disagrees" if mp < pe["cost"] - 0.02 else "neutral"
+                    out.append({"modelP": mp, "logic": logic,
                         "gameId": doc["id"], "league": doc["league"], "commence": doc["commence"],
                         "matchup": f"{doc['away']} @ {doc['home']}", "market": line.get("market") or doc.get("market"),
                         "label": label(o), "book": q["book"], "bookName": q["name"],
@@ -419,7 +421,9 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                 x["player"], x["headshot"] = l["player"], l.get("headshot")
             for d in l.get("dfs", []):
                 if d.get("edge") is not None and d["edge"] >= 0.02:
-                    out.append({
+                    mp = (l.get("model") or {}).get(d["side"])
+                    logic = None if mp is None else "agrees" if mp >= C.DFS_BREAKEVEN + 0.01 else "disagrees" if mp < C.DFS_BREAKEVEN - 0.02 else "neutral"
+                    out.append({"modelP": mp, "logic": logic,
                         "gameId": p["id"], "league": p["league"], "commence": p["commence"],
                         "matchup": f"{p['away']} @ {p['home']}", "market": p["market"],
                         "label": f"{l['player']} {d['side']} {d['point']} {p['market'].replace('player_', '').replace('_', ' ')}",
@@ -429,6 +433,8 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                     })
     # rank: model-derived fairs (alt lines, pick'em lines) count half until backtests earn them more trust
     for x in out:
-        x["score"] = round(x["edge"] * (0.5 if x.get("model") or x.get("pickem") else 1.0), 4)
+        w = 0.5 if x.get("model") or x.get("pickem") else 1.0
+        w *= {"agrees": 1.5, "disagrees": 0.4}.get(x.get("logic"), 1.0)
+        x["score"] = round(x["edge"] * w, 4)
     out.sort(key=lambda x: -x["score"])
     return out

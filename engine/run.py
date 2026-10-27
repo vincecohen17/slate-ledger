@@ -19,6 +19,7 @@ import config as C  # noqa: E402
 import build  # noqa: E402
 import refs  # noqa: E402
 import reports  # noqa: E402
+import matchup  # noqa: E402
 from api import OddsAPI, BudgetExceeded  # noqa: E402
 
 NOW = datetime.now(timezone.utc)
@@ -196,6 +197,18 @@ def load_picks(days=14):
     return out
 
 
+def load_previews(days=3):
+    """Claude's written previews: previews/<YYYY-MM-DD>.json, a list of {gameId, ...}."""
+    import glob
+    out = []
+    for fn in sorted(glob.glob(os.path.join(DATA_DIR, "previews", "*.json")))[-days:]:
+        try:
+            out += [p for p in json.load(open(fn)) if p.get("gameId")]
+        except Exception as e:
+            log(f"previews file unreadable: {os.path.basename(fn)} ({type(e).__name__})")
+    return out
+
+
 def publish(game_docs, prop_docs, status, stamp):
     """Decorate, score, report, and write everywhere."""
     by_sport = {}
@@ -213,16 +226,32 @@ def publish(game_docs, prop_docs, status, stamp):
             if p["sport"] == sport:
                 refs.decorate_props(p, R)
                 n_head += sum(1 for r in p["rows"] if r.get("headshot"))
+    if MODE != "rebuild" or os.environ.get("REFRESH_STATS"):
+        try:
+            import stats
+            for lg in ("nba", "nhl", "nfl"):
+                stats.collect(lg, DATA_DIR)
+                stats.injuries(lg, DATA_DIR)
+            stats.moneypuck(DATA_DIR)
+        except Exception as e:
+            log(f"stats refresh failed: {type(e).__name__}")
+    today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
+    mups = matchup.build_all(game_docs, prop_docs, DATA_DIR, today)
     edge_list = build.edges(game_docs, prop_docs)
     status["edges"] = len(edge_list)
+    status["matchups"] = len(mups)
+    status["calibration"] = getattr(matchup.build_all, "shifts", {})
     rep = reports.update(game_docs, prop_docs, DATA_DIR, stamp)
     picks = load_picks()
+    previews = load_previews()
     write_data_repo(game_docs, prop_docs, edge_list, status)
+    with open(os.path.join(DATA_DIR, "latest", "matchups.json"), "w") as f:
+        json.dump(mups, f, separators=(",", ":"))
     if os.environ.get("FIREBASE_SERVICE_ACCOUNT"):
-        n = write_firestore(game_docs, prop_docs, edge_list, status, rep, picks)
+        n = write_firestore(game_docs, prop_docs, edge_list, status, rep, picks, mups, previews)
         log(f"firestore: {n} docs written")
     log(f"published: {len(game_docs)} games ({n_logo} with logos), {len(prop_docs)} prop docs "
-        f"({n_head} rows with headshots), {len(edge_list)} edges, {len(picks)} picks")
+        f"({n_head} rows with headshots), {len(edge_list)} edges, {len(mups)} matchups, {len(picks)} picks")
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +280,7 @@ def write_data_repo(game_docs, prop_docs, edge_list, status):
                             "remaining": status.get("creditsRemaining")}) + "\n")
 
 
-def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=()):
+def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(), mups=None, previews=()):
     import firebase_admin
     from firebase_admin import credentials, firestore
 
@@ -282,6 +311,10 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=())
     put("board/edges", {}, {"items": edge_list[:400]})
     if rep:
         put("board/reports", {}, rep)
+    for gid, mu in (mups or {}).items():
+        put(f"matchups/{gid}", {"league": mu["league"], "commence": mu["commence"]}, mu)
+    for pv in previews:
+        put(f"previews/{pv['gameId']}", {"date": pv.get("date")}, pv)
     for pk in picks:
         put(f"picks/{pk['id']}", {"date": pk.get("date"), "gameId": pk.get("gameId"),
                                   "status": pk.get("status", "pending")}, pk)
@@ -296,7 +329,7 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=())
             batch = db.batch()
     # remove docs for games that ended more than 6 hours ago
     gone_before = iso(NOW - timedelta(hours=6))
-    for col in ("games", "props"):
+    for col in ("games", "props", "matchups"):
         for snap in db.collection(col).where("commence", "<", gone_before).stream():
             batch.delete(snap.reference)
             new.pop(f"{col}/{snap.id}", None)

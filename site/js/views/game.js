@@ -2,6 +2,7 @@ import { S, loadProps, propsFor } from "../store.js";
 import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wpBar, signPt, mktName, edgeCls, bindTips, $$ } from "../util.js";
 import { edgeCard, ladder, bindLog } from "./common.js";
 import { pickCard } from "./picks.js";
+import { renderMatchup } from "./matchup.js";
 
 const open = new Set();
 let propMarket = null;
@@ -75,7 +76,8 @@ function propCard(player, rows, market) {
     const bo = r.bestVenue?.Over || r.bestVenue?.Yes, bu = r.bestVenue?.Under || r.bestVenue?.No;
     const pk = (r.dfs || []).filter((d) => d.side).map((d) => `<span class="pill ${d.edge >= 0.02 ? "pos" : ""}" title="${esc(d.name)} line ${d.point}: our ${d.side} chance ${prob(d.p)} vs 57.7% to break even">${esc(d.name)} ${d.side[0]} ${prob(d.p)}</span>`).join(" ");
     return `<div class="pl">
-      <div class="pl-h"><b class="num">${r.point ?? ""}</b><span class="tiny muted">${r.isMain ? "main line" : r.modelFair ? "alt · model" : "alt"}${r.mean != null ? ` · proj ${r.mean}` : ""}</span></div>
+      <div class="pl-h"><b class="num">${r.point ?? ""}</b><span class="tiny muted">${r.isMain ? "main line" : r.modelFair ? "alt · market model" : "alt"}</span></div>
+      ${r.model?.Over != null ? `<div class="row tiny" style="gap:6px;margin-top:4px"><span class="pill ${r.model.Over - (po ?? 0.5) >= 0.04 ? "pos" : r.model.Over - (po ?? 0.5) <= -0.04 ? "neg" : ""}">our model ${r.model.mean} · O ${prob(r.model.Over)}</span></div>` : ""}
       ${po != null && pu != null ? `<div class="ou"><i style="width:${po * 100}%"></i><i style="width:${pu * 100}%"></i></div>
       <div class="pl-b tiny muted"><span>Over ${prob(po)}</span><span>Under ${prob(pu)}</span></div>` : po != null ? `<div class="tiny muted">Yes ${prob(po)}</div>` : ""}
       <div class="pl-b" style="margin-top:4px">
@@ -102,20 +104,21 @@ function props(g) {
     <div class="grid tight">${players.map(([p, rows]) => propCard(p, rows, propMarket)).join("")}</div>`;
 }
 
-export function renderGame(el, id, tab = "overview") {
+export function renderGame(el, id, tab = "matchup") {
   const g = S.games.get(id);
   if (!g) { el.innerHTML = `<div class="empty"><h3>Game not on the board</h3><a href="#/">Back to the board</a></div>`; return; }
   loadProps(id);
   const picks = [...S.picks.values()].filter((p) => p.gameId === id);
-  const tabs = [["overview", "Overview"], ["lines", "Lines"], ["props", "Props"], ...(picks.length ? [["pick", `Pick${picks.length > 1 ? "s" : ""}`]] : [])];
+  const tabs = [["matchup", "Matchup"], ["overview", "Best bets"], ["lines", "Lines"], ["props", "Props"], ...(picks.length ? [["pick", `Pick${picks.length > 1 ? "s" : ""}`]] : [])];
   let h = `<a class="back" href="#/">← Board</a>${hero(g)}
     <div class="bar">${tabs.map(([k, t]) => `<a class="chip ${k === tab ? "on" : ""}" href="#/game/${id}/${k}">${t}</a>`).join("")}
     <span class="spacer"></span><span class="tiny muted">Bars: edge vs sharp fair · <span class="pos">teal</span> = value, <span class="neg">orange</span> = overpriced</span></div>`;
   if (tab === "lines") h += lines(g);
   else if (tab === "props") h += props(g);
   else if (tab === "pick") h += `<div class="grid">${picks.map(pickCard).join("")}</div>`;
-  else h += overview(g);
+  else if (tab === "overview") h += overview(g);
   el.innerHTML = h;
+  if (tab === "matchup") renderMatchup(el, g);
   $$("[data-all]", el).forEach((b) => b.onclick = () => { open.has(b.dataset.all) ? open.delete(b.dataset.all) : open.add(b.dataset.all); renderGame(el, id, tab); });
   $$("[data-pm]", el).forEach((b) => b.onclick = () => { propMarket = b.dataset.pm; renderGame(el, id, tab); });
   bindLog(el); bindTips(el);

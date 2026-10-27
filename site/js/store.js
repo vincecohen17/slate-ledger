@@ -3,7 +3,7 @@ import { db, doc, collection, onSnapshot, query, where, setDoc, deleteDoc } from
 
 export const S = {
   games: new Map(), status: null, edges: [], reports: null,
-  picks: new Map(), bets: new Map(), promos: new Map(),
+  picks: new Map(), bets: new Map(), promos: new Map(), matchups: new Map(), previews: new Map(),
   props: new Map(),            // docId -> prop doc
   propsLoadedFor: new Set(),   // gameIds subscribed
   allProps: false,
@@ -32,11 +32,13 @@ export function start() {
   subs.push(onSnapshot(doc(db, "board", "reports"), (d) => { S.reports = d.exists() ? parse(d) : null; changed(); }, onErr));
   watchCol("games", S.games);
   watchCol("picks", S.picks);
+  watchCol("matchups", S.matchups);
+  watchCol("previews", S.previews);
   watchCol("bets", S.bets, (d) => d.data());
   watchCol("promos", S.promos, (d) => d.data());
 }
 
-export function stop() { subs.splice(0).forEach((u) => u()); S.games.clear(); S.props.clear(); S.propsLoadedFor.clear(); S.allProps = false; }
+export function stop() { subs.splice(0).forEach((u) => u()); S.games.clear(); S.props.clear(); S.matchups.clear(); S.propsLoadedFor.clear(); S.allProps = false; }
 
 export function loadProps(gameId) {
   if (S.allProps || S.propsLoadedFor.has(gameId)) return;

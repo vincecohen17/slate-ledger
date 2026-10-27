@@ -226,3 +226,10 @@ def read_moneypuck(data_dir, kind, y, situation="all"):
         return []
     rows = list(csv.DictReader(io.StringIO(open(fn).read())))
     return [r for r in rows if r.get("situation") == situation]
+
+
+def load_json(data_dir, rel):
+    try:
+        return json.load(open(os.path.join(data_dir, rel)))
+    except Exception:
+        return None

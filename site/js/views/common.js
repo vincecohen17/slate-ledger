@@ -25,7 +25,8 @@ export function edgeCard(e) {
     </div>
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
-        <span class="tiny muted">fair ${e.fairAm != null ? am(e.fairAm) : prob(e.fair, 1)} · <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill">model</span>` : ""}</span></div>
+        <span class="tiny muted">fair ${e.fairAm != null ? am(e.fairAm) : prob(e.fair, 1)} · <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill">alt line</span>` : ""}</span>
+        ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model: ${prob(e.modelP, 1)}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · ${prob(e.modelP)}</span>` : ""}</div>
       <button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair }))}'>Log</button>
     </div>
   </div>`;
