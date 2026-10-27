@@ -261,6 +261,7 @@ def live():
     json.dump([{"id": d["id"], "league": d["league"], "game": f"{d['away']} @ {d['home']}", "state": d["state"], "model": d["model"],
                 "edges": len(d["edges"]), "props": len(d["props"])} for d in docs],
               open(os.path.join(DATA_DIR, "latest", "live.json"), "w"), indent=0)
+    json.dump(sorted("|".join(k) for k in states), open(os.path.join(DATA_DIR, "latest", "live_keys.json"), "w"), indent=0)
     db = firestore_db()
     if db:
         batch, size = db.batch(), 0

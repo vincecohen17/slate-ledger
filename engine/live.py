@@ -168,7 +168,7 @@ def _tennis_live(path):
                     pl.append({"name": (x.get("athlete") or {}).get("displayName"), "sets": sets, "serving": bool(x.get("possession"))})
                 if not all(p["name"] for p in pl):
                     continue
-                best_of = 5 if (c.get("format") or {}).get("regulation", {}).get("periods") == 5 else 3
+                best_of = 5 if any(len(p_["sets"]) >= 4 for p_ in pl) or ("grand slam" in str(ev.get("name", "")).lower() and "atp" in path) else 3
                 state = {"espnId": c.get("id"), "detail": (stt.get("type") or {}).get("shortDetail") or "", "players": pl, "bestOf": best_of,
                          "set": stt.get("period") or len(pl[0]["sets"])}
                 a, b = R.norm(pl[0]["name"]), R.norm(pl[1]["name"])
