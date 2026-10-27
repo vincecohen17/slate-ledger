@@ -35,6 +35,15 @@ def test_game():
     e = build.edges([g], [])
     assert e and e[0]["book"] == "draftkings"
 
+def test_three_way_kept_apart():
+    ev = {"id": "g2", "sport_key": "icehockey_nhl", "commence_time": T, "home_team": "H", "away_team": "A",
+          "bookmakers": [bm("pinnacle", {"h2h": [{"name": "H", "price": 1.85}, {"name": "A", "price": 2.05}]}),
+                         bm("unibet_se", {"h2h": [{"name": "H", "price": 2.38}, {"name": "A", "price": 2.7}, {"name": "Draw", "price": 4.2}]})]}
+    g = build.build_game(ev, "NHL")
+    ml = [l for l in g["lines"] if l["market"] == "h2h"][0]
+    assert ml["outcomes"] == ["A", "H"] and abs(sum(ml["fair"].values()) - 1) < 1e-3 and ml["fair"]["H"] > 0.5
+    assert any(l["market"] == "h2h_3way" for l in g["lines"])
+
 def test_props():
     def ou(p, line, over, under, who="P1"):
         return [{"name": "Over", "description": who, "price": over, "point": line},

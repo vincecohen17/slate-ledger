@@ -17,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 import config as C  # noqa: E402
 import build  # noqa: E402
+import refs  # noqa: E402
+import reports  # noqa: E402
 from api import OddsAPI, BudgetExceeded  # noqa: E402
 
 NOW = datetime.now(timezone.utc)
@@ -86,13 +88,9 @@ def rebuild():
         prev = json.load(open(os.path.join(DATA_DIR, "latest", "board.json")))["status"]
     except Exception:
         pass
-    edge_list = build.edges(game_docs, prop_docs)
-    status = dict(prev, mode="rebuild", rebuiltAt=iso(NOW), edges=len(edge_list), errors=[])
+    status = dict(prev, mode="rebuild", rebuiltAt=iso(NOW), errors=[], creditsThisRun=0)
     status.setdefault("updated", iso(NOW))
-    write_data_repo(game_docs, prop_docs, edge_list, dict(status, creditsThisRun=0))
-    if os.environ.get("FIREBASE_SERVICE_ACCOUNT"):
-        log(f"firestore: {write_firestore(game_docs, prop_docs, edge_list, status)} docs written")
-    log(f"rebuild: {len(game_docs)} games, {len(prop_docs)} prop docs, {len(edge_list)} edges")
+    publish(game_docs, prop_docs, status, stamp=f"{os.path.basename(days[-1])}T{stamp}")
 
 
 def main():
@@ -159,20 +157,58 @@ def main():
         n_props += 1
     log(f"props: {n_props} games, {len(prop_docs)} market docs, run credits {api.used_run}")
 
-    edge_list = build.edges(game_docs, prop_docs)
     status = {
         "updated": iso(NOW), "mode": MODE,
         "creditsRemaining": api.remaining, "creditsUsedTotal": api.used_total,
         "creditsThisRun": api.used_run,
         "games": {C.SPORTS[s]: sum(1 for g in game_docs if g["sport"] == s) for s in sports},
-        "propGames": n_props, "edges": len(edge_list), "errors": errors,
+        "propGames": n_props, "errors": errors,
     }
+    publish(game_docs, prop_docs, status, stamp=NOW.strftime("%Y-%m-%dT%H%M%S"))
+    log(f"credits left {api.remaining}, errors {len(errors)}")
 
+
+def load_picks(days=14):
+    """Claude's picks live in the data repo as picks/<YYYY-MM-DD>.json (a list)."""
+    import glob
+    out = []
+    for fn in sorted(glob.glob(os.path.join(DATA_DIR, "picks", "*.json")))[-days:]:
+        try:
+            for p in json.load(open(fn)):
+                if p.get("id"):
+                    out.append(p)
+        except Exception as e:
+            log(f"picks file unreadable: {os.path.basename(fn)} ({type(e).__name__})")
+    return out
+
+
+def publish(game_docs, prop_docs, status, stamp):
+    """Decorate, score, report, and write everywhere."""
+    by_sport = {}
+    for g in game_docs:
+        by_sport.setdefault(g["sport"], []).append(g)
+    for p in prop_docs:
+        by_sport.setdefault(p["sport"], [])
+    n_logo = n_head = 0
+    for sport in by_sport:
+        R = refs.load(sport, DATA_DIR)
+        for g in by_sport[sport]:
+            refs.decorate_game(g, R)
+            n_logo += bool(g.get("homeRef"))
+        for p in prop_docs:
+            if p["sport"] == sport:
+                refs.decorate_props(p, R)
+                n_head += sum(1 for r in p["rows"] if r.get("headshot"))
+    edge_list = build.edges(game_docs, prop_docs)
+    status["edges"] = len(edge_list)
+    rep = reports.update(game_docs, prop_docs, DATA_DIR, stamp)
+    picks = load_picks()
     write_data_repo(game_docs, prop_docs, edge_list, status)
     if os.environ.get("FIREBASE_SERVICE_ACCOUNT"):
-        n = write_firestore(game_docs, prop_docs, edge_list, status)
+        n = write_firestore(game_docs, prop_docs, edge_list, status, rep, picks)
         log(f"firestore: {n} docs written")
-    log(f"done: {len(game_docs)} games, {len(edge_list)} edges, credits left {api.remaining}, errors {len(errors)}")
+    log(f"published: {len(game_docs)} games ({n_logo} with logos), {len(prop_docs)} prop docs "
+        f"({n_head} rows with headshots), {len(edge_list)} edges, {len(picks)} picks")
 
 
 # ---------------------------------------------------------------------------
@@ -197,11 +233,11 @@ def write_data_repo(game_docs, prop_docs, edge_list, status):
     with open(os.path.join(d, "edges.json"), "w") as f:
         json.dump(edge_list, f, separators=(",", ":"))
     with open(os.path.join(DATA_DIR, "credits.jsonl"), "a") as f:
-        f.write(json.dumps({"t": status["updated"], "mode": MODE, "run": status["creditsThisRun"],
-                            "remaining": status["creditsRemaining"]}) + "\n")
+        f.write(json.dumps({"t": status["updated"], "mode": MODE, "run": status.get("creditsThisRun", 0),
+                            "remaining": status.get("creditsRemaining")}) + "\n")
 
 
-def write_firestore(game_docs, prop_docs, edge_list, status):
+def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=()):
     import firebase_admin
     from firebase_admin import credentials, firestore
 
@@ -230,6 +266,11 @@ def write_firestore(game_docs, prop_docs, edge_list, status):
         put(f"props/{p['id']}__{p['market']}", {"gameId": p["id"], "market": p["market"],
                                                 "league": p["league"], "commence": p["commence"]}, p)
     put("board/edges", {}, {"items": edge_list[:400]})
+    if rep:
+        put("board/reports", {}, rep)
+    for pk in picks:
+        put(f"picks/{pk['id']}", {"date": pk.get("date"), "gameId": pk.get("gameId"),
+                                  "status": pk.get("status", "pending")}, pk)
     writes.append(("board/status", status))
 
     batch, n = db.batch(), 0

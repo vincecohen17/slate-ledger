@@ -172,14 +172,20 @@ def build_game(ev, label):
     lines = []
 
     # moneyline (2- or 3-way)
+    # Some books quote a 3-way (regulation, with a draw) moneyline under the same key.
+    # Keep 2-way and 3-way quotes apart: mixing them corrupts the fair.
     ml = _collect(bms, "h2h", lambda o: ("h2h", o["name"], None))
     if "h2h" in ml:
-        names = set()
-        for q in ml["h2h"]["quotes"].values():
-            names.update(q["dec"].keys())
-        outcomes = [away, home] + sorted(n for n in names if n not in (home, away))
-        lines.append(_finish_line({"market": "h2h", "id": "h2h", "point": None},
-                                  list(ml["h2h"]["quotes"].values()), outcomes))
+        quotes = list(ml["h2h"]["quotes"].values())
+        two = [q for q in quotes if set(q["dec"]) <= {home, away}]
+        three = [q for q in quotes if "Draw" in q["dec"]]
+        soccer = ev["sport_key"].startswith("soccer")
+        if soccer and three:
+            lines.append(_finish_line({"market": "h2h", "id": "h2h", "point": None}, three, [away, home, "Draw"]))
+        elif two:
+            lines.append(_finish_line({"market": "h2h", "id": "h2h", "point": None}, two, [away, home]))
+            if three:
+                lines.append(_finish_line({"market": "h2h_3way", "id": "h2h_3way", "point": None}, three, [away, home, "Draw"]))
 
     # spreads keyed by the home team's point
     def sp_key(o):
@@ -378,7 +384,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
     def scan(doc, line, label):
         if not line.get("fair") or line.get("fairWeight", 0) < min_weight:
             return
-        if line.get("modelFair") and min(line["fair"].values()) < 0.12:
+        if line.get("modelFair") and min(line["fair"].values()) < 0.15:
             return  # far-tail alt lines: the stat model is not trusted that far out
         for q in line["quotes"]:
             if not q["venue"] or q["stale"]:
@@ -399,13 +405,18 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
         for l in g["lines"]:
             if l["market"] == "h2h":
                 scan(g, l, lambda o: f"{o} ML")
+            elif l["market"] == "h2h_3way":
+                scan(g, l, lambda o: f"{o} (regulation)")
             elif l["market"] == "spreads":
                 scan(g, l, lambda o, l=l, g=g: f"{o} {(l['point'] if o == g['home'] else -l['point']):+g}")
             else:
                 scan(g, l, lambda o, l=l: f"{o} {l['point']:g}")
     for p in prop_docs:
         for l in p["rows"]:
+            n0 = len(out)
             scan(p, l, lambda o, l=l, p=p: f"{l['player']} {o} {l['point']} {p['market'].replace('player_', '').replace('_', ' ')}")
+            for x in out[n0:]:
+                x["player"], x["headshot"] = l["player"], l.get("headshot")
             for d in l.get("dfs", []):
                 if d.get("edge") is not None and d["edge"] >= 0.02:
                     out.append({
@@ -413,7 +424,11 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "matchup": f"{p['away']} @ {p['home']}", "market": p["market"],
                         "label": f"{l['player']} {d['side']} {d['point']} {p['market'].replace('player_', '').replace('_', ' ')}",
                         "book": d["book"], "bookName": d["name"], "am": None, "pickem": True,
+                        "player": l["player"], "headshot": l.get("headshot"),
                         "fair": d["p"], "edge": d["edge"], "fairWeight": l.get("fairWeight"),
                     })
-    out.sort(key=lambda x: -x["edge"])
+    # rank: model-derived fairs (alt lines, pick'em lines) count half until backtests earn them more trust
+    for x in out:
+        x["score"] = round(x["edge"] * (0.5 if x.get("model") or x.get("pickem") else 1.0), 4)
+    out.sort(key=lambda x: -x["score"])
     return out
