@@ -57,7 +57,13 @@ def _team_line(t, opp):
             "fta": fta or 0, "tov": tov, "orb": orb, "orb_opp": odrb}
 
 
+def _nm(s):
+    import refs as R
+    return R.norm(s or "")
+
+
 class NBA:
+    min_override = {}           # {normalized name: minutes} from verified news
     GAME_MIN, OT_MIN, HCA, SD_MARGIN, SD_TOTAL = 48, 5, HCA, SD_MARGIN, SD_TOTAL
     K_TEAM, MAX_MIN, ROT_MIN, LG_GAMES = K_TEAM, 42.0, 10, 150
 
@@ -298,6 +304,9 @@ class NBA:
                 p["projMin"] = p["baseMin"]
             if p["status"] == "Questionable":
                 p["projMin"] = round(p["projMin"] * 0.8, 1)
+            cap = self.min_override.get(_nm(p["name"]))
+            if cap is not None and not p["out"]:
+                p["projMin"] = round(float(cap), 1)       # verified minutes (restriction or bigger role)
         players.sort(key=lambda p: -p["projMin"])
         return players, freed
 

@@ -9,6 +9,7 @@ one goal when regulation ends tied.
 Players: per-60 rates from box scores x projected TOI x opponent and game-environment factors.
 """
 import math
+from datetime import datetime, timedelta
 from collections import defaultdict
 
 import stats as ST
@@ -159,6 +160,8 @@ class NHL:
                     self.glogs[p["name"]].append({"date": gm["date"][:10], "opp": opp, "sa": sa, "sv": sv,
                                                   "ga": p.get("goalsAgainst") or 0, "svp": round(sv / sa, 3) if sa else None})
 
+    goalie_override = {}        # {team abbr: confirmed goalie name} from verified news
+
     def likely_goalie(self, abbr):
         starts = []
         for g in reversed(self.cur):
@@ -173,6 +176,8 @@ class NHL:
                                "ga": p.get("goalsAgainst") or 0, "svp": round(sv / sa, 3) if sa else None})
             if len(starts) >= 5:
                 break
+        if self.goalie_override.get(abbr):
+            return self.goalie_override[abbr], starts
         if not starts:
             return None, []
         counts = defaultdict(float)
@@ -261,16 +266,35 @@ class NHL:
         return out
 
     # ---------------- one game
-    def project_game(self, home, away):
+    def rest_days(self, abbr, commence):
+        if not commence:
+            return None
+        last = None
+        for g in reversed(self.cur):
+            if abbr in (g["home"]["abbr"], g["away"]["abbr"]):
+                last = g["date"]
+                break
+        if not last:
+            return None
+        to_pt = lambda iso: (datetime.fromisoformat(iso.replace("Z", "+00:00")) - timedelta(hours=7)).date()
+        return (to_pt(commence) - to_pt(last if "T" in last else last + "T12:00Z")).days
+
+    def project_game(self, home, away, commence=None):
         th, ta = self.teams.get(home), self.teams.get(away)
         if not th or not ta:
             return None
+        rest = {"home": self.rest_days(home, commence), "away": self.rest_days(away, commence)}
         gh, gh_starts = self.likely_goalie(home)
         ga, ga_starts = self.likely_goalie(away)
         gsh = (self.goalie.get(gh) or {}).get("gsax60", 0.0)
         gsa = (self.goalie.get(ga) or {}).get("gsax60", 0.0)
         mu_h = max(1.2, self.lg_gpg * th["off"] * ta["def"] * HOME - 0.8 * gsa)
         mu_a = max(1.2, self.lg_gpg * ta["off"] * th["def"] / HOME - 0.8 * gsh)
+        # second night of a back-to-back: tired legs score less and allow more
+        if rest["home"] == 1:
+            mu_h, mu_a = mu_h * 0.96, mu_a * 1.03
+        if rest["away"] == 1:
+            mu_a, mu_h = mu_a * 0.96, mu_h * 1.03
         ph, pa = _poisson(mu_h), _poisson(mu_a)
         win = sum(ph[i] * pa[j] for i in range(12) for j in range(12) if i > j)
         tie = sum(ph[i] * pa[i] for i in range(12))
@@ -301,7 +325,7 @@ class NHL:
                            "svp": [x["svp"] for x in logs], "date": [x["date"] for x in logs], "opp": [x["opp"] for x in logs]},
                 "proj": {"saves": round(max(0.0, sog_against - mu_op), 1), "sogA": round(sog_against, 1)}}}
         return {"home": {"goals": round(mu_h, 2)}, "away": {"goals": round(mu_a, 2)},
-                "pHomeWin": win + tie * 0.52, "pTie": tie, "total": round(mu_h + mu_a + tie, 2),
+                "pHomeWin": win + tie * 0.52, "rest": rest, "pTie": tie, "total": round(mu_h + mu_a + tie, 2),
                 "margin": round(mu_h - mu_a, 2), "sides": sides}
 
     def p_home_cover(self, home_point):

@@ -63,6 +63,8 @@ def _norm(name):
 
 
 class MLB:
+    sp_override = {}            # {normalized team name or abbreviation: confirmed starter} from verified news
+
     def __init__(self, data_dir):
         self.dd = data_dir
         today = (datetime.now(timezone.utc) - timedelta(hours=7)).date()
@@ -372,6 +374,13 @@ class MLB:
         sps = {}
         for side in ("home", "away"):
             pp = g["teams"][side].get("probablePitcher")
+            tm = g["teams"][side]["team"]
+            ov = self.sp_override.get(_norm(tm.get("name"))) or self.sp_override.get(_norm(tm.get("abbreviation")))
+            if ov and (not pp or _norm(pp.get("fullName")) != _norm(ov)):
+                pid = next((k for k, v in self.people.items() if _norm(v.get("name")) == _norm(ov)), None) or \
+                      next((k for k, v in self.pit[self.year].items() if _norm(v.get("name")) == _norm(ov)), None)
+                if pid:
+                    pp = {"id": int(pid), "fullName": ov, "verified": True}
             if pp:
                 info = self.people.get(str(pp["id"])) or {}
                 sps[side] = {"id": pp["id"], "name": pp.get("fullName") or info.get("name"), "hand": info.get("throws"),

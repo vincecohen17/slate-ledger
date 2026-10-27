@@ -17,6 +17,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   capture on the paid plan; config.PLAN = auto reads the plan from the Odds API quota), refresh (a forced auto pull,
   used by Claude's pick runs), mock, rebuild (raw cache in latest/raw), stats, probe. Event pulls request the full
   market catalog (config.event_markets) and remember markets the API rejects (refresh_state badMarkets).
+- `engine/context.py` verified news Claude's pick runs write to the data repo `context/<YYYY-MM-DD>.json`
+  (status / minutes / goalie / starter / note entries; schema in the module docstring) plus NFL kickoff weather
+  (Open-Meteo); applied to the models before "logic agrees" is decided. NHL back-to-backs and NBA rest are in the models.
+- `engine/tracker.py` model report card: snapshots model vs sharp fair before each game (`track/open/`), grades after
+  (`track/graded/<sport>.jsonl`), fits per-market calibration a, b and model trust weight w (`calib/params.json`), and
+  applies the calibration to every model probability on each run. Reports page shows the card.
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,

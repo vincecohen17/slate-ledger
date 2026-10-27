@@ -18,6 +18,23 @@ function seqBars(rows, val, fmt) {
     <span class="num small" style="text-align:right">${fmt(val(r))}</span></div>`).join("");
 }
 
+// how our model is doing vs the closing sharp market, per market, and how much it is trusted after tuning
+function modelCard(R) {
+  const rows = R?.models || [], pend = R?.modelsPending || [];
+  const name = (g) => { const [sp, kind, mk] = g.split("|"); return `${(sp.split("_").pop() || "").toUpperCase()} ${kind === "prop" ? mk.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " ") : mk === "*" ? "all" : mk.replace(/_/g, " ")}${mk === "*" ? (kind === "prop" ? " props" : " lines") : ""}`; };
+  const head = `<p class="note">Every game, our model's chance and the closing sharp fair are saved, then graded after the final. Lower log loss is better.
+    <b>b</b> under 1 means the model was too confident and gets pulled toward 50%. <b>Trust</b> is the weight the model earns next to the market when the two are blended. Both refit on every run.</p>`;
+  if (!rows.length) {
+    const n = pend.reduce((a, r) => a + r.n, 0);
+    return `<div class="card">${head}<div class="note">Collecting: ${n} graded so far. A market starts tuning at 150 graded results (400 for a league-wide fallback).</div>
+      ${pend.length ? `<div class="tiny muted">${pend.slice(0, 12).map((r) => `${esc(name(r.group))} ${r.n}`).join(" · ")}</div>` : ""}</div>`;
+  }
+  return `<div class="card">${head}<div style="overflow-x:auto"><table class="l10t" style="width:100%"><thead><tr><th style="text-align:left">Market</th><th>n</th><th>Model</th><th>Tuned</th><th>Market</th><th>Blend</th><th>b</th><th>Trust</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td style="text-align:left">${esc(name(r.group))}</td><td class="num">${r.n}</td><td class="num">${r.llModel.toFixed(3)}</td>
+      <td class="num">${r.llCal.toFixed(3)}</td><td class="num">${r.llMarket.toFixed(3)}</td><td class="num ${r.llBlend < r.llMarket ? "pos" : ""}">${r.llBlend.toFixed(3)}</td>
+      <td class="num">${r.b.toFixed(2)}</td><td class="num">${Math.round(r.w * 100)}%</td></tr>`).join("")}</tbody></table></div></div>`;
+}
+
 export function renderReports(el) {
   const R = S.reports, st = S.status;
   const rows = R ? (span === "now" ? R.now : R.total) || [] : [];
@@ -42,6 +59,8 @@ export function renderReports(el) {
     <div class="sec-title">Best price share<span class="line"></span></div>
     <div class="card">${rows.length ? seqBars([...rows].sort((a, b) => b.bestRate - a.bestRate).slice(0, 15), (r) => r.bestRate, (v) => Math.round(v * 100) + "%") : ""}
       <p class="note">How often each book has the best price on the board for a side. A book you can bet with a high share is where to look first.</p></div>
+    <div class="sec-title">Model report card<span class="line"></span></div>
+    ${modelCard(R)}
     <div class="sec-title">Backtests<span class="line"></span></div>
     <div class="grid">
       ${[["Sharp-gap bets", "Bet any venue price 2, 3 or 5 points off Pinnacle's no-vig fair. Did it beat the close, and did it win?"],

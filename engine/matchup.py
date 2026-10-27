@@ -15,6 +15,7 @@ import model_nfl
 import model_cfb
 import model_extra as MX
 import model_mlb as MLBM
+import context as CX
 
 ALIAS = {"UTAH": "UTA", "GSW": "GS", "NOP": "NO", "SAS": "SA", "NYK": "NY", "WAS": "WSH", "UTH": "UTA"}
 SEASON = {"nba": ("2026-27", "2025-26"), "wnba": ("2026", "2025"), "nhl": ("2026-27", "2025-26"), "nfl": ("2026", "2025"), "cfb": ("2026", "2025"),
@@ -50,17 +51,22 @@ def build_all(game_docs, prop_docs, data_dir, today):
     out = {}
     models = {}
     inj = {}
+    ctx = CX.load(data_dir, today)
+    build_all.weather = CX.nfl_weather(data_dir, game_docs) if any(g["sport"] == "americanfootball_nfl" for g in game_docs) else {}
     for lg, sport in (("nba", "basketball_nba"), ("wnba", "basketball_wnba"), ("nhl", "icehockey_nhl"), ("nfl", "americanfootball_nfl"), ("cfb", "americanfootball_ncaaf")):
         if not any(g["sport"] == sport for g in game_docs):
             continue
         try:
             cur, pri = SEASON[lg]
-            inj[lg] = (ST.load_json(data_dir, f"stats/{lg}/injuries.json") or {}).get("teams", {})
+            inj[lg] = CX.apply_injuries((ST.load_json(data_dir, f"stats/{lg}/injuries.json") or {}).get("teams", {}), ctx, lg)
             cg, pg = ST.load_games(lg, cur, data_dir), ST.load_games(lg, pri, data_dir)
             if lg in ("nba", "wnba"):
                 models[sport] = (model_nba.WNBA if lg == "wnba" else model_nba.NBA)(cg, pg, inj[lg], today)
+                models[sport].min_override = {CX.norm(e["player"]): e["value"] for e in ctx
+                                              if e["kind"] == "minutes" and (e.get("league") or "").lower() == lg and e.get("player")}
             elif lg == "nhl":
                 models[sport] = model_nhl.NHL(data_dir, cg, pg, inj[lg])
+                models[sport].goalie_override = {e.get("team"): e["player"] for e in ctx if e["kind"] == "goalie" and e.get("player")}
             elif lg == "nfl":
                 models[sport] = model_nfl.NFL(data_dir, int(cur), cg, inj[lg])
             else:
@@ -77,6 +83,7 @@ def build_all(game_docs, prop_docs, data_dir, today):
     if any(g["sport"] == "baseball_mlb" for g in game_docs):
         try:
             models["baseball_mlb"] = MLBM.MLB(data_dir)
+            models["baseball_mlb"].sp_override = {CX.norm(e.get("team")): e["player"] for e in ctx if e["kind"] == "starter" and e.get("player")}
             inj["mlb"] = (ST.load_json(data_dir, "stats/mlb/injuries.json") or {}).get("teams", {})
         except Exception as e:
             print(f"model mlb failed: {type(e).__name__}: {str(e)[:120]}")
@@ -103,6 +110,7 @@ def build_all(game_docs, prop_docs, data_dir, today):
                 continue
             doc = fn(g, m, props_by_game.get(g["id"], []), inj, refs)
             if doc:
+                _context_notes(doc, g, ctx)
                 out[g["id"]] = doc
         except Exception as e:
             print(f"matchup {g['league']} failed: {type(e).__name__}: {str(e)[:120]}")
@@ -239,6 +247,17 @@ def hockey_probs(g, m, pj):
             y = (1 - ph[0]) * (1 - pa[0])
             return {"Yes": y, "No": 1 - y}
     return probs
+
+def _context_notes(doc, g, ctx):
+    """verified news as key factors, and a short context list the edge cards carry"""
+    ha, aa = (g.get("homeRef") or {}).get("abbr"), (g.get("awayRef") or {}).get("abbr")
+    notes = CX.notes(ctx, doc["league"], [ha, aa], [g["home"], g["away"]])
+    for n in notes:
+        side = "home" if CX.norm(n["team"]) in (CX.norm(ha), CX.norm(g["home"])) else "away"
+        doc["factors"].insert(0, {"side": side, "tone": n["tone"], "text": n["text"]})
+    auto = [f["text"] for f in doc["factors"] if any(k in f["text"] for k in ("back-to-back", "Weather", "without", "out:", "rested", "likely in goal", "Wind"))]
+    doc["context"] = [n["text"] for n in notes] + auto[:4]
+
 
 def _stamp_lines(g, prob_fn):
     """prob_fn(line) -> {outcome: model prob}"""
@@ -518,7 +537,7 @@ def _nba(g, m, pdocs, inj, refs):
 
 def _nhl(g, m, pdocs, inj, refs):
     h, a = _abbr(g.get("homeRef"), m.teams), _abbr(g.get("awayRef"), m.teams)
-    pj = m.project_game(h, a)
+    pj = m.project_game(h, a, g["commence"])
     if not pj:
         return None
 
@@ -562,6 +581,9 @@ def _nhl(g, m, pdocs, inj, refs):
     ]
     factors = []
     for side, t in (("home", th), ("away", ta)):
+        if (pj.get("rest") or {}).get(side) == 1:
+            factors.append({"side": side, "tone": "neg", "text": f"{t['abbr']} on the second night of a back-to-back (model: about 4% fewer goals for, 3% more against)"})
+    for side, t in (("home", th), ("away", ta)):
         gl = pj["sides"][side]["goalie"]
         if gl.get("name"):
             tone = "pos" if gl["gsax60"] > 0.1 else "neg" if gl["gsax60"] < -0.1 else "info"
@@ -599,6 +621,16 @@ def _nfl(g, m, pdocs, inj, refs):
     pj = m.project_game(h, a)
     if not pj:
         return None
+    wtot, pf, rf, ruf, wnote = CX.nfl_weather_effect((getattr(build_all, "weather", {}) or {}).get(g["id"]))
+    if wnote and (wtot or pf < 1):
+        for side in ("home", "away"):
+            pj[side]["pts"] = round(pj[side]["pts"] + wtot / 2, 1)
+            for p in pj["sides"][side]["players"]:
+                pr = p["proj"]
+                for k, f in (("pass_yds", pf), ("rec_yds", rf), ("rush_yds", ruf), ("ptd", pf), ("cmp", (1 + pf) / 2)):
+                    if k in pr:
+                        pr[k] = round(pr[k] * f, 2)
+        pj["total"] = round(pj["home"]["pts"] + pj["away"]["pts"], 1)
     pH, probs = _line_probs(g, pj, m)
     lines = _stamp_lines(g, probs)
     _stamp_props(pdocs, pj["sides"], model_nfl.MARKETS, g["sport"])
@@ -631,6 +663,9 @@ def _nfl(g, m, pdocs, inj, refs):
         named = [p["name"] for p in outs][:4]
         if named:
             factors.append({"side": side, "tone": "neg", "text": f"{t['abbr']} out: {', '.join(named)} (targets and carries redistributed)"})
+    if wnote:
+        factors.append({"side": None, "tone": "neg" if wtot <= -1 else "info",
+                        "text": f"Weather at kickoff: {wnote}" + (f"; model total {wtot:+.1f}, passing x{pf:.2f}" if wtot or pf < 1 else "")})
     factors.append({"side": None, "tone": "info", "text": f"Model: {g['homeRef']['abbr'] if g.get('homeRef') else 'home'} {-pj['margin']:+.1f}, total {pj['total']:.1f} "
                     f"({pj['away']['pts']}-{pj['home']['pts']})"})
     keys = ["pass_yds", "rush_yds", "rec", "rec_yds"]

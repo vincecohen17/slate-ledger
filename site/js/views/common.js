@@ -26,8 +26,9 @@ export function edgeCard(e) {
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
         <span class="tiny muted">fair ${bothP(e.fair)} · edge <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill" title="fair moved from the main line with the stat model">alt line</span>` : ""}${e.est ? ` · <span class="pill" title="nobody quotes the other side, so the fair is estimated (first-scorer markets de-vig across the whole field; others strip each book's measured margin)">est. fair</span>` : ""}</span>
+        ${e.ctx?.length ? `<span class="tiny muted ellip" title="${esc(e.ctx.join(" · "))}">ⓘ ${esc(e.ctx[0])}${e.ctx.length > 1 ? ` +${e.ctx.length - 1}` : ""}</span>` : ""}
         ${e.last10?.length ? `<span class="l10">${spark(e.last10, e.point, { side: (e.label.match(/ (Over|Under) /) || [])[1] })}<span>last ${e.last10.length}: ${hitRate(e.last10, e.point, (e.label.match(/ (Over|Under) /) || [])[1])}</span></span>` : ""}
-        ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model gives this ${prob(e.modelP, 1)}, a fair price of ${am(amFromProb(e.modelP))}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · model ${bothP(e.modelP)}</span>` : ""}</div>
+        ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model gives this ${prob(e.modelP, 1)}, a fair price of ${am(amFromProb(e.modelP))}${e.ctx?.length ? ". Context in the model: " + esc(e.ctx.join(" · ")) : ""}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · model ${bothP(e.modelP)}</span>` : ""}</div>
       <button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair }))}'>Log</button>
     </div>
   </div>`;

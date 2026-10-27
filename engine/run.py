@@ -484,12 +484,32 @@ def publish(game_docs, prop_docs, status, stamp):
         except Exception as e:
             log(f"stats refresh failed: {type(e).__name__}")
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
+    import tracker
+    try:
+        n_graded = tracker.grade(DATA_DIR, NOW)
+        params, card = tracker.fit(DATA_DIR)
+    except Exception as e:
+        log(f"tracker failed: {type(e).__name__}: {str(e)[:100]}")
+        n_graded, params, card = 0, tracker.load_params(DATA_DIR), []
     mups = matchup.build_all(game_docs, prop_docs, DATA_DIR, today)
+    n_cal = tracker.apply(params, game_docs, prop_docs)
     edge_list = build.edges(game_docs, prop_docs)
+    try:
+        tracker.snapshot(DATA_DIR, game_docs, prop_docs, NOW)
+    except Exception as e:
+        log(f"snapshot failed: {type(e).__name__}")
+    status["tuning"] = {"graded": n_graded, "groups": len(params), "calibrated": n_cal}
+    for e in edge_list:     # what the model knew about this game beyond the box scores (verified news, weather, rest)
+        c = (mups.get(e["gameId"]) or {}).get("context")
+        if c:
+            e["ctx"] = c[:3]
     status["edges"] = len(edge_list)
     status["matchups"] = len(mups)
     status["calibration"] = getattr(matchup.build_all, "shifts", {})
     rep = reports.update(game_docs, prop_docs, DATA_DIR, stamp)
+    if isinstance(rep, dict):
+        rep["models"] = [r for r in card if r.get("llModel") is not None][:80]
+        rep["modelsPending"] = [r for r in card if r.get("llModel") is None][:80]
     picks = load_picks()
     previews = load_previews()
     write_data_repo(game_docs, prop_docs, edge_list, status)
