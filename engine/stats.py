@@ -26,10 +26,10 @@ LEAGUES = ["nba", "wnba", "nhl", "nfl", "cfb", *SOCCER]          # box scores / 
 PLAYER_LEAGUES = ["nba", "wnba", "nhl", "nfl", "cfb"]           # leagues with injury reports we use
 EXTRA = {"cfb": "&groups=80"}       # FBS only
 SEASONS = {   # (label, scan from, scan to or None = through yesterday PT)
-    "nba": [("2025-26", "2025-10-15", "2026-04-20"), ("2026-27", "2026-10-01", None)],
-    "nhl": [("2025-26", "2025-10-01", "2026-04-20"), ("2026-27", "2026-10-01", None)],
-    "nfl": [("2025", "2025-09-01", "2026-01-10"), ("2026", "2026-09-01", None)],
-    "cfb": [("2025", "2025-08-20", "2026-01-20"), ("2026", "2026-08-20", None)],
+    "nba": [("2024-25", "2024-10-22", "2025-04-13"), ("2025-26", "2025-10-15", "2026-04-20"), ("2026-27", "2026-10-01", None)],
+    "nhl": [("2024-25", "2024-10-04", "2025-04-17"), ("2025-26", "2025-10-01", "2026-04-20"), ("2026-27", "2026-10-01", None)],
+    "nfl": [("2024", "2024-09-05", "2025-01-06"), ("2025", "2025-09-01", "2026-01-10"), ("2026", "2026-09-01", None)],
+    "cfb": [("2024", "2024-08-24", "2024-12-15"), ("2025", "2025-08-20", "2026-01-20"), ("2026", "2026-08-20", None)],
     "wnba": [("2025", "2025-05-14", "2025-10-20"), ("2026", "2026-05-01", None)],
     "epl": [("2025-26", "2025-08-14", "2026-05-25"), ("2026-27", "2026-08-14", None)],
     "ucl": [("2025-26", "2025-09-15", "2026-06-01"), ("2026-27", "2026-09-10", None)],
@@ -229,7 +229,7 @@ def injuries(lg, data_dir):
 # ---------------------------------------------------------------------------
 # MoneyPuck (hockey xG)
 
-def moneypuck(data_dir, years=(2025, 2026), refresh_current=True):
+def moneypuck(data_dir, years=(2024, 2025, 2026), refresh_current=True):
     out = {}
     for y in years:
         for kind in ("teams", "skaters", "goalies"):
@@ -291,7 +291,87 @@ def moneypuck_goalie_games(data_dir, y=2026, min_gp=2, max_age_h=8):
     return {"goalies": len(out), "missing": fails}
 
 
+MP_TEAM_GAMES = "https://moneypuck.com/moneypuck/playerData/careers/gameByGame/{kind}/teams/{team}.csv"
+MP_ASOF = None          # backtests: "YYYY-MM-DD" -> current-season MoneyPuck numbers only from games before that day
+_MP_GAMES = {}
+
+
+def moneypuck_games(data_dir, seasons=(2025, 2026)):
+    """game-by-game team and goalie lines (all, 5on5, 5on4, 4on5) so backtests can rebuild ratings as of any date"""
+    d = os.path.join(data_dir, "stats", "nhl", "moneypuck")
+    out = {}
+    keep_t = ("iceTime", "xGoalsFor", "xGoalsAgainst", "goalsFor", "goalsAgainst", "shotsOnGoalFor", "shotsOnGoalAgainst")
+    teams = sorted({r["team"] for y in seasons for r in read_moneypuck(data_dir, "teams", y)})
+    tg = {}
+
+    def team(t):
+        rows = []
+        for kind in ("regular", "playoffs"):
+            try:
+                body = _get(MP_TEAM_GAMES.format(kind=kind, team=t), raw=True).decode("utf-8", "ignore")
+            except Exception:
+                continue
+            for g in csv.DictReader(io.StringIO(body)):
+                if int(g.get("season") or 0) in seasons and g.get("situation") in ("all", "5on5", "5on4", "4on5"):
+                    rows.append({"s": int(g["season"]), "d": g.get("gameDate"), "sit": g["situation"], **{k: float(g.get(k) or 0) for k in keep_t}})
+        return t, rows
+    with ThreadPoolExecutor(6) as ex:
+        for t, rows in ex.map(team, teams):
+            tg[t] = rows
+    json.dump(tg, open(os.path.join(d, "team_games.json"), "w"), separators=(",", ":"))
+    out["teams"] = sum(1 for v in tg.values() if v)
+    goalies = {(r["playerId"], r["name"], r["team"]) for y in seasons for r in read_moneypuck(data_dir, "goalies", y)}
+    gg = {}
+
+    def goalie(x):
+        pid, name, team_ = x
+        rows = []
+        for kind in ("regular", "playoffs"):
+            try:
+                body = _get(MP_GOALIE_GAMES.format(kind=kind, pid=pid), raw=True).decode("utf-8", "ignore")
+            except Exception:
+                continue
+            for g in csv.DictReader(io.StringIO(body)):
+                if int(g.get("season") or 0) in seasons and g.get("situation") in ("all", "5on5", "4on5"):
+                    rows.append({"s": int(g["season"]), "d": g.get("gameDate"), "sit": g["situation"], "team": g.get("playerTeam") or team_,
+                                 "icetime": float(g.get("icetime") or 0), "xGoals": float(g.get("xGoals") or 0), "goals": float(g.get("goals") or 0)})
+        return name, rows
+    with ThreadPoolExecutor(6) as ex:
+        for name, rows in ex.map(goalie, goalies):
+            if rows:
+                gg.setdefault(name, []).extend(rows)
+    json.dump(gg, open(os.path.join(d, "goalie_games_all.json"), "w"), separators=(",", ":"))
+    out["goalies"] = len(gg)
+    return out
+
+
+def _mp_asof(data_dir, kind, y, situation):
+    """season-summary-shaped rows built from game-by-game lines before MP_ASOF"""
+    key = (data_dir, kind)
+    if key not in _MP_GAMES:
+        _MP_GAMES[key] = load_json(data_dir, f"stats/nhl/moneypuck/{'team_games' if kind == 'teams' else 'goalie_games_all'}.json") or {}
+    cut = MP_ASOF.replace("-", "")
+    rows = []
+    for name, games in _MP_GAMES[key].items():
+        gs = [g for g in games if g["s"] == y and g["sit"] == situation and str(g["d"]) < cut]
+        if not gs:
+            continue
+        if kind == "teams":
+            r = {"team": name, "situation": situation, "games_played": len(gs)}
+            for k in ("iceTime", "xGoalsFor", "xGoalsAgainst", "goalsFor", "goalsAgainst", "shotsOnGoalFor", "shotsOnGoalAgainst"):
+                r[k] = sum(g[k] for g in gs)
+        else:
+            r = {"name": name, "team": gs[-1]["team"], "situation": situation, "games_played": len(gs),
+                 "icetime": sum(g["icetime"] for g in gs), "xGoals": sum(g["xGoals"] for g in gs), "goals": sum(g["goals"] for g in gs)}
+        rows.append({k: str(v) if isinstance(v, (int, float)) else v for k, v in r.items()})
+    return rows
+
+
 def read_moneypuck(data_dir, kind, y, situation="all"):
+    if MP_ASOF and y == int(MP_ASOF[:4]) - (0 if MP_ASOF[5:7] >= "09" else 1):
+        if kind in ("teams", "goalies"):
+            return _mp_asof(data_dir, kind, y, situation)
+        return []            # skaters: season totals would leak the future; the model falls back to last season
     fn = os.path.join(data_dir, "stats", "nhl", "moneypuck", f"{kind}_{y}.csv")
     if not os.path.exists(fn):
         return []
@@ -313,7 +393,7 @@ NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 NFL2ESPN = {"LA": "LAR", "WAS": "WSH"}
 
 
-def nflverse(data_dir, seasons=(2025, 2026)):
+def nflverse(data_dir, seasons=(2024, 2025, 2026)):
     out = {}
     d = os.path.join(data_dir, "stats", "nfl", "nflverse")
     os.makedirs(d, exist_ok=True)

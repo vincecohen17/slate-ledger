@@ -680,6 +680,11 @@ def run_stats(backfill=False):
         inj = stats.injuries(lg, DATA_DIR) if lg in stats.PLAYER_LEAGUES else None
         log(f"stats {lg}: {n} games fetched, injuries for {len(inj or {})} teams")
     log(f"moneypuck: {stats.moneypuck(DATA_DIR)}")
+    try:
+        diag["mpGames"] = stats.moneypuck_games(DATA_DIR)
+        json.dump(diag, open(os.path.join(DATA_DIR, "stats", "last_run.json"), "w"), indent=1)
+    except Exception as e:
+        log(f"moneypuck games failed: {type(e).__name__}")
 
 
 def load_picks(days=14):

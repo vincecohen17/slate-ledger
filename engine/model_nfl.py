@@ -43,12 +43,17 @@ def _phi(x):
 class NFL:
     SD_MARGIN, SD_TOTAL = SD_MARGIN, SD_TOTAL
 
-    def __init__(self, data_dir, cur_year, espn_games, injuries):
+    def __init__(self, data_dir, cur_year, espn_games, injuries, asof_week=None):
+        """asof_week (backtests): only this season's weeks before it are used"""
         self.inj = injuries or {}
         self.games = sorted(espn_games, key=lambda g: g["date"])
         tw = lambda y: ST.load_json(data_dir, f"stats/nfl/nflverse/team_week_{y}.json") or []
         self.cur_tw, self.pri_tw = tw(cur_year), tw(cur_year - 1)
         self.cur_p = [r for r in ST.read_nfl_players(data_dir, cur_year) if r.get("season_type") in ("REG", "POST")]
+        if asof_week is not None:
+            self.week_rows = [r for r in self.cur_p if int(_f(r, "week")) == asof_week]
+            self.cur_tw = [r for r in self.cur_tw if int(r.get("week") or 0) < asof_week]
+            self.cur_p = [r for r in self.cur_p if int(_f(r, "week")) < asof_week]
         self.pri_p = [r for r in ST.read_nfl_players(data_dir, cur_year - 1) if r.get("season_type") in ("REG", "POST")]
         self._teams()
         self._players()

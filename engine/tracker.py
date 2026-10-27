@@ -320,6 +320,7 @@ def fit(data_dir):
     rows = []
     for fn in glob.glob(os.path.join(data_dir, "track", "graded", "*.jsonl")):
         sport = os.path.basename(fn)[:-6]
+        sport = sport[3:] if sport.startswith("bt_") else sport      # backtest rows
         for line in open(fn):
             try:
                 r = json.loads(line)
