@@ -538,7 +538,7 @@ def build_props(ev, label):
                         gap = abs(l["point"] - main["point"])
                         if d["book"] not in std or gap < std[d["book"]][0]:
                             std[d["book"]] = (gap, id(l))
-            tol = lambda pt: 0.5 if abs(pt or 0) <= 3 else max(1.0, 0.08 * abs(pt))
+            tol = lambda pt: 0.5 if abs(pt or 0) <= 3 else max(1.0, 0.1 * abs(pt))
             for l in plines:
                 # judge every pick'em line and every thin alt line from the main line's sharp fair
                 if mean is not None and l["point"] is not None:
