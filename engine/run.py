@@ -30,11 +30,11 @@ def _mode():
         return m
     try:  # push-triggered runs read the mode from the first word of engine/run-request
         w = open(os.path.join(os.path.dirname(__file__), "run-request")).read().split()
-        if w and w[0] in ("mock", "live", "auto", "rebuild", "probe", "stats"):
+        if w and w[0] in ("mock", "live", "auto", "refresh", "rebuild", "probe", "stats"):
             return w[0]
     except OSError:
         pass
-    return "mock"
+    return "auto"       # unknown words never fall into the expensive mock pull
 
 
 MODE = _mode()
