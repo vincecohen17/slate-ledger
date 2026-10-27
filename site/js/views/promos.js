@@ -116,7 +116,7 @@ function optRow(p, o, i, max) {
   const bar = `<div class="pr-evb"><i class="${o.ev >= 0 ? "pos" : "neg"}" style="width:${Math.min(100, Math.abs(o.ev) / max * 100).toFixed(0)}%"></i></div>`;
   if (dep) return `<div class="row pr-leg">${legsH.replace(/^<div class="row pr-leg">/, "").replace(/<\/div>$/, "")}<button class="btn sm ghost" data-take="${esc(p.id)}|${i}">Log</button></div>`;
   const head = pick ? `<span>${o.legs.length}-pick · hits all ${prob(o.P, 1)}${p.flex ? " · flex" : ` · pays ${p.mult || payoutFor(p.venue, o.legs.length) || "?"}x`}</span>`
-    : `<span>${o.legs.length > 1 ? `${o.legs.length} legs at ` : ""}<b class="num">${am(amOf(o.D))}</b> · wins ${prob(o.P, 1)}${o.sgp ? " · same-game estimate" : ""}${o.est ? " · chance estimated from the original price" : ""}</span>`;
+    : `<span>${o.legs.length > 1 ? `${o.legs.length}-leg parlay at ` : "Single at "}<b class="num">${am(amOf(o.D))}</b> · wins ${prob(o.P, 1)}${o.sgp ? " · same-game estimate" : ""}${o.est ? " · chance estimated from the original price" : ""}</span>`;
   return `<div class="pl pr-opt">${legsH}
     <div class="pl-b" style="margin-top:4px;gap:8px;align-items:center">${head}<span class="row" style="gap:8px"><span class="${o.ev >= 0 ? "pos" : "neg"}"><b>${money(o.ev)}</b> EV</span><button class="btn sm ghost" data-take="${esc(p.id)}|${i}">Log</button></span></div>${bar}
     ${o.note ? `<div class="tiny muted">${esc(o.note)}</div>` : ""}</div>`;
@@ -139,7 +139,11 @@ function promoCard(p) {
       <span class="pill ${st === "active" ? "pos" : st === "today" ? "warn" : st === "expired" ? "neg" : ""}">${st === "today" ? "ends today" : st}</span></div>
     <div class="row" style="gap:6px;flex-wrap:wrap"><span class="pill">${esc(kindOf(p.kind).name)}</span><span class="small">${esc(describe(p))}</span></div>
     <div class="pr-worth"><div><div class="pr-big ${w > 0 ? "pos" : "muted"}">${o ? money(w) : "–"}</div><div class="tiny muted">${o ? "expected value of the best use" : "nothing on the board fits right now"}</div></div>
-      ${o ? `<div class="tiny pr-best"><span class="muted">Best:</span> ${esc(o.legs.map((c) => c.leg.label).join(" + ").slice(0, 110))}</div>` : ""}</div>
+      ${o ? (() => {
+        const s1 = opts.find((x) => x.legs.length === 1), pN = opts.find((x) => x.legs.length > 1);
+        const line = (lab, x) => `<div class="tiny pr-best"><span class="muted">${lab}:</span> ${esc(x.legs.map((c) => c.leg.label).join(" + ").slice(0, 110))} <b class="${x.ev >= 0 ? "pos" : "neg"}">${money(x.ev)}</b></div>`;
+        return s1 && pN && !o.pick ? `<div class="col" style="gap:2px">${line("Best single", s1)}${line(`Best ${pN.legs.length}-leg parlay`, pN)}</div>` : line("Best", o);
+      })() : ""}</div>
     ${usesBonus ? `<div class="tiny muted">Bonus bets here convert at about <b>${Math.round(bonusConv(p.venue) * 100)}%</b> right now</div>` : ""}
     ${bets.length ? `<div class="tiny">${bets.length} bet${bets.length > 1 ? "s" : ""} logged · P/L <span class="${pl >= 0 ? "pos" : "neg"}">${money(pl)}</span></div>` : ""}
     <div class="row" style="flex-wrap:wrap"><button class="btn sm" data-open="${esc(p.id)}">${open.has(p.id) ? "Hide bets" : "See best bets"}</button><button class="btn sm ghost" data-edit="${esc(p.id)}">Edit</button>

@@ -23,7 +23,7 @@ export const payoutFor = (venue, n) => (PAYOUTS[venue] || PAYOUTS.default)[n] ??
 // ---------- promo types: which fields each needs (the form shows only these)
 export const KINDS = [
   { key: "profit_boost", group: "Boosts", name: "Profit boost", blurb: "Extra % on what one bet wins",
-    fields: ["boost", "stake", "maxWin", "minOdds", "maxOdds", "sports", "betTypes"] },
+    fields: ["boost", "stake", "maxWin", "maxLegs", "minOdds", "maxOdds", "sports", "betTypes"] },
   { key: "parlay_boost", group: "Boosts", name: "Parlay / combo boost", blurb: "Extra % on a parlay or combo trade's winnings",
     fields: ["boost", "stake", "maxWin", "minLegs", "maxLegs", "minLegOdds", "minOdds", "maxOdds", "sameGame", "onePerSport", "sports", "betTypes"] },
   { key: "odds_boost", group: "Boosts", name: "Boosted price on a set bet", blurb: "The app raised the price on one specific bet",
@@ -53,7 +53,7 @@ export const kindOf = (k) => KINDS.find((x) => x.key === (k === "dfs" ? "pickem_
 
 export const FIELDS = {
   boost: ["Boost %", "pct"], stake: ["Stake $ (max allowed)", "num"], maxWin: ["Max extra winnings $", "num"],
-  minOdds: ["Min odds", "odds", "-200"], maxOdds: ["Max odds", "odds", "+300"], minLegs: ["Min legs", "int"], maxLegs: ["Max legs", "int"],
+  minOdds: ["Min odds", "odds", "-200"], maxOdds: ["Max odds", "odds", "+300"], minLegs: ["Min legs", "int"], maxLegs: ["Max legs (1 = singles only)", "int"],
   minLegOdds: ["Min odds per leg", "odds"], amount: ["Bonus amount $", "num"], count: ["How many", "int"],
   refundMax: ["Max refund $", "num"], qualStake: ["Qualifying bet $", "num"], deposit: ["Your deposit $", "num"],
   playthrough: ["Playthrough (x)", "num"], picks: ["Picks in the entry", "int"], mult: ["Payout multiplier (x)", "num"],
@@ -101,7 +101,7 @@ export function parsePromo(text) {
   const m = (re) => t.match(re);
 
   // what kind of promo
-  const pct = m(/(\d{1,3})\s*%\s*(?:profit\s*|odds\s*|parlay\s*|sgp\s*|combo\s*|trade\s*|payout\s*|winnings\s*)*boost/) || m(/boost(?:ed)?[a-z ]{0,30}?(\d{1,3})\s*%/) || m(/(\d{1,3})\s*%\s*(?:more|extra)\s*(?:on\s*)?(?:winnings|profit|payout)/);
+  const pct = m(/(\d{1,3})\s*%\s*(?:profit\s*|odds\s*|parlay\s*|sgp\s*|combo\s*|trade\s*|payout\s*|winnings\s*)*boost/) || m(/boost(?:ed)?[a-z ]{0,30}?(\d{1,3})\s*%/) || m(/(\d{1,3})\s*%[a-z0-9 .'-]{0,30}?boost/) || m(/(\d{1,3})\s*%\s*(?:more|extra)\s*(?:on\s*)?(?:winnings|profit|payout)/);
   if (pct) p.boost = +pct[1] / 100;
   const ob = m(new RegExp(`(?:boosted|boost)?\\s*(?:from\\s*)?${ODDS}\\s*(?:to|->|→|now)\\s*${ODDS}`));
   if (/fee[- ]?free|no fees?|zero fees?|fees? waived|waive[sd]? (?:the )?fees?|no commission|0% commission|commission[- ]free|reduced (?:juice|fees?|vig|commission)|half (?:the )?fees?/.test(t)) {
@@ -132,7 +132,7 @@ export function parsePromo(text) {
     else if (/(?:if|when) (?:it|your bet|the bet|your wager) (?:loses|doesn'?t win|misses)|lose and get/.test(t)) p.condition = "lose";
   } else if (/bonus bets?|free bets?|bet credits?|site credit|free \$\d+|token/.test(t) && !pct) {
     p.kind = "bonus_bet";
-  } else if (/parlay|combo|sgp|same game|same-game|\blegs?\b|multi/.test(t)) {
+  } else if (/parlay|combo|sgp|same game|same-game|\blegs?\b|multi/.test(t) && !/profit boost|any (?:bet|wager)|single|straight/.test(t)) {
     p.kind = "parlay_boost"; p.minLegs = 2;
   } else if (/custom/.test(t)) p.kind = "custom";
   else p.kind = "profit_boost";
@@ -146,6 +146,7 @@ export function parsePromo(text) {
   else if (exact && !legs) p.minLegs = num(exact[1]);
   if (["parlay_boost", "parlay_insurance"].includes(p.kind) && p.minLegs < 2) p.minLegs = p.kind === "parlay_insurance" ? 3 : 2;
   const mx = m(/(\d{1,3}(?:\.\d+)?)\s*x\b(?! ?(?:playthrough|rollover|wagering))/); if (mx && pick) p.mult = +mx[1];
+  if (/singles? only|straight bets? only|single bets? only|not valid on parlays|excludes? parlays/.test(t)) p.maxLegs = 1;
   if (/same.?game|sgp/.test(t)) p.sameGame = /no (?:same.?game|sgp)|excludes? (?:same.?game|sgp)/.test(t) ? "banned" : "required";
   if (/different games|separate games/.test(t)) p.sameGame = "banned";
 
@@ -392,19 +393,33 @@ export function optimize(p0, top = 8) {
   const feeFree = k === "fee_free";
   let cands = all.filter((l) => legOK(p, l)).map((l) => priced(p, l, { feeFree })).filter(Boolean);
 
-  if (minLegs === 1 && !(k === "parlay_boost" || k === "parlay_insurance")) {
+  // Boosts work on a single or a parlay unless the promo says otherwise (Max legs 1 = singles only): price both
+  // and show the best of each. Other promos use their own leg rules.
+  const mixed = k === "profit_boost" || k === "custom";
+  const maxLegs = Math.max(minLegs, p.maxLegs || (mixed ? 3 : minLegs));
+  const singlesOK = minLegs <= 1 && k !== "parlay_insurance";
+  const parlaysOK = maxLegs >= 2 && (mixed || k === "parlay_boost" || k === "parlay_insurance" || minLegs >= 2);
+  let singles = [], parlays = [];
+  if (singlesOK) {
     const floor = k === "bonus_bet" ? 0.12 : k === "bet_and_get" ? 0.05 : 0.15;
-    const singles = cands.filter((c) => oddsOK(p, c.D) && c.P > floor).map((c) => wrap([c]));
-    singles.sort((a, b) => b.ev - a.ev);
+    const all1 = cands.filter((c) => oddsOK(p, c.D) && c.P > floor).map((c) => wrap([c]));
+    all1.sort((a, b) => b.ev - a.ev);
     // one option per game so the list shows real alternatives
-    const seen = new Set(), out = [];
-    for (const o of singles) { const g = o.legs[0].leg.gameId + "|" + o.legs[0].leg.market; if (seen.has(g)) continue; seen.add(g); out.push(o); if (out.length >= top) break; }
-    return out;
+    const seen = new Set();
+    for (const o of all1) { const g = o.legs[0].leg.gameId + "|" + o.legs[0].leg.market; if (seen.has(g)) continue; seen.add(g); singles.push(o); if (singles.length >= top) break; }
   }
-  // parlays: beam search; legs from different games unless the promo requires a same-game parlay
-  const maxLegs = Math.max(minLegs, p.maxLegs || minLegs);
-  cands = cands.filter((c) => c.P * c.D > 0.9 && c.P > 0.2).sort((a, b) => b.P * b.D - a.P * a.D);
-  if (p.sameGame === "required") return sgpPlan(p, cands, minLegs, top, ctx);
+  if (parlaysOK) {
+    const pc = cands.filter((c) => c.P * c.D > 0.9 && c.P > 0.2).sort((a, b) => b.P * b.D - a.P * a.D);
+    parlays = p.sameGame === "required" ? sgpPlan(p, pc, Math.max(2, minLegs), top, ctx) : beamParlays(p, pc, Math.max(2, minLegs), maxLegs, top, ctx);
+  }
+  if (!singlesOK) return parlays;
+  if (!parlaysOK) return singles;
+  return [...singles.slice(0, Math.ceil(top / 2)), ...parlays.slice(0, Math.ceil(top / 2))].sort((a, b) => b.ev - a.ev).slice(0, top);
+}
+
+// parlays: beam search over legs from different games
+function beamParlays(p, cands, minLegs, maxLegs, top, ctx) {
+  const wrap = (cs) => ({ legs: cs, ...value(p, cs, ctx) });
   const perGame = new Map();
   for (const c of cands) { const g = c.leg.gameId; if (!perGame.has(g)) perGame.set(g, []); if (perGame.get(g).length < 3) perGame.get(g).push(c); }
   const pool = [...perGame.values()].flat().slice(0, 120);
