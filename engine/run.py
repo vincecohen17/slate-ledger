@@ -216,6 +216,9 @@ def live():
             LV.stale_after(g, 120)
             ha, aa = (g.get("homeRef") or {}).get("abbr"), (g.get("awayRef") or {}).get("abbr")
             st = states.get((s, refs.norm(ha or ""), refs.norm(aa or ""))) or states.get((s, refs.norm(g["home"]), refs.norm(g["away"])))
+            started_h = (NOW - datetime.fromisoformat(g["commence"].replace("Z", "+00:00"))).total_seconds() / 3600
+            if st is None and started_h > (3.8 if s.startswith(("americanfootball", "baseball")) else 2.4):
+                continue        # finished: the scoreboard no longer lists it as in play
             mu = mups.get(g["id"]) or {}
             pre = _live_pre(s, g, mu, games)
             if s.startswith("tennis_"):
