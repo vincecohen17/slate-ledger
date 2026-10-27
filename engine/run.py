@@ -28,7 +28,7 @@ def _mode():
         return m
     try:  # push-triggered runs read the mode from the first word of engine/run-request
         w = open(os.path.join(os.path.dirname(__file__), "run-request")).read().split()
-        if w and w[0] in ("mock", "live", "rebuild"):
+        if w and w[0] in ("mock", "live", "rebuild", "probe", "stats"):
             return w[0]
     except OSError:
         pass
@@ -94,6 +94,9 @@ def rebuild():
 
 
 def main():
+    if MODE == "probe":
+        import probe  # noqa: F401  (runs on import)
+        return
     if MODE == "rebuild":
         return rebuild()
     key = os.environ.get("ODDS_API_KEY")
