@@ -32,7 +32,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - Picks: Claude writes `picks/<YYYY-MM-DD>.json` (a list) to the data repo; every engine run syncs them to
   Firestore `picks/{id}`. Fields: id, date, gameId, league, matchup, commence, selection, player?, tier
   (bet|floor|likely), units, status, fair, fairAm, goodAt, greatAt, playTo[{venue,name,price,line?,inRange}],
-  case, pillars{model,advanced,matchup,role,context,market: support|neutral|against}, risk, confirm[], clv?, profit?
+  case (1-2 paragraphs, blank line between), pillars{model,advanced,matchup,role,context,market: support|neutral|against},
+  risk (a paragraph on what could go wrong), marketFair, modelP, keyStats[{label,value,note?,tone}], confirm[], clv?, profit?
 - `.github/workflows/pull.yml` engine run (manual or push to `engine/run-request`; live cron after the 5M upgrade).
   `deploy.yml` deploys site + rules on changes to `site/`, `firebase.json` or the rules template.
 - Private data repo `vincecohen17/slate-ledger-data`: `latest/` (board.json, props.json, edges.json),

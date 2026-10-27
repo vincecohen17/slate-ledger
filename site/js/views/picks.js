@@ -6,6 +6,21 @@ const PILLARS = [["model", "Model"], ["advanced", "Adv stats"], ["matchup", "Mat
 const ICON = { support: "▲", neutral: "•", against: "▼" };
 let day = null;
 
+// where the pick sits: sharp fair, our model, the blended fair we bet from, and the play-to price
+function meter(p) {
+  // the worst price still worth taking (goodAt) as a probability; the green band is the value between it and our fair
+  const best = typeof p.goodAt === "number" ? 1 / decOf(p.goodAt) : null;
+  const pts = [["Market", p.marketFair, "mk"], ["Model", p.modelP, "md"], ["Our fair", p.fair, "fr"], ["Play to", best, "bp"]].filter((x) => x[1] != null);
+  if (pts.length < 2) return "";
+  const lo = Math.max(0, Math.min(...pts.map((x) => x[1])) - 0.06), hi = Math.min(1, Math.max(...pts.map((x) => x[1])) + 0.06);
+  const X = (v) => ((v - lo) / (hi - lo) * 100).toFixed(1);
+  return `<div class="pmeter"><div class="pm-track">${best != null && p.fair != null ? `<i class="pm-edge" style="left:${X(Math.min(best, p.fair))}%;width:${Math.abs(X(p.fair) - X(best))}%"></i>` : ""}
+    ${pts.map(([lab, v, c]) => `<span class="pm-dot ${c}" style="left:${X(v)}%" title="${lab} ${prob(v, 1)}"></span>`).join("")}</div>
+    <div class="pm-leg">${pts.map(([lab, v, c]) => `<span><i class="pm-dot ${c}"></i>${lab} <b>${prob(v, 1)}</b></span>`).join("")}</div></div>`;
+}
+const decOf = (a) => a > 0 ? 1 + a / 100 : 1 + 100 / Math.abs(a);
+const paras = (t) => String(t || "").split(/\n\s*\n/).filter(Boolean).map((x) => `<p>${esc(x)}</p>`).join("");
+
 export function pickCard(p) {
   const st = p.status || "pending";
   const stPill = st === "won" ? `<span class="pill pos">won</span>` : st === "lost" ? `<span class="pill neg">lost</span>` : `<span class="pill">${esc(st)}</span>`;
@@ -28,10 +43,12 @@ export function pickCard(p) {
       <div class="fc"><div class="k">Good at</div><div class="v">${am(p.goodAt)}</div><div class="s">or better</div></div>
       <div class="fc"><div class="k">Great at</div><div class="v">${am(p.greatAt)}</div><div class="s">bet bigger</div></div>
     </div>
-    ${p.case ? `<div>${esc(p.case)}</div>` : ""}
+    ${meter(p)}
     ${pillars ? `<div class="pillars">${pillars}</div>` : ""}
+    ${(p.keyStats || []).length ? `<div class="kstats">${p.keyStats.map((k) => `<div class="kstat ${k.tone || ""}"><b>${esc(k.value)}</b><span>${esc(k.label)}</span>${k.note ? `<i>${esc(k.note)}</i>` : ""}</div>`).join("")}</div>` : ""}
+    ${p.case ? `<div class="pcase"><div class="pc-h pos">▲ Why it's a good pick</div>${paras(p.case)}</div>` : ""}
+    ${p.risk ? `<div class="pcase risk"><div class="pc-h neg">▼ What could go wrong</div>${paras(p.risk)}</div>` : ""}
     ${venues ? `<div><div class="tiny muted" style="margin-bottom:4px">Play-to by venue</div><div class="ladder">${venues}</div></div>` : ""}
-    ${p.risk ? `<div class="note"><b>Risk:</b> ${esc(p.risk)}</div>` : ""}
     ${(p.confirm || []).length ? `<div class="note"><b>Confirm before start:</b> ${p.confirm.map(esc).join(" · ")}</div>` : ""}
     <div><button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: p.selection, gameId: p.gameId, league: p.league, matchup: p.matchup, commence: p.commence, am: p.playTo?.find((v) => v.inRange)?.price ?? p.goodAt, venue: p.playTo?.find((v) => v.inRange)?.venue, fair: p.fair, source: "pick" }))}'>Log this bet</button></div>
   </div>`;
