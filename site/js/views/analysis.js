@@ -68,7 +68,9 @@ function statTable(rows, label = "") {
 export function analysis() {
   const bankroll = S.settings?.bankroll || 0;
   const raw = [...S.bets.values()], all = unify(raw);     // an arb or middle counts once, at its net result
-  const st = all.filter((b) => DONE.includes(b.status)).sort((a, b) => (a.settledAt || "").localeCompare(b.settledAt || ""));
+  // arbs and middles are their own category (their section below): every skill, luck, CLV and sizing number is the bets alone
+  const done = all.filter((b) => DONE.includes(b.status)).sort((a, b) => (a.settledAt || "").localeCompare(b.settledAt || ""));
+  const st = done.filter((b) => !b.isGroup), stA = done.filter((b) => b.isGroup), arbPl = stA.reduce((x, b) => x + (b.profit || 0), 0);
   if (st.length < 3) return `<div class="card note" style="margin-top:12px">The analysis fills in after a few settled bets.</div>`;
   const A = agg(st);
 
@@ -126,7 +128,7 @@ export function analysis() {
 
   return `
   <div class="an-tiles">
-    <div class="kpi"><div class="k">Profit</div><div class="v ${cls(A.pl)}">${money(A.pl)}</div><div class="s">${A.n} settled · ROI ${pct(A.roi)}</div></div>
+    <div class="kpi"><div class="k">Profit</div><div class="v ${cls(A.pl + arbPl)}">${money(A.pl + arbPl)}</div><div class="s">${stA.length ? `bets ${money(A.pl)} (ROI ${pct(A.roi)}) · arbs ${money(arbPl)}` : `${A.n} settled · ROI ${pct(A.roi)}`}</div></div>
     <div class="kpi"><div class="k">Expected</div><div class="v ${cls(A.exp)}">${money(A.exp)}</div><div class="s">from the prices you got</div></div>
     <div class="kpi"><div class="k">Luck</div><div class="v ${cls(A.pl - A.exp)}">${money(A.pl - A.exp)}</div><div class="s">${Math.abs(z) < 1 ? "normal variance" : Math.abs(z) < 2 ? "a real swing" : "a big swing"} (${z >= 0 ? "+" : ""}${z.toFixed(1)}σ)</div></div>
     <div class="kpi"><div class="k">Avg CLV</div><div class="v ${cls(A.clv)}">${A.clv != null ? pct(A.clv) : "–"}</div><div class="s">beat close ${A.beat != null ? Math.round(A.beat * 100) + "%" : "–"} of ${A.nClv}</div></div>
@@ -179,13 +181,13 @@ export function analysis() {
   ${promoRows.size ? `<div class="card" style="margin-top:10px"><b>What each promo type added</b>${divRows([...promoRows.values()].map((r) => ({ k: r.k, v: r.extra, n: r.n, tip: `${r.k}: ${money(r.extra)} added over ${r.n} bets (total P/L ${money(r.pl)})` })), { fmt: money })}
     <p class="note">Profit above what the same bet would have paid without the promo.</p></div>` : ""}
 
-  ${(() => { const gs = st.filter((b) => b.isGroup); if (!gs.length) return "";
+  ${(() => { const gs = [...stA, ...all.filter((b) => b.isGroup && b.status === "pending")]; if (!gs.length) return "";
     const row = (k) => { const x = gs.filter((b) => b.kind === k); if (!x.length) return "";
-      const pl = x.reduce((s2, b) => s2 + (b.profit || 0), 0), ex = x.reduce((s2, b) => s2 + (b.expPl || 0), 0), stk = x.reduce((s2, b) => s2 + b.stake, 0);
-      const hit = k === "middle" ? x.filter((b) => b.legsB.every((l) => l.status === "won")).length : null;
-      return `<tr><td>${k === "arb" ? "Arbs" : "Middles"}</td><td class="num">${x.length}</td><td class="num">${money(stk)}</td><td class="num ${cls(pl)}">${money(pl)}</td><td class="num ${cls(ex)}">${money(ex)}</td><td class="num">${hit == null ? "–" : `${hit} of ${x.length}`}</td></tr>`; };
+      const xs = x.filter((b) => b.status !== "pending"), pl = xs.reduce((s2, b) => s2 + (b.profit || 0), 0), ex = xs.reduce((s2, b) => s2 + (b.expPl || 0), 0), stk = x.reduce((s2, b) => s2 + b.stake, 0);
+      const hit = k === "middle" ? xs.filter((b) => b.legsB.every((l) => l.status === "won")).length : null;
+      return `<tr><td>${k === "arb" ? "Arbs" : "Middles"}</td><td class="num">${xs.length}${x.length > xs.length ? ` <span class="tiny muted">+${x.length - xs.length} open</span>` : ""}</td><td class="num">${money(stk)}</td><td class="num ${cls(pl)}">${money(pl)}</td><td class="num ${cls(ex)}">${money(ex)}</td><td class="num">${hit == null ? "–" : `${hit} of ${xs.length}`}</td></tr>`; };
     return `<div class="sec-title">Arbs and middles<span class="line"></span></div><div class="card">${table([row("arb"), row("middle")], ["", "Pairs", "Staked", "Net P/L", "Expected", "Middles hit"])}
-      <p class="note">Each pair counts once everywhere in this analysis, at its net result, so the losing leg of an arb never shows up as a lost bet or drags a venue's record. An arb's P/L should match what it locked; if it doesn't, a leg was voided or a price was typed wrong.</p></div>`; })()}
+      <p class="note">Arbs and middles are their own category: they're left out of every number above (record, ROI, luck, CLV, venues, sizing) and only added into total profit. Legs logged one at a time are paired automatically when they're clearly an arb, or offered on My bets with one tap. An arb's P/L should match what it locked; if it doesn't, a leg was voided or a price was typed wrong.</p></div>`; })()}
 
   <div class="sec-title">Biggest swings<span class="line"></span></div>
   <div class="an-two">

@@ -308,7 +308,8 @@ def debug_bets(db, data_dir, fin_by_gid):
     out = []
     for snap in db.collection("bets").where("status", "==", "pending").stream():
         b = snap.to_dict() or {}
-        row = {"id": snap.id, "label": b.get("label"), "created": b.get("createdAt"), "auto": b.get("auto"), "legs": []}
+        row = {"id": snap.id, "label": b.get("label"), "created": b.get("createdAt"), "auto": b.get("auto"), "venue": b.get("venue"),
+               "group": (b.get("group") or {}).get("kind"), "promoId": b.get("promoId"), "legs": []}
         for leg in (b.get("legs") or [b]):
             r = LB.resolve(dict(leg, gameId=leg.get("gameId") or b.get("gameId")), data_dir) if (leg.get("gameId") or b.get("gameId")) else None
             info = {"label": leg.get("label"), "gameId": leg.get("gameId") or b.get("gameId"), "resolved": bool(r)}
@@ -332,6 +333,7 @@ def debug_bets(db, data_dir, fin_by_gid):
         if b.get("status") == "pending":
             continue
         out.append({"id": snap.id, "label": b.get("label"), "status": b.get("status"), "profit": b.get("profit"), "auto": b.get("auto"),
+                    "venue": b.get("venue"), "group": (b.get("group") or {}).get("kind"),
                     "autoSettled": b.get("autoSettled"), "am": b.get("am"), "stake": b.get("stake"), "promoId": b.get("promoId"),
                     "boostIn": b.get("boostIn"), "live": b.get("live"), "settledAt": b.get("settledAt")})
     json.dump(out, open(os.path.join(data_dir, "latest", "ledger_debug.json"), "w"), indent=1, default=str)

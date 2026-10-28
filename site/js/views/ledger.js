@@ -8,7 +8,7 @@ import { VENUES } from "../lab.js";
 import { projectedCard, betLegs } from "../projected.js";
 import { betImage } from "./common.js";
 import { analysis, bindAnalysis } from "./analysis.js";
-import { unify, outcomes, arbSheet, unpair } from "../arbs.js";
+import { unify, outcomes, arbSheet, unpair, findPairs, autoPair, pairBets } from "../arbs.js";
 
 let tab = "mine", filter = "pending", groupBy = "type";
 const inflight = new Set();
@@ -222,16 +222,25 @@ function mine(el) {
   const raw = [...S.bets.values()];
   const bets = unify(raw).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const settled = bets.filter((b) => ["won", "lost", "push"].includes(b.status)).sort((a, b) => (a.settledAt || "").localeCompare(b.settledAt || ""));
-  const s = summarize(bets), pend = raw.filter((b) => b.status === "pending");
+  // arbs and middles are their own category: the betting record, ROI, CLV and takeaways are the bets alone
+  const plain = bets.filter((b) => !b.isGroup), arbsL = bets.filter((b) => b.isGroup);
+  const s = summarize(plain), sa = summarize(arbsL), pend = raw.filter((b) => b.status === "pending");
+  const sugg = findPairs(raw).filter((p) => !p.auto);
   const shown = bets.filter((b) => filter === "all" || (filter === "live" ? b.live : filter === "pending" ? b.status === "pending" : b.status !== "pending"));
-  const ins = insights(bets);
+  const ins = insights(plain);
   return `<div class="kpis" style="margin-top:12px">
-      <div class="kpi"><div class="k">Profit / loss</div><div class="v ${s.pl >= 0 ? "pos" : "neg"}">${money(s.pl)}</div><div class="s">${s.n} settled · ${s.w}-${s.l}${s.p ? "-" + s.p : ""}</div></div>
-      <div class="kpi"><div class="k">ROI</div><div class="v">${s.roi != null ? pct(s.roi) : "–"}</div><div class="s">on ${money(s.staked)} staked</div></div>
+      <div class="kpi"><div class="k">Profit / loss</div><div class="v ${s.pl + sa.pl >= 0 ? "pos" : "neg"}">${money(s.pl + sa.pl)}</div><div class="s">${sa.n ? `bets ${money(s.pl)} · arbs ${money(sa.pl)}` : `${s.n} settled · ${s.w}-${s.l}${s.p ? "-" + s.p : ""}`}</div></div>
+      <div class="kpi"><div class="k">ROI</div><div class="v">${s.roi != null ? pct(s.roi) : "–"}</div><div class="s">${s.w}-${s.l}${s.p ? "-" + s.p : ""} on ${money(s.staked)} staked${arbsL.length ? " · arbs apart" : ""}</div></div>
       <div class="kpi"><div class="k">Expected profit</div><div class="v ${s.expPl >= 0 ? "pos" : "neg"}">${s.nExp ? money(s.expPl) : "–"}</div><div class="s">from the prices you got</div></div>
       <div class="kpi"><div class="k">Avg CLV</div><div class="v ${s.clv > 0 ? "pos" : s.clv < 0 ? "neg" : ""}">${s.clv != null ? pct(s.clv) : "–"}</div><div class="s">beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
       <div class="kpi"><div class="k">Open</div><div class="v">${pend.length}</div><div class="s">${money(pend.reduce((x, b) => x + (b.stake || 0), 0))} at risk</div></div>
+      ${arbsL.length ? `<div class="kpi"><div class="k">Arbs & middles</div><div class="v ${sa.pl >= 0 ? "pos" : "neg"}">${money(sa.pl)}</div><div class="s">${sa.n} settled pair${sa.n === 1 ? "" : "s"}${arbsL.length > sa.n ? ` · ${arbsL.length - sa.n} open` : ""} · own category</div></div>` : ""}
     </div>
+    ${sugg.length ? `<div class="card lg-chk"><b>${sugg.length === 1 ? "These two bets look" : `${sugg.length} pairs of bets look`} like ${sugg.every((p) => p.kind === "middle") ? "a middle" : "an arb or middle"}</b>
+      <div class="small muted" style="margin:4px 0 8px">Paired, they count as one result in their own category, so the losing leg isn't a lost bet in your record.</div>
+      <div class="col" style="gap:6px">${sugg.map((p, i) => `<div class="row lg-chkr" style="gap:8px;flex-wrap:wrap">${bookLogo(p.a.venue || "any", p.a.venueName || "", 22)}${bookLogo(p.b.venue || "any", p.b.venueName || "", 22)}
+        <span class="grow ellip small" style="min-width:160px">${esc(p.a.label)} <span class="muted">${am(p.a.am)}</span> + ${esc(p.b.label)} <span class="muted">${am(p.b.am)}</span></span>
+        <button class="btn sm ghost" data-pairs="${i}">Pair as ${p.kind}</button></div>`).join("")}</div></div>` : ""}
     ${(() => { const chk = raw.filter(needsCheck); return chk.length ? `<div class="card lg-chk"><b>${chk.length} boosted bet${chk.length > 1 ? "s" : ""} to double-check</b>
       <div class="small muted" style="margin:4px 0 8px">If you typed the price the app showed after the boost, the ledger added the boost a second time. Tap the one that's right for each bet.</div>
       <div class="col" style="gap:6px">${chk.map((b) => { const p = S.promos.get(b.promoId), st = ["won", "lost"].includes(b.status) ? b.status : "won";
@@ -327,6 +336,9 @@ export function renderLedger(el) {
   if (tab === "analysis") bindAnalysis(el, () => renderLedger(el));
   $$("[data-tab]", el).forEach((b) => b.onclick = () => { tab = b.dataset.tab; renderLedger(el); });
   const ab = $("#add-bet", el); if (ab) ab.onclick = () => logSheet({});
+  autoPair([...S.bets.values()]);
+  const sg = findPairs([...S.bets.values()]).filter((p) => !p.auto);
+  $$("[data-pairs]", el).forEach((b) => b.onclick = () => { const p = sg[+b.dataset.pairs]; if (p) pairBets(p.a, p.b, p.kind).then(() => toast(`Paired as ${p.kind}`)).catch((e) => toast("Could not save: " + e.message)); });
   const aa = $("#add-arb", el); if (aa) aa.onclick = () => arbSheet({});
   $$("[data-unlink]", el).forEach((b) => b.onclick = () => {
     if (!b.dataset.c) { b.dataset.c = 1; b.textContent = "Unlink?"; return; }

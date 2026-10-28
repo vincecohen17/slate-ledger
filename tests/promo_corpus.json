@@ -1,1 +1,680 @@
-[["tyrese maxey 0.5 points free pick on chalkboard needs a pair. free pick is given 1.78x odds that multiplies with the other picks odds", {"kind": "discounted_line", "venue": "chalkboard", "promoLine": 0.5, "promoSide": "Over", "promoMult": 1.78, "picks": 2, "targetLabel": "Tyrese Maxey"}], ["Chalkboard free pick: Maxey o0.5 pts (1.78x) - must be paired with 1 other pick", {"kind": "discounted_line", "venue": "chalkboard", "promoLine": 0.5, "promoMult": 1.78, "picks": 2, "targetLabel": "Tyrese Maxey"}], ["Chalkboard: Tyrese Maxey MORE than 0.5 points FREE PICK 1.78x", {"kind": "discounted_line", "venue": "chalkboard", "promoLine": 0.5, "promoSide": "Over", "promoMult": 1.78}], ["Sleeper promo pick: Cade Cunningham over 9.5 assists pays 2.1x", {"kind": "discounted_line", "venue": "sleeper", "promoLine": 9.5, "promoMult": 2.1, "targetLabel": "Cade Cunningham"}], ["Underdog special: LeBron James higher than 15.5 points 1.5x", {"kind": "discounted_line", "venue": "underdog", "promoLine": 15.5, "promoSide": "Over", "promoMult": 1.5}], ["PrizePicks Taco Tuesday: Jalen Brunson 12.5 pts (was 26.5), more only", {"kind": "discounted_line", "venue": "prizepicks", "promoLine": 12.5, "promoSide": "Over"}], ["PrizePicks discounted line Anthony Edwards 14.5 points", {"kind": "discounted_line", "venue": "prizepicks", "promoLine": 14.5}], ["prizepicks: luka 9.5 points discounted, more only", {"kind": "discounted_line", "venue": "prizepicks", "promoLine": 9.5, "promoSide": "Over"}], ["Dabble boosted pick Jayson Tatum under 40.5 PRA 2x", {"kind": "discounted_line", "venue": "dabble_us_dfs", "promoLine": 40.5, "promoSide": "Under", "promoMult": 2}], ["Free $5 entry on PrizePicks, 2 picks", {"kind": "free_entry", "venue": "prizepicks", "amount": 5, "picks": 2}], ["underdog $10 free entry 3 pick", {"kind": "free_entry", "venue": "underdog", "amount": 10, "picks": 3}], ["PrizePicks 2-pick power play pays 3.5x today", {"kind": "pickem_boost", "venue": "prizepicks", "picks": 2, "mult": 3.5}], ["Underdog 25% payout boost on a 3 pick entry, max $20", {"kind": "pickem_boost", "venue": "underdog", "boost": 0.25, "picks": 3, "stake": 20}], ["Pick6 boost: 2 picks pay 4x", {"kind": "pickem_boost", "venue": "pick6", "picks": 2, "mult": 4}], ["DK Predictions: 20% NBA profit boost, max $25", {"kind": "profit_boost", "venue": "draftkings", "boost": 0.2, "stake": 25, "sports": ["NBA"]}], ["FanDuel 30% SGP boost 3+ legs max $25 wager", {"kind": "parlay_boost", "venue": "fanduel", "boost": 0.3, "minLegs": 3, "stake": 25, "sameGame": "required"}], ["50% profit boost on any NHL player prop up to $10", {"kind": "profit_boost", "boost": 0.5, "stake": 10, "sports": ["NHL"], "betTypes": ["prop"]}], ["Kalshi: no fees on NFL trades this weekend", {"kind": "fee_free", "venue": "kalshi", "sports": ["NFL"], "feeOff": 1}], ["Novig 0% commission on all NBA", {"kind": "fee_free", "venue": "novig"}], ["Polymarket half fees today", {"kind": "fee_free", "venue": "polymarket_us", "feeOff": 0.5}], ["Bet $5 get $200 in bonus bets", {"kind": "bet_and_get", "qualStake": 5, "amount": 200}], ["FanDuel: bet $5, get $150 in bonus bets if your bet wins", {"kind": "bet_and_get", "venue": "fanduel", "qualStake": 5, "amount": 150, "condition": "win"}], ["$10 bonus bet expires 11/1", {"kind": "bonus_bet", "amount": 10, "expires": "2026-11-01"}], ["Bovada free bet $25", {"kind": "bonus_bet", "venue": "bovada", "amount": 25}], ["you have a $15 bonus bet on fliff", {"kind": "bonus_bet", "venue": "fliff", "amount": 15}], ["3 x $10 bonus bets on DK", {"kind": "bonus_bet", "venue": "draftkings", "amount": 10, "count": 3}], ["No sweat SGP up to $25 back in bonus bets", {"kind": "no_sweat", "refundMax": 25, "sameGame": "required"}], ["ProphetX no-sweat bet up to $50", {"kind": "no_sweat", "venue": "prophetx", "refundMax": 50}], ["Parlay insurance: 4+ legs, money back up to $20 if one leg loses", {"kind": "parlay_insurance", "minLegs": 4, "refundMax": 20}], ["Odds boost: LeBron James 30+ points +250 (was +200)", {"kind": "odds_boost", "boostedOdds": 250, "origOdds": 200}], ["DK boost Lakers ML now +150 from +120", {"kind": "odds_boost", "venue": "draftkings", "boostedOdds": 150, "origOdds": 120}], ["Bovada deposit match 100% up to $250, 5x rollover", {"kind": "deposit_match", "venue": "bovada", "amount": 250, "playthrough": 5}], ["25% parlay boost on NBA 4 leg parlays", {"kind": "parlay_boost", "boost": 0.25, "minLegs": 4, "sports": ["NBA"]}], ["profit boost 33% singles only min odds -200", {"kind": "profit_boost", "boost": 0.33, "maxLegs": 1, "minOdds": -200}], ["Fliff 50% boost on one leg each NFL NBA NHL", {"kind": "parlay_boost", "venue": "fliff", "boost": 0.5, "onePerSport": true, "minLegs": 3}], ["chalkboard 1.78x free pick tyrese maxey over .5 pts, pair it", {"kind": "discounted_line", "venue": "chalkboard", "promoLine": 0.5, "promoMult": 1.78, "picks": 2, "targetLabel": "Tyrese Maxey"}], ["Maxey o0.5 points chalkboard freebie 1.78x", {"kind": "discounted_line", "venue": "chalkboard", "promoLine": 0.5, "promoMult": 1.78}], ["sleeper 2x boost on Josh Allen over 1.5 pass tds", {"kind": "discounted_line", "venue": "sleeper", "promoLine": 1.5, "promoMult": 2}], ["Underdog pick'em boost 1.5x on a 2-pick", {"kind": "pickem_boost", "venue": "underdog", "picks": 2}], ["Betr: 2x payout on your first 2-pick", {"kind": "pickem_boost", "venue": "betr_us_dfs", "picks": 2}], ["$20 bonus on prophetx expires tomorrow", {"kind": "bonus_bet", "venue": "prophetx", "amount": 20}], ["Free pick on Chalkboard today - Cade Cunningham over 0.5 assists 1.75x, add 1+ more pick", {"kind": "discounted_line", "venue": "chalkboard", "promoLine": 0.5, "promoSide": "Over", "promoMult": 1.75}], ["chalkboard freebie: LeBron 1.5+ rebounds at 1.8x", {"kind": "discounted_line", "venue": "chalkboard", "promoLine": 1.5, "promoMult": 1.8}], ["PrizePicks Discounted: Shai Gilgeous-Alexander 15.5 Points (normally 31.5) MORE ONLY", {"kind": "discounted_line", "venue": "prizepicks", "promoLine": 15.5, "promoSide": "Over"}], ["underdog rival special: Brunson lower than 30.5 pts pays 1.6x", {"kind": "discounted_line", "venue": "underdog", "promoLine": 30.5, "promoSide": "Under", "promoMult": 1.6}], ["Sleeper: Victor Wembanyama u 3.5 blocks boosted to 2.2x", {"kind": "discounted_line", "venue": "sleeper", "promoLine": 3.5, "promoSide": "Under", "promoMult": 2.2}], ["dabble 1.9x pick: Nikola Jokic over 10.5 assists", {"kind": "discounted_line", "venue": "dabble_us_dfs", "promoLine": 10.5, "promoMult": 1.9}], ["Underdog: $5 free entry, must be a 2-pick", {"kind": "free_entry", "venue": "underdog", "amount": 5, "picks": 2}], ["PrizePicks gave me a free $10 lineup", {"kind": "free_entry", "venue": "prizepicks", "amount": 10}], ["Pick6 3 picks pay 7x tonight only", {"kind": "pickem_boost", "venue": "pick6", "picks": 3, "mult": 7}], ["FanDuel Predicts 25% profit boost on any NFL bet, $50 max", {"kind": "profit_boost", "venue": "fanduel", "boost": 0.25, "stake": 50, "sports": ["NFL"]}], ["DK 40% boost on 4+ leg NBA parlay up to $20", {"kind": "parlay_boost", "venue": "draftkings", "boost": 0.4, "minLegs": 4, "stake": 20}], ["100% profit boost on a same game parlay max $10", {"kind": "parlay_boost", "boost": 1, "stake": 10, "sameGame": "required"}], ["Kalshi fee-free NBA trades all week", {"kind": "fee_free", "venue": "kalshi", "feeOff": 1}], ["ProphetX: zero commission on NHL", {"kind": "fee_free", "venue": "prophetx"}], ["Bet $10 Get $100 Bonus Bets - Win or Lose (Bovada)", {"kind": "bet_and_get", "venue": "bovada", "qualStake": 10, "amount": 100}], ["novig bet $20 and get $20 in bonus bets if it loses", {"kind": "bet_and_get", "venue": "novig", "qualStake": 20, "amount": 20, "condition": "lose"}], ["I have $25 in bonus bets on FanDuel", {"kind": "bonus_bet", "venue": "fanduel", "amount": 25}], ["$50 free bet DK predictions", {"kind": "bonus_bet", "venue": "draftkings", "amount": 50}], ["Fliff: 2 x $5 bonus bets", {"kind": "bonus_bet", "venue": "fliff", "amount": 5, "count": 2}], ["no sweat first bet up to $100 on prophetx", {"kind": "no_sweat", "venue": "prophetx", "refundMax": 100}], ["FanDuel 5+ leg parlay insurance up to $25", {"kind": "parlay_insurance", "venue": "fanduel", "minLegs": 5, "refundMax": 25}], ["Boosted: Patrick Mahomes 2+ passing TDs -110 -> +125", {"kind": "odds_boost", "origOdds": -110, "boostedOdds": 125}], ["Kings ML boost +180 (reg +140)", {"kind": "odds_boost", "boostedOdds": 180, "origOdds": 140}], ["Bovada 50% deposit bonus up to $500, 10x rollover on deposit + bonus", {"kind": "deposit_match", "venue": "bovada", "amount": 500, "playthrough": 10, "ptBase": "both"}], ["50% NHL SGP boost 3+ legs", {"kind": "parlay_boost", "boost": 0.5, "minLegs": 3, "sameGame": "required", "sports": ["NHL"]}], ["Polymarket: no fees on NFL markets", {"kind": "fee_free", "venue": "polymarket_us"}], ["30% profit boost, min odds +100, max bet $25", {"kind": "profit_boost", "boost": 0.3, "minOdds": 100, "stake": 25}], ["chalkboard free pick maxey .5 points 1.78x", {"kind": "discounted_line", "venue": "chalkboard", "promoLine": 0.5, "promoMult": 1.78}], ["Betr free pick Jokic o 8.5 reb", {"kind": "discounted_line", "venue": "betr_us_dfs", "promoLine": 8.5, "promoSide": "Over"}], ["ParlayPlay boosted pick: Ant Edwards more than 2.5 threes 1.85x", {"kind": "discounted_line", "venue": "parlayplay", "promoLine": 2.5, "promoSide": "Over", "promoMult": 1.85}]]
+[
+[
+"tyrese maxey 0.5 points free pick on chalkboard needs a pair. free pick is given 1.78x odds that multiplies with the other picks odds",
+{
+"kind": "discounted_line",
+"venue": "chalkboard",
+"promoLine": 0.5,
+"promoSide": "Over",
+"promoMult": 1.78,
+"picks": 2,
+"targetLabel": "Tyrese Maxey"
+}
+],
+[
+"Chalkboard free pick: Maxey o0.5 pts (1.78x) - must be paired with 1 other pick",
+{
+"kind": "discounted_line",
+"venue": "chalkboard",
+"promoLine": 0.5,
+"promoMult": 1.78,
+"picks": 2,
+"targetLabel": "Tyrese Maxey"
+}
+],
+[
+"Chalkboard: Tyrese Maxey MORE than 0.5 points FREE PICK 1.78x",
+{
+"kind": "discounted_line",
+"venue": "chalkboard",
+"promoLine": 0.5,
+"promoSide": "Over",
+"promoMult": 1.78
+}
+],
+[
+"Sleeper promo pick: Cade Cunningham over 9.5 assists pays 2.1x",
+{
+"kind": "discounted_line",
+"venue": "sleeper",
+"promoLine": 9.5,
+"promoMult": 2.1,
+"targetLabel": "Cade Cunningham"
+}
+],
+[
+"Underdog special: LeBron James higher than 15.5 points 1.5x",
+{
+"kind": "discounted_line",
+"venue": "underdog",
+"promoLine": 15.5,
+"promoSide": "Over",
+"promoMult": 1.5
+}
+],
+[
+"PrizePicks Taco Tuesday: Jalen Brunson 12.5 pts (was 26.5), more only",
+{
+"kind": "discounted_line",
+"venue": "prizepicks",
+"promoLine": 12.5,
+"promoSide": "Over"
+}
+],
+[
+"PrizePicks discounted line Anthony Edwards 14.5 points",
+{
+"kind": "discounted_line",
+"venue": "prizepicks",
+"promoLine": 14.5
+}
+],
+[
+"prizepicks: luka 9.5 points discounted, more only",
+{
+"kind": "discounted_line",
+"venue": "prizepicks",
+"promoLine": 9.5,
+"promoSide": "Over"
+}
+],
+[
+"Dabble boosted pick Jayson Tatum under 40.5 PRA 2x",
+{
+"kind": "discounted_line",
+"venue": "dabble_us_dfs",
+"promoLine": 40.5,
+"promoSide": "Under",
+"promoMult": 2
+}
+],
+[
+"Free $5 entry on PrizePicks, 2 picks",
+{
+"kind": "free_entry",
+"venue": "prizepicks",
+"amount": 5,
+"picks": 2
+}
+],
+[
+"underdog $10 free entry 3 pick",
+{
+"kind": "free_entry",
+"venue": "underdog",
+"amount": 10,
+"picks": 3
+}
+],
+[
+"PrizePicks 2-pick power play pays 3.5x today",
+{
+"kind": "pickem_boost",
+"venue": "prizepicks",
+"picks": 2,
+"mult": 3.5
+}
+],
+[
+"Underdog 25% payout boost on a 3 pick entry, max $20",
+{
+"kind": "pickem_boost",
+"venue": "underdog",
+"boost": 0.25,
+"picks": 3,
+"stake": 20
+}
+],
+[
+"Pick6 boost: 2 picks pay 4x",
+{
+"kind": "pickem_boost",
+"venue": "pick6",
+"picks": 2,
+"mult": 4
+}
+],
+[
+"DK Predictions: 20% NBA profit boost, max $25",
+{
+"kind": "profit_boost",
+"venue": "draftkings",
+"boost": 0.2,
+"stake": 25,
+"sports": [
+"NBA"
+]
+}
+],
+[
+"FanDuel 30% SGP boost 3+ legs max $25 wager",
+{
+"kind": "parlay_boost",
+"venue": "fanduel",
+"boost": 0.3,
+"minLegs": 3,
+"stake": 25,
+"sameGame": "required"
+}
+],
+[
+"50% profit boost on any NHL player prop up to $10",
+{
+"kind": "profit_boost",
+"boost": 0.5,
+"stake": 10,
+"sports": [
+"NHL"
+],
+"betTypes": [
+"prop"
+]
+}
+],
+[
+"Kalshi: no fees on NFL trades this weekend",
+{
+"kind": "fee_free",
+"venue": "kalshi",
+"sports": [
+"NFL"
+],
+"feeOff": 1
+}
+],
+[
+"Novig 0% commission on all NBA",
+{
+"kind": "fee_free",
+"venue": "novig"
+}
+],
+[
+"Polymarket half fees today",
+{
+"kind": "fee_free",
+"venue": "polymarket_us",
+"feeOff": 0.5
+}
+],
+[
+"Bet $5 get $200 in bonus bets",
+{
+"kind": "bet_and_get",
+"qualStake": 5,
+"amount": 200
+}
+],
+[
+"FanDuel: bet $5, get $150 in bonus bets if your bet wins",
+{
+"kind": "bet_and_get",
+"venue": "fanduel",
+"qualStake": 5,
+"amount": 150,
+"condition": "win"
+}
+],
+[
+"$10 bonus bet expires 11/1",
+{
+"kind": "bonus_bet",
+"amount": 10,
+"expires": "2026-11-01"
+}
+],
+[
+"Bovada free bet $25",
+{
+"kind": "bonus_bet",
+"venue": "bovada",
+"amount": 25
+}
+],
+[
+"you have a $15 bonus bet on fliff",
+{
+"kind": "bonus_bet",
+"venue": "fliff",
+"amount": 15
+}
+],
+[
+"3 x $10 bonus bets on DK",
+{
+"kind": "bonus_bet",
+"venue": "draftkings",
+"amount": 10,
+"count": 3
+}
+],
+[
+"No sweat SGP up to $25 back in bonus bets",
+{
+"kind": "no_sweat",
+"refundMax": 25,
+"sameGame": "required"
+}
+],
+[
+"ProphetX no-sweat bet up to $50",
+{
+"kind": "no_sweat",
+"venue": "prophetx",
+"refundMax": 50
+}
+],
+[
+"Parlay insurance: 4+ legs, money back up to $20 if one leg loses",
+{
+"kind": "parlay_insurance",
+"minLegs": 4,
+"refundMax": 20
+}
+],
+[
+"Odds boost: LeBron James 30+ points +250 (was +200)",
+{
+"kind": "odds_boost",
+"boostedOdds": 250,
+"origOdds": 200
+}
+],
+[
+"DK boost Lakers ML now +150 from +120",
+{
+"kind": "odds_boost",
+"venue": "draftkings",
+"boostedOdds": 150,
+"origOdds": 120
+}
+],
+[
+"Bovada deposit match 100% up to $250, 5x rollover",
+{
+"kind": "deposit_match",
+"venue": "bovada",
+"amount": 250,
+"playthrough": 5
+}
+],
+[
+"25% parlay boost on NBA 4 leg parlays",
+{
+"kind": "parlay_boost",
+"boost": 0.25,
+"minLegs": 4,
+"sports": [
+"NBA"
+]
+}
+],
+[
+"profit boost 33% singles only min odds -200",
+{
+"kind": "profit_boost",
+"boost": 0.33,
+"maxLegs": 1,
+"minOdds": -200
+}
+],
+[
+"Fliff 50% boost on one leg each NFL NBA NHL",
+{
+"kind": "parlay_boost",
+"venue": "fliff",
+"boost": 0.5,
+"onePerSport": true,
+"minLegs": 3
+}
+],
+[
+"chalkboard 1.78x free pick tyrese maxey over .5 pts, pair it",
+{
+"kind": "discounted_line",
+"venue": "chalkboard",
+"promoLine": 0.5,
+"promoMult": 1.78,
+"picks": 2,
+"targetLabel": "Tyrese Maxey"
+}
+],
+[
+"Maxey o0.5 points chalkboard freebie 1.78x",
+{
+"kind": "discounted_line",
+"venue": "chalkboard",
+"promoLine": 0.5,
+"promoMult": 1.78
+}
+],
+[
+"sleeper 2x boost on Josh Allen over 1.5 pass tds",
+{
+"kind": "discounted_line",
+"venue": "sleeper",
+"promoLine": 1.5,
+"promoMult": 2
+}
+],
+[
+"Underdog pick'em boost 1.5x on a 2-pick",
+{
+"kind": "pickem_boost",
+"venue": "underdog",
+"picks": 2
+}
+],
+[
+"Betr: 2x payout on your first 2-pick",
+{
+"kind": "pickem_boost",
+"venue": "betr_us_dfs",
+"picks": 2
+}
+],
+[
+"$20 bonus on prophetx expires tomorrow",
+{
+"kind": "bonus_bet",
+"venue": "prophetx",
+"amount": 20
+}
+],
+[
+"Free pick on Chalkboard today - Cade Cunningham over 0.5 assists 1.75x, add 1+ more pick",
+{
+"kind": "discounted_line",
+"venue": "chalkboard",
+"promoLine": 0.5,
+"promoSide": "Over",
+"promoMult": 1.75
+}
+],
+[
+"chalkboard freebie: LeBron 1.5+ rebounds at 1.8x",
+{
+"kind": "discounted_line",
+"venue": "chalkboard",
+"promoLine": 1.5,
+"promoMult": 1.8
+}
+],
+[
+"PrizePicks Discounted: Shai Gilgeous-Alexander 15.5 Points (normally 31.5) MORE ONLY",
+{
+"kind": "discounted_line",
+"venue": "prizepicks",
+"promoLine": 15.5,
+"promoSide": "Over"
+}
+],
+[
+"underdog rival special: Brunson lower than 30.5 pts pays 1.6x",
+{
+"kind": "discounted_line",
+"venue": "underdog",
+"promoLine": 30.5,
+"promoSide": "Under",
+"promoMult": 1.6
+}
+],
+[
+"Sleeper: Victor Wembanyama u 3.5 blocks boosted to 2.2x",
+{
+"kind": "discounted_line",
+"venue": "sleeper",
+"promoLine": 3.5,
+"promoSide": "Under",
+"promoMult": 2.2
+}
+],
+[
+"dabble 1.9x pick: Nikola Jokic over 10.5 assists",
+{
+"kind": "discounted_line",
+"venue": "dabble_us_dfs",
+"promoLine": 10.5,
+"promoMult": 1.9
+}
+],
+[
+"Underdog: $5 free entry, must be a 2-pick",
+{
+"kind": "free_entry",
+"venue": "underdog",
+"amount": 5,
+"picks": 2
+}
+],
+[
+"PrizePicks gave me a free $10 lineup",
+{
+"kind": "free_entry",
+"venue": "prizepicks",
+"amount": 10
+}
+],
+[
+"Pick6 3 picks pay 7x tonight only",
+{
+"kind": "pickem_boost",
+"venue": "pick6",
+"picks": 3,
+"mult": 7
+}
+],
+[
+"FanDuel Predicts 25% profit boost on any NFL bet, $50 max",
+{
+"kind": "profit_boost",
+"venue": "fanduel",
+"boost": 0.25,
+"stake": 50,
+"sports": [
+"NFL"
+]
+}
+],
+[
+"DK 40% boost on 4+ leg NBA parlay up to $20",
+{
+"kind": "parlay_boost",
+"venue": "draftkings",
+"boost": 0.4,
+"minLegs": 4,
+"stake": 20
+}
+],
+[
+"100% profit boost on a same game parlay max $10",
+{
+"kind": "parlay_boost",
+"boost": 1,
+"stake": 10,
+"sameGame": "required"
+}
+],
+[
+"Kalshi fee-free NBA trades all week",
+{
+"kind": "fee_free",
+"venue": "kalshi",
+"feeOff": 1
+}
+],
+[
+"ProphetX: zero commission on NHL",
+{
+"kind": "fee_free",
+"venue": "prophetx"
+}
+],
+[
+"Bet $10 Get $100 Bonus Bets - Win or Lose (Bovada)",
+{
+"kind": "bet_and_get",
+"venue": "bovada",
+"qualStake": 10,
+"amount": 100
+}
+],
+[
+"novig bet $20 and get $20 in bonus bets if it loses",
+{
+"kind": "bet_and_get",
+"venue": "novig",
+"qualStake": 20,
+"amount": 20,
+"condition": "lose"
+}
+],
+[
+"I have $25 in bonus bets on FanDuel",
+{
+"kind": "bonus_bet",
+"venue": "fanduel",
+"amount": 25
+}
+],
+[
+"$50 free bet DK predictions",
+{
+"kind": "bonus_bet",
+"venue": "draftkings",
+"amount": 50
+}
+],
+[
+"Fliff: 2 x $5 bonus bets",
+{
+"kind": "bonus_bet",
+"venue": "fliff",
+"amount": 5,
+"count": 2
+}
+],
+[
+"no sweat first bet up to $100 on prophetx",
+{
+"kind": "no_sweat",
+"venue": "prophetx",
+"refundMax": 100
+}
+],
+[
+"FanDuel 5+ leg parlay insurance up to $25",
+{
+"kind": "parlay_insurance",
+"venue": "fanduel",
+"minLegs": 5,
+"refundMax": 25
+}
+],
+[
+"Boosted: Patrick Mahomes 2+ passing TDs -110 -> +125",
+{
+"kind": "odds_boost",
+"origOdds": -110,
+"boostedOdds": 125
+}
+],
+[
+"Kings ML boost +180 (reg +140)",
+{
+"kind": "odds_boost",
+"boostedOdds": 180,
+"origOdds": 140
+}
+],
+[
+"Bovada 50% deposit bonus up to $500, 10x rollover on deposit + bonus",
+{
+"kind": "deposit_match",
+"venue": "bovada",
+"amount": 500,
+"playthrough": 10,
+"ptBase": "both"
+}
+],
+[
+"50% NHL SGP boost 3+ legs",
+{
+"kind": "parlay_boost",
+"boost": 0.5,
+"minLegs": 3,
+"sameGame": "required",
+"sports": [
+"NHL"
+]
+}
+],
+[
+"Polymarket: no fees on NFL markets",
+{
+"kind": "fee_free",
+"venue": "polymarket_us"
+}
+],
+[
+"30% profit boost, min odds +100, max bet $25",
+{
+"kind": "profit_boost",
+"boost": 0.3,
+"minOdds": 100,
+"stake": 25
+}
+],
+[
+"chalkboard free pick maxey .5 points 1.78x",
+{
+"kind": "discounted_line",
+"venue": "chalkboard",
+"promoLine": 0.5,
+"promoMult": 1.78
+}
+],
+[
+"Betr free pick Jokic o 8.5 reb",
+{
+"kind": "discounted_line",
+"venue": "betr_us_dfs",
+"promoLine": 8.5,
+"promoSide": "Over"
+}
+],
+[
+"ParlayPlay boosted pick: Ant Edwards more than 2.5 threes 1.85x",
+{
+"kind": "discounted_line",
+"venue": "parlayplay",
+"promoLine": 2.5,
+"promoSide": "Over",
+"promoMult": 1.85
+}
+],
+[
+"I have $100 in bonus funds on Underdog",
+{
+"kind": "bonus_bet",
+"venue": "underdog",
+"amount": 100
+}
+],
+[
+"underdog $50 bonus bet",
+{
+"kind": "bonus_bet",
+"venue": "underdog",
+"amount": 50
+}
+],
+[
+"$25 promo cash on Sleeper",
+{
+"kind": "bonus_bet",
+"venue": "sleeper",
+"amount": 25
+}
+]
+]

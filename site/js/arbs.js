@@ -168,3 +168,49 @@ export async function pairBets(a, b, kind) {
 export async function unpair(legs) {
   await Promise.all(legs.map((x) => { const y = { ...x }; delete y.group; return saveBet(y); }));
 }
+
+// ---------- legs logged one at a time: find the pairs
+const NN = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+// the number a single bet rides on: wins when it ends above t (up) or below t
+function ride(b) {
+  if ((b.legs || []).length > 1 || !b.gameId || !b.market) return null;
+  const base = b.market.replace("alternate_", ""), side = b.side, pt = b.point;
+  if (b.player) {
+    if (["Over", "Under"].includes(side) && pt != null) return { key: `${b.gameId}|${base}|${NN(b.player)}`, t: +pt, up: side === "Over" };
+    return null;
+  }
+  if (/^(team_)?totals/.test(base) && ["Over", "Under"].includes(side) && pt != null) return { key: `${b.gameId}|${base}|${NN(b.team)}`, t: +pt, up: side === "Over" };
+  const g = S.games.get(b.gameId) || S.liveGames?.get(b.gameId);
+  if (/^(spreads|h2h)/.test(base) && g) {
+    const home = NN(side) === NN(g.home), away = NN(side) === NN(g.away), p0 = base.startsWith("h2h") ? 0 : pt;
+    if ((!home && !away) || p0 == null) return null;
+    return { key: `${b.gameId}|margin${base.replace(/^(spreads|h2h)/, "")}`, t: home ? -p0 : +p0, up: home };
+  }
+  return null;
+}
+// two ungrouped bets on the same number, opposite ways, logged within a few hours: an arb (same number) or a middle
+// (both can win between the numbers). Same number, different venues, within 30 minutes is unambiguous: pair it
+// automatically. The rest are offered with one tap.
+export function findPairs(bets) {
+  const open = bets.filter((b) => !b.group && b.status !== "void").map((b) => ({ b, r: ride(b) })).filter((x) => x.r);
+  const used = new Set(), out = [];
+  for (const x of open) for (const y of open) {
+    if (x === y || used.has(x.b.id) || used.has(y.b.id) || x.r.key !== y.r.key || !x.r.up || y.r.up) continue;
+    const dt = Math.abs(new Date(x.b.createdAt) - new Date(y.b.createdAt)) / 60000;
+    if (!(dt <= 6 * 60)) continue;
+    const up = x.r.t, down = y.r.t;                // up wins above `up`, down wins below `down`
+    if (down < up) continue;                        // both can lose in between: not an arb or a middle
+    const kind = down === up ? "arb" : "middle";
+    out.push({ a: x.b, b: y.b, kind, auto: kind === "arb" && x.b.venue !== y.b.venue && dt <= 30 });
+    used.add(x.b.id); used.add(y.b.id);
+  }
+  return out;
+}
+let autoBusy = false;
+export function autoPair(bets) {
+  if (autoBusy) return;
+  const todo = findPairs(bets).filter((p) => p.auto);
+  if (!todo.length) return;
+  autoBusy = true;
+  Promise.all(todo.map((p) => pairBets(p.a, p.b, p.kind))).then(() => toast(`Paired ${todo.length} arb${todo.length > 1 ? "s" : ""} logged as separate bets`)).catch(() => {}).finally(() => { autoBusy = false; });
+}

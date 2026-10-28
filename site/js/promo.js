@@ -158,7 +158,7 @@ export function parsePromo(text) {
     p.kind = "bet_and_get"; const g = m(/(?:bet|wager|place|trade)\s*\$\s*(\d+)[a-z ,]{0,30}?get\s*\$\s*(\d+)/); p.qualStake = +g[1]; p.amount = +g[2];
     if (/(?:if|when) (?:it|your bet|the bet|your wager) (?:wins|cashes|hits)|win and get/.test(t)) p.condition = "win";
     else if (/(?:if|when) (?:it|your bet|the bet|your wager) (?:loses|doesn'?t win|misses)|lose and get/.test(t)) p.condition = "lose";
-  } else if ((/bonus bets?|free bets?|bet credits?|site credit|free \$\d+|token/.test(t) || /\$\s*\d+\s*(?:in\s*)?bonus\b(?!\s*(?:boost|%))/.test(t)) && !pct) {
+  } else if ((/bonus bets?|free bets?|bet credits?|site credit|free \$\d+|token|bonus (?:funds|cash|money|balance)|promo (?:funds|cash|money|credit)/.test(t) || /\$\s*\d+\s*(?:in\s*)?bonus\b(?!\s*(?:boost|%))/.test(t)) && !pct) {
     p.kind = "bonus_bet";
   } else if (/parlay|combo|sgp|same game|same-game|\blegs?\b|multi/.test(t) && !/any (?:bet|wager)|single|straight|or parlay|including parlays/.test(t)) {
     p.kind = "parlay_boost"; p.minLegs = 2;
@@ -183,7 +183,7 @@ export function parsePromo(text) {
   if (stake && !["deposit_match", "bet_and_get"].includes(p.kind)) p.stake = num(stake[1]);
   const win = m(/max(?:imum)?\s*(?:extra|boosted|additional)?\s*(?:winnings|profit|payout)\s*(?:of\s*)?\$\s*([\d,]+)/) || m(/(?:extra|boosted) winnings (?:capped|limited) (?:at|to) \$\s*([\d,]+)/);
   if (win) p.maxWin = num(win[1]);
-  const amt = m(/\$\s*([\d,]+)\s*(?:in\s*)?(?:bonus bets?|free bets?|bet credits?|site credit|bonus|free (?:entry|play|lineup)|entry|lineup|token)/) || m(/(?:bonus bet|free bet|free entry|free lineup|bonus)\s*(?:of|worth)?\s*\$\s*([\d,]+)/) || m(/free \$\s*([\d,]+)/);
+  const amt = m(/\$\s*([\d,]+)\s*(?:in\s*)?(?:(?:bonus|promo) (?:funds|cash|money|balance|credits?)|bonus bets?|free bets?|bet credits?|site credit|bonus|free (?:entry|play|lineup)|entry|lineup|token)/) || m(/(?:bonus bet|free bet|free entry|free lineup|bonus)\s*(?:of|worth)?\s*\$\s*([\d,]+)/) || m(/free \$\s*([\d,]+)/);
   if (amt && ["bonus_bet", "free_entry", "deposit_match"].includes(p.kind) && p.amount == null) p.amount = num(amt[1]);
   const cnt = m(/(\d{1,2}|two|three|four|five)\s*x\s*\$\s*\d+/) || m(/(\d{1,2}|two|three|four|five)\s*(?:bonus bets|free bets|tokens|boosts)/);
   if (cnt) { p.count = num(cnt[1]); const each = m(/x\s*\$\s*(\d+)/); if (each) p.amount = +each[1]; }
@@ -340,6 +340,12 @@ export function parseTable(txt) {   // "3:2.25, 2:1.25" -> {3: 2.25, 2: 1.25}
   const out = {}; String(txt || "").split(/[,;\s]+/).forEach((x) => { const m = x.match(/^(\d+):(\d+(?:\.\d+)?)x?$/); if (m) out[+m[1]] = +m[2]; });
   return Object.keys(out).length ? out : null;
 }
+// what a pick'em entry pays if every pick hits (the app's table times each pick's own adjustment)
+function entryMult(p, cs) {
+  if (p.kind === "discounted_line" && p.promoMult) return cs.reduce((x, c) => x * (c.promo ? p.promoMult : c.perX ?? (p.otherMult || Math.sqrt(3))), 1);
+  const M = (p.mult || payoutFor(p.venue, cs.length) || 0) * (1 + (p.kind === "pickem_boost" ? p.boost || 0 : 0));
+  return M * cs.reduce((x, c) => x * (c.mult ?? 1), 1);
+}
 function entryPay(p, cs) {     // expected multiplier of a pick'em entry
   const n = cs.length;
   // a promo pick with its own multiplier (Chalkboard's free pick at 1.78x): the entry pays the product of every pick's
@@ -364,7 +370,10 @@ export function value(p, cs, ctx = {}) {
     }
     case "odds_boost": { const Db = p.boostedOdds != null ? decOf(p.boostedOdds) : D; ev = s * (P * Db - 1); break; }
     case "fee_free": ev = s * (P * D - 1); break;
-    case "bonus_bet": { const a = p.amount || 10; ev = a * P * (D - 1); risk = 0; note = `${Math.round(P * (D - 1) * 100)}% of the bonus turned into cash value`; break; }
+    case "bonus_bet": {           // a sportsbook bet, or a pick'em entry (Underdog bonus funds): only the winnings come back
+      const a = p.amount || 10, Dx = cs[0]?.pickem ? entryMult(p, cs) : D;
+      ev = a * P * (Dx - 1); risk = 0; note = `${Math.round(P * (Dx - 1) * 100)}% of the bonus turned into cash value`; break;
+    }
     case "no_sweat": { const r = Math.min(s, p.refundMax || s); ev = s * (P * D - 1) + (1 - P) * r * conv; break; }
     case "parlay_insurance": { const r = Math.min(s, p.refundMax || s); ev = s * (P * D - 1) + oneMiss(cs) * r * conv; break; }
     case "bet_and_get": {
@@ -419,6 +428,14 @@ export function optimize(p0, top = 8) {
     return [wrap([c], { est })];
   }
   if (["pickem_boost", "free_entry", "discounted_line"].includes(k)) return pickemPlan(p, top, ctx);
+  if (k === "bonus_bet" && PICKEM.has(p.venue)) {
+    // bonus funds at a pick'em app: no stake comes back, so the best entry size is the one that keeps the most of it
+    // (longer entries pay more but hit less): price 2 to 5 picks unless the promo names a size
+    const sizes = p.picks ? [p.picks] : [2, 3, 4, 5];
+    const per = sizes.map((n) => pickemPlan({ ...p, picks: n }, top, ctx));
+    const firsts = per.map((r) => r[0]).filter(Boolean);          // the best entry of every size stays on the list
+    return [...firsts, ...per.flatMap((r) => r.slice(1)).sort((a, b) => b.ev - a.ev)].slice(0, Math.max(top, firsts.length)).sort((a, b) => b.ev - a.ev);
+  }
 
   const minLegs = Math.max(1, p.minLegs || 1);
   const feeFree = k === "fee_free";
@@ -523,7 +540,7 @@ function pickemPlan(p, top, ctx) {
       const real = fed && !l.varPay && l.pickDec > 1;
       // Pick6: the multiplier is estimated from DraftKings' price (engine), so the pick is judged at that estimate
       const est = fed && l.varPay && l.estMult ? l.estMult : null;
-      return { leg: l, price: { am: null }, D: 1, P: l.fair, mult: real ? l.pickDec / STD : est || 1, est: !!est, needs: l.varPay ? l.minMult ?? (1 / l.fair) / STD : null, varPay: (!!l.varPay && !est) || !fed };
+      return { leg: l, price: { am: null }, D: 1, P: l.fair, pickem: true, mult: real ? l.pickDec / STD : est || 1, est: !!est, needs: l.varPay ? l.minMult ?? (1 / l.fair) / STD : null, varPay: (!!l.varPay && !est) || !fed };
     })
     // unknown multipliers: near-even picks only (likely paid 1x); known or estimated payouts: any side the payout justifies
     .filter((c) => c.varPay ? c.P >= 0.5 && c.P <= 0.59 : c.P >= 0.3 && c.P * c.mult * STD > 0.9)
@@ -534,7 +551,7 @@ function pickemPlan(p, top, ctx) {
     const P0 = pAtLine(l, p.promoLine, p.promoSide || "Over");
     if (P0 == null) return [];
     const P = Math.min(P0, 0.98);           // a near-lock still loses to an early injury exit or a foul-out
-    fixed = { leg: { ...l, label: `${l.player} ${p.promoSide || "Over"} ${p.promoLine} ${l.market.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " ")} (promo line)` }, price: { am: null }, D: 1, P, promo: true,
+    fixed = { leg: { ...l, label: `${l.player} ${p.promoSide || "Over"} ${p.promoLine} ${l.market.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " ")} (promo line)` }, price: { am: null }, D: 1, P, promo: true, pickem: true,
       perX: p.promoMult || null, capped: P0 > 0.98 };
     pool = pool.filter((c) => c.leg.player !== l.player);
   }
@@ -565,7 +582,7 @@ function pickemPlan(p, top, ctx) {
       }
       return { legs: cs, ...value(p, cs, ctx), pick: true, fed, payX: cs.reduce((x, c) => x * mx(c), 1), perPick: true, assumed: cs.some((c) => c.assumed) };
     }
-    return { legs: cs, ...value(p, cs, ctx), pick: true, fed };
+    return { legs: cs, ...value(p, cs, ctx), pick: true, fed, payX: parseTable(p.flex) ? null : entryMult(p, cs) };
   });
   const seen = new Set();
   return res.filter((r) => { const kk = keyOf(r.legs); if (seen.has(kk)) return false; seen.add(kk); return true; }).sort((a, b) => b.ev - a.ev).slice(0, top);
