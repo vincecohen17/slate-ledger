@@ -542,3 +542,25 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .lg-chk { margin-top: 12px; border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
 .lg-chkr { padding: 6px 0; border-top: 1px solid var(--line); }
 .lb-boost { display: flex; } .lb-boost input { width: auto; flex: none; } .lb-boost span { flex: 1; min-width: 0; }
+
+/* ledger analysis */
+.an-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 10px; margin-top: 12px; }
+.an-tiles .v.small { font-size: 18px; }
+.an-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(80px, 1.6fr) 70px 34px; gap: 8px; align-items: center; padding: 4px 0; font-size: 13px; }
+.an-t td:first-child, .an-t th:first-child { text-align: left; white-space: nowrap; }
+.an-cal { display: flex; gap: 14px; align-items: flex-end; padding: 8px 0 4px; overflow-x: auto; }
+.an-calc { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 56px; }
+.an-calb { position: relative; width: 44px; height: 140px; background: var(--panel-2); border-radius: 6px; display: flex; gap: 4px; align-items: flex-end; justify-content: center; padding: 0 4px; }
+.an-calb i { display: block; width: 16px; border-radius: 4px 4px 0 0; }
+.an-calb i.exp { background: var(--muted); opacity: .55; } .an-calb i.act.pos { background: var(--pos); } .an-calb i.act.neg { background: var(--neg); }
+.an-heat { border-collapse: separate; border-spacing: 3px; font-size: 12px; margin-top: 6px; }
+.an-heat th { font-weight: 500; color: var(--muted); text-align: left; padding: 2px 6px; white-space: nowrap; }
+.an-heat thead th { text-align: center; }
+.an-heat td { min-width: 64px; text-align: center; border-radius: 6px; padding: 5px 4px; background: var(--panel-2); }
+.an-heat td b { display: block; font: 600 12px var(--mono); } .an-heat td span { display: block; font-size: 10px; color: var(--muted); }
+.an-heat td.na { color: var(--faint); }
+.an-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 720px) { .an-two { grid-template-columns: 1fr; } }
+.an-mini { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto 70px; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.an-mini b { text-align: right; }
+@media (max-width: 520px) { .an-mini { grid-template-columns: 18px minmax(0, 1fr) 64px; } .an-mini .tiny { display: none; } }

@@ -7,6 +7,7 @@ import { settleProfit, isBoost } from "../promo.js";
 import { VENUES } from "../lab.js";
 import { projectedCard, betLegs } from "../projected.js";
 import { betImage } from "./common.js";
+import { analysis, bindAnalysis } from "./analysis.js";
 
 let tab = "mine", filter = "pending", groupBy = "type";
 const inflight = new Set();
@@ -254,6 +255,18 @@ function ours() {
     ${tailed.length ? `<div class="sec-title">You vs the picks<span class="line"></span></div><div class="pr-ck">
       <div class="kpi"><div class="k">Bets tailing our picks</div><div class="v ${ts.pl >= 0 ? "pos" : "neg"}">${money(ts.pl)}</div><div class="s">${ts.n} settled · ROI ${ts.roi != null ? pct(ts.roi) : "–"} · CLV ${ts.clv != null ? pct(ts.clv) : "–"}</div></div>
       <div class="kpi"><div class="k">Your own bets</div><div class="v ${own.pl >= 0 ? "pos" : "neg"}">${money(own.pl)}</div><div class="s">${own.n} settled · ROI ${own.roi != null ? pct(own.roi) : "–"} · CLV ${own.clv != null ? pct(own.clv) : "–"}</div></div></div>` : ""}
+    ${graded.length ? (() => {
+      const sup = (p) => Object.values(p.pillars || {}).filter((x) => x === "support").length;
+      const grp = (fn) => { const m = new Map(); graded.forEach((p) => { const k = fn(p); if (!m.has(k)) m.set(k, []); m.get(k).push(asBet(p)); }); return [...m.entries()].map(([k, bs]) => [k, summarize(bs)]); };
+      const edgeB = (p) => { const e = p.modelP != null && p.marketFair != null ? p.modelP - p.marketFair : null; return e == null ? "No model number" : e < 0.02 ? "Model +0-2 pts" : e < 0.05 ? "Model +2-5 pts" : "Model +5 pts or more"; };
+      const kindB = (p) => (p.player ? "Props" : /^h2h/.test(p.market || "") ? "Moneylines" : /spreads/.test(p.market || "") ? "Spreads" : /totals/.test(p.market || "") ? "Totals" : "Other");
+      const tbl = (title, rows) => `<div class="card" style="margin-top:10px"><b>${title}</b><div style="overflow-x:auto"><table class="l10t lg-t"><thead><tr><th></th><th>Picks</th><th>Record</th><th>Units</th><th>ROI</th><th>Avg CLV</th></tr></thead><tbody>
+        ${rows.filter(([, r]) => r.n).map(([k, r]) => `<tr><td>${esc(k)}</td><td class="num">${r.n}</td><td class="num">${r.w}-${r.l}${r.p ? "-" + r.p : ""}</td><td class="num ${r.pl >= 0 ? "pos" : "neg"}">${u(r.pl)}</td><td class="num">${r.roi != null ? pct(r.roi) : "–"}</td><td class="num ${r.clv > 0 ? "pos" : r.clv < 0 ? "neg" : ""}">${r.clv != null ? pct(r.clv) : "–"}</td></tr>`).join("")}</tbody></table></div></div>`;
+      return `<div class="sec-title">What makes a good pick<span class="line"></span></div>
+        ${tbl("By how many of the six pillars supported it", grp((p) => `${sup(p)} of 6 support`).sort((a, b) => b[0].localeCompare(a[0])))}
+        ${tbl("By how far our model was from the market", grp(edgeB))}
+        ${tbl("By bet type", grp(kindB))}
+        <p class="note">Once these fill in, they tell the pick runs which cases to trust: if 5-of-6 picks beat the close and 3-of-6 don't, the bar goes up.</p>`; })() : ""}
     <div class="sec-title">Recent picks<span class="line"></span></div>
     <div class="lt-list">${recent.map((p) => {
       const st = ["won", "lost", "push"].includes(p.status) ? p.status : p.status === "void" ? "void" : "pending";
@@ -276,8 +289,9 @@ export function renderLedger(el) {
   for (const b of S.bets.values()) if (b.status === "pending") for (const l of betLegs(b)) if (l.player && l.gameId) loadProps(l.gameId);
   for (const p of S.picks.values()) if (p.player && p.gameId && !["won", "lost", "push", "void"].includes(p.status)) loadProps(p.gameId);
   el.innerHTML = `<div class="row" style="justify-content:space-between;margin-top:18px;flex-wrap:wrap;gap:8px"><h2 style="margin:0;font-size:18px">Ledger</h2>
-      <div class="bar" style="margin:0"><button class="chip ${tab === "mine" ? "on" : ""}" data-tab="mine">My bets</button><button class="chip ${tab === "ours" ? "on" : ""}" data-tab="ours">Our picks</button></div></div>
-    ${tab === "mine" ? mine(el) : ours()}`;
+      <div class="bar" style="margin:0"><button class="chip ${tab === "mine" ? "on" : ""}" data-tab="mine">My bets</button><button class="chip ${tab === "analysis" ? "on" : ""}" data-tab="analysis">Analysis</button><button class="chip ${tab === "ours" ? "on" : ""}" data-tab="ours">Our picks</button></div></div>
+    ${tab === "mine" ? mine(el) : tab === "analysis" ? analysis() : ours()}`;
+  if (tab === "analysis") bindAnalysis(el, () => renderLedger(el));
   $$("[data-tab]", el).forEach((b) => b.onclick = () => { tab = b.dataset.tab; renderLedger(el); });
   const ab = $("#add-bet", el); if (ab) ab.onclick = () => logSheet({});
   $$("[data-grp]", el).forEach((b) => b.onclick = () => { groupBy = b.dataset.grp; renderLedger(el); });

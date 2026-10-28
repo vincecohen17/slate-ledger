@@ -45,18 +45,25 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   "z:" + base64 deflate (the site inflates with DecompressionStream); only changed pieces are written. Alternates load
   only for an opened game or the Lab's switch, so opening the board downloads ~1.5 MB. Firestore keeps bets, promos,
   picks, previews and private/dispatch. Rules: `database.rules.template.json` (the engine puts them on the database).
+- `engine/edgecard.py` the edges' report card: every flagged edge logged (track/edgelog/open.json) with venue, price, fair,
+  edge, logic and lead time, its fair and venue price refreshed to the close, then graded (track/edgecard/<sport>.jsonl):
+  CLV at the flagged / last / best price and the result; summary stats/edgecard.json (by venue, line type, market, edge
+  size, logic, timing, sport, venue x type, venue x sport) shown on Reports, and edges re-ranked by it (shrunk, n/(n+150)).
+  Also opening lines: first fair seen per main line/prop row (track/opens.json) stamped as open/openPt/openAt on lines and edges.
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,
   filled at deploy time from the private data repo `config/access.json`). Screens: Board, Game (overview,
   lines, props, pick), Edges, Picks, Bet Lab (parlays to 20 legs, same-game correlation), Promos (plain-words
-  parser + optimizer), Ledger (bets, P/L chart), Reports. Math for the lab/promos lives in `site/js/lab.js`.
+  parser + optimizer), Ledger (bets; Analysis: skill vs luck, rolling CLV, calibration, venue x type heatmaps, timing,
+  sizing vs Kelly, promo value, swings; Our picks incl. by pillars/model gap), Reports (edge report card, books, models). Math for the lab/promos lives in `site/js/lab.js`.
 - Picks: Claude writes `picks/<YYYY-MM-DD>.json` (a list) to the data repo; every engine run syncs them to
   Firestore `picks/{id}`. Fields: id, date, gameId, league, matchup, commence, selection, player?, tier
   (bet|floor|likely), units, status, fair, fairAm, goodAt, greatAt, playTo[{venue,name,price,line?,inRange}],
   case (1-2 paragraphs, blank line between), pillars{model,advanced,matchup,role,context,market: support|neutral|against},
   risk (a paragraph on what could go wrong), marketFair, modelP, keyStats[{label,value,note?,tone}], confirm[],
-  market (Odds API key), side, point (the side's own line), player?, team?; graded by the engine: status, profit, clv, closeFair
+  market (Odds API key), side, point (the side's own line), player?, team?, early? (posted the night before by the early look,
+  earlyAt); graded by the engine: status, profit, clv, closeFair
 - `.github/workflows/pull.yml` engine run (manual or push to `engine/run-request`; live cron after the 5M upgrade).
   `deploy.yml` deploys site + rules on changes to `site/`, `firebase.json` or the rules template.
 - Private data repo `vincecohen17/slate-ledger-data`: `latest/` (board.json, props.json, edges.json, log_<mode>.txt: the

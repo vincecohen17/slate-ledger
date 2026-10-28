@@ -15,6 +15,14 @@ export function betImage(item, size = 42) {
   return g?.leagueLogo ? teamLogo({ logo: g.leagueLogo, abbr: item.league }, item.league, size) : teamLogo(null, item.league, size);
 }
 
+// how the market moved on this side since we first saw the line (fair, and the point if it changed)
+function moveTag(e) {
+  const d = e.fair - e.open, pt = e.openPt != null && e.point != null && Math.abs(e.openPt - e.point) > 1e-6 ? ` (opened ${e.openPt > 0 && /spreads/.test(e.market) ? "+" : ""}${e.openPt})` : "";
+  if (pt) return `<span class="pill" title="first seen ${esc(e.openAt || "")}">line moved${pt}</span>`;
+  if (Math.abs(d) < 0.01) return `<span class="pill" title="first seen ${esc(e.openAt || "")}">no move</span>`;
+  return `<span class="pill ${d > 0 ? "pos" : "neg"}" title="first seen ${esc(e.openAt || "")}: ${prob(e.open)} then, ${prob(e.fair)} now. Moving toward your side means the market agrees.">${d > 0 ? "▲" : "▼"} ${Math.abs(d * 100).toFixed(1)} pts since open</span>`;
+}
+
 export function edgeCard(e) {
   const g = S.games.get(e.gameId);
   const href = `#/game/${e.gameId}/${/^(player|batter|pitcher)_/.test(e.market || "") ? "props" : "lines"}`;
@@ -27,6 +35,7 @@ export function edgeCard(e) {
     </div>
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
+        ${e.track || e.open != null ? `<span class="tiny row" style="gap:6px;flex-wrap:wrap">${e.track ? `<span class="pill ${e.track.clv > 0 ? "pos" : e.track.clv < 0 ? "neg" : ""}" title="how ${esc(e.track.cat)} edges have done at the close: ${Math.round(e.track.beat * 100)}% beat it">track ${pct(e.track.clv)} CLV · ${e.track.n}</span>` : ""}${e.open != null ? moveTag(e) : ""}</span>` : ""}
         <span class="tiny muted">fair ${bothP(e.fair)} · edge <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill" title="fair moved from the main line with the stat model">alt line</span>` : ""}${e.est ? ` · <span class="pill" title="nobody quotes the other side, so the fair is estimated (first-scorer markets de-vig across the whole field; others strip each book's measured margin)">est. fair</span>` : ""}</span>
         ${e.ctx?.length ? `<span class="tiny muted ellip" title="${esc(e.ctx.join(" · "))}">ⓘ ${esc(e.ctx[0])}${e.ctx.length > 1 ? ` +${e.ctx.length - 1}` : ""}</span>` : ""}
         ${e.last10?.length ? `<span class="l10">${spark(e.last10, e.point, { side: (e.label.match(/ (Over|Under) /) || [])[1] })}<span>last ${e.last10.length}: ${hitRate(e.last10, e.point, (e.label.match(/ (Over|Under) /) || [])[1])}</span></span>` : ""}

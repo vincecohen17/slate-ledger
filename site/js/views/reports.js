@@ -1,7 +1,36 @@
 import { S } from "../store.js";
 import { esc, pct, ago, bindTips, bookLogo, $$ } from "../util.js";
+import { lineChart, legend } from "./charts.js";
 
-let span = "total", focus = null;
+let span = "total", focus = null, ecDim = "venue";
+
+// the edges' report card: every edge we flagged, graded at the close and after the result
+const EC_DIMS = [["venue", "Venue"], ["kind", "Line type"], ["market", "Market"], ["edge", "Edge size"], ["logic", "Model"], ["timing", "Time before start"],
+  ["league", "Sport"], ["venueKind", "Venue x type"], ["venueLeague", "Venue x sport"]];
+const venueName = (k) => S.edges.find((e) => e.book === k)?.bookName || k;
+function edgeCard(C) {
+  if (!C || !C.n) return `<div class="card note">Collecting. Every edge the board flags is logged with its price, followed to the close and graded after the game; the first grades land after today's games, and categories show from 3 edges (trust them from a few hundred).</div>`;
+  const rows = C[ecDim] || [];
+  const max = Math.max(0.01, ...rows.map((r) => Math.abs(r.clv)));
+  const conf = (r) => r.z == null ? "" : Math.abs(r.z) >= 2.5 ? `<span class="pill ${r.clv > 0 ? "pos" : "neg"}">solid</span>` : Math.abs(r.z) >= 1.5 ? `<span class="pill">likely</span>` : `<span class="pill" style="opacity:.6">noise?</span>`;
+  const name = (k) => ecDim === "venue" ? `<span class="lg-name">${bookLogo(k, venueName(k), 16)}${esc(venueName(k))}</span>` : ecDim.startsWith("venue") ? (() => { const [v, rest] = k.split(" · "); return `<span class="lg-name">${bookLogo(v, venueName(v), 16)}${esc(venueName(v))} · ${esc(rest)}</span>`; })() : esc(k);
+  const d = C.daily || [];
+  return `<div class="card">
+    <div class="kpis"><div class="kpi"><div class="k">Edges graded</div><div class="v">${C.n.toLocaleString()}</div><div class="s">since ${esc(C.since || "")}</div></div>
+      <div class="kpi"><div class="k">CLV at the flagged price</div><div class="v ${C.all.clv > 0 ? "pos" : "neg"}">${pct(C.all.clv)}</div><div class="s">beat the close ${Math.round(C.all.beat * 100)}%</div></div>
+      <div class="kpi"><div class="k">If you waited</div><div class="v ${C.all.clvLast > 0 ? "pos" : "neg"}">${pct(C.all.clvLast)}</div><div class="s">the venue's last price before the start</div></div>
+      <div class="kpi"><div class="k">Flat 1u ROI</div><div class="v ${C.all.roi > 0 ? "pos" : "neg"}">${C.all.roi != null ? pct(C.all.roi) : "–"}</div><div class="s">won ${C.all.win != null ? Math.round(C.all.win * 100) + "%" : "–"} vs ${C.all.exp != null ? Math.round(C.all.exp * 100) + "%" : "–"} expected</div></div></div>
+    <div class="bar" style="margin-top:10px">${EC_DIMS.map(([k, l]) => `<button class="chip sm ${k === ecDim ? "on" : ""}" data-ec="${k}">${l}</button>`).join("")}</div>
+    <div style="overflow-x:auto"><table class="l10t an-t" style="width:100%"><thead><tr><th></th><th>Edges</th><th style="min-width:130px">CLV at flag</th><th>Beat close</th><th>Waited</th><th>Best seen</th><th>ROI</th><th>Won / exp</th><th></th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${name(r.k)}</td><td class="num">${r.n}</td>
+        <td><div class="lg-roi"><span class="lg-mid"></span><i class="${r.clv >= 0 ? "pos" : "neg"}" style="${r.clv >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(r.clv) / max * 50).toFixed(0)}%"></i></div><span class="num tiny ${r.clv >= 0 ? "pos" : "neg"}">${pct(r.clv)}</span></td>
+        <td class="num">${Math.round(r.beat * 100)}%</td><td class="num ${r.clvLast >= 0 ? "pos" : "neg"}">${pct(r.clvLast)}</td><td class="num">${pct(r.clvBest)}</td>
+        <td class="num ${r.roi > 0 ? "pos" : r.roi < 0 ? "neg" : ""}">${r.roi != null ? pct(r.roi) : "–"}</td><td class="num">${r.win != null ? `${Math.round(r.win * 100)} / ${Math.round(r.exp * 100)}` : "–"}</td><td>${conf(r)}</td></tr>`).join("")}
+    </tbody></table></div>
+    ${d.length >= 3 ? `<div style="margin-top:10px">${lineChart([{ pts: d.map((x, i) => ({ i, y: x.clv, tip: `${x.d}: ${pct(x.clv)} over ${x.n} edges` })), color: "var(--pos)" }], { h: 160, fmt: (x) => pct(x), labels: d.map((x, i) => (i % Math.ceil(d.length / 6) === 0 ? x.d.slice(5) : "")) })}${legend([["var(--pos)", "average CLV of the day's flagged edges"]])}</div>` : ""}
+    <p class="note"><b>CLV at flag</b>: what the price we flagged was worth at the closing sharp fair. Positive across hundreds of edges means that kind of edge is real; negative means the "edge" was the venue being right and the fair being slow.
+      <b>Waited</b> is the same edge at the venue's last price before the start (negative when waiting costs you: bet early there). <b>Best seen</b> is the best price the venue showed. "solid" means the CLV is 2.5+ standard errors from zero. These numbers also nudge each new edge's rank.</p></div>`;
+}
 
 function divBars(rows, val, fmt, tip) {
   const max = Math.max(0.005, ...rows.map((r) => Math.abs(val(r))));
@@ -76,6 +105,8 @@ export function renderReports(el) {
     ${st?.errors?.length ? `<div class="card note" style="margin-top:10px">${st.errors.map(esc).join("<br>")}</div>` : ""}
     <div class="bar"><button class="chip ${span === "total" ? "on" : ""}" data-span="total">Since ${R?.since ? esc(R.since.slice(0, 10)) : "start"} · ${R?.runs ?? 0} pulls</button>
       <button class="chip ${span === "now" ? "on" : ""}" data-span="now">Latest pull</button></div>
+    <div class="sec-title">Edge report card: are our edges real?<span class="line"></span></div>
+    ${edgeCard(R?.edgecard)}
     <div class="sec-title">Where the books are off<span class="line"></span></div>
     <div class="card">${rows.length ? divBars(rows.map((r) => ({ ...r })), (r) => -r.overpay, (v) => pct(v, 2),
         (r) => `${r.name}: average price ${pct(-r.overpay, 2)} vs sharp fair over ${r.n} prices · beats fair ${Math.round(r.plusRate * 100)}% of the time · stale ${Math.round(r.staleRate * 100)}%`)
@@ -90,6 +121,7 @@ export function renderReports(el) {
     <div class="sec-title">Backtests<span class="line"></span></div>
     ${backtestCard(R?.backtest)}`;
   $$("[data-span]", el).forEach((b) => b.onclick = () => { span = b.dataset.span; renderReports(el); });
+  $$("[data-ec]", el).forEach((b) => b.onclick = () => { ecDim = b.dataset.ec; renderReports(el); });
   $$("[data-book]", el).forEach((b) => b.onclick = () => { focus = focus === b.dataset.book ? null : b.dataset.book; renderReports(el); });
   bindTips(el);
 }
