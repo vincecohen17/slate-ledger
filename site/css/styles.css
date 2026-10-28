@@ -538,3 +538,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .lg-wl { display: inline-flex; height: 8px; width: 70px; border-radius: 4px; overflow: hidden; background: var(--panel-3); vertical-align: middle; margin-right: 6px; }
 .lg-wl i { display: block; height: 100%; } .lg-wl i.w { background: var(--pos); } .lg-wl i.l { background: var(--neg); }
 @media (max-width: 520px) { .pj-big.wide { grid-column: 1 / -1; } }
+.lg-chk { margin-top: 12px; border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.lg-chkr { padding: 6px 0; border-top: 1px solid var(--line); }
+.lb-boost { display: flex; } .lb-boost input { width: auto; flex: none; } .lb-boost span { flex: 1; min-width: 0; }

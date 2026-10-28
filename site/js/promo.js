@@ -535,18 +535,21 @@ function depositPlan(p) {
 }
 
 // ---------- settling a logged bet that used a promo
+export const isBoost = (promo) => { const k = promo ? kindOf(normalize(promo).kind).key : null; return ["profit_boost", "parlay_boost", "pickem_boost", "custom"].includes(k) && (k !== "custom" || !!normalize(promo).winBoost); };
+
 export function settleProfit(b, promo, status) {
   if (status === "push" || status === "void") return 0;
   const p = promo ? normalize(promo) : null, k = p ? kindOf(p.kind).key : null;
   const noStake = k === "bonus_bet" || k === "free_entry" || (k === "custom" && !p.stakeBack);
   if (status === "lost") return noStake ? 0 : -b.stake;
   let win = b.stake * (b.dec - 1);
-  if (k === "profit_boost" || k === "parlay_boost" || k === "pickem_boost") {
+  // b.boostIn: the odds Vince typed already include the boost (what the app showed), so don't boost them again
+  if ((k === "profit_boost" || k === "parlay_boost" || k === "pickem_boost") && !b.boostIn) {
     let extra = win * (p.boost || 0);
     if (p.maxWin) extra = Math.min(extra, p.maxWin);
     win += extra;
   }
-  if (k === "custom") win = win * (1 + (p.winBoost || 0)) + (p.extraWin || 0);
+  if (k === "custom") win = win * (b.boostIn ? 1 : 1 + (p.winBoost || 0)) + (p.extraWin || 0);
   if (k === "free_entry") win = b.stake * b.dec;        // the entry was free: the whole payout is profit
   return Math.round(win * 100) / 100;
 }

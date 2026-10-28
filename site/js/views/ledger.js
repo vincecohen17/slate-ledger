@@ -3,7 +3,7 @@
 import { S, saveBet, deleteBet, loadProps } from "../store.js";
 import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, bookLogo, teamLogo, todayPT, $, $$ } from "../util.js";
 import { logSheet } from "./common.js";
-import { settleProfit } from "../promo.js";
+import { settleProfit, isBoost } from "../promo.js";
 import { VENUES } from "../lab.js";
 import { projectedCard, betLegs } from "../projected.js";
 import { betImage } from "./common.js";
@@ -144,6 +144,9 @@ function insights(list) {
   return out;
 }
 
+// boosted bets logged before the "odds already include the boost" switch existed: the boost may be counted twice
+const needsCheck = (b) => b.promoId && isBoost(S.promos.get(b.promoId)) && b.boostIn == null && !b.checkedAt;
+
 function betRow(b) {
   const ev = evAtLog(b), legs = betLegs(b), multi = legs.length > 1;
   const done = ["won", "lost", "push", "void"].includes(b.status);
@@ -153,13 +156,13 @@ function betRow(b) {
     <div class="col" style="gap:3px;min-width:0">
       <div class="row" style="gap:8px;min-width:0">${!multi ? betImage({ gameId: b.gameId || legs[0]?.gameId, label: legs[0]?.label || b.label, player: legs[0]?.player, league: b.league }, 22) : ""}<span class="lt-t ellip">${multi ? `${legs.length}-leg parlay` : esc(b.label)}</span></div>
       <div class="lt-m"><span><b class="num">${am(b.am)}</b></span><span>${money(b.stake)}${win != null && !done ? ` to win <b class="num">${money(win)}</b>` : ""}</span>
-        <span>${esc(b.venueName || b.venue || "")}</span>${b.league ? `<span>${esc(b.league)}</span>` : ""}${b.promoId ? `<span class="pill s">promo</span>` : ""}
+        <span>${esc(b.venueName || b.venue || "")}</span>${b.league ? `<span>${esc(b.league)}</span>` : ""}${b.promoId ? `<span class="pill s">${esc(S.promos.get(b.promoId)?.title || "promo")}${b.boostIn ? " · in odds" : ""}</span>` : ""}${needsCheck(b) ? `<span class="lt-chip neg" title="did the odds you typed already include the boost?">check boost</span>` : ""}
         ${b.fairAtLog != null ? `<span class="lt-chip ${ev > 0 ? "pos" : ev < 0 ? "neg" : ""}" title="our fair when you logged it">fair ${prob(b.fairAtLog)} · ${pct(ev)}</span>` : ""}
         ${b.clv != null ? `<span class="lt-chip ${b.clv > 0 ? "pos" : b.clv < 0 ? "neg" : ""}" title="value of your price at the closing fair">CLV ${pct(b.clv)}</span>` : ""}</div>
     </div>
     <div class="lt-r">${done ? `<span class="pill ${b.status === "won" ? "pos" : b.status === "lost" ? "neg" : ""}">${b.status}${b.autoSettled ? " · auto" : ""}</span><span class="lt-res ${b.profit >= 0 ? "pos" : "neg"}">${money(b.profit)}</span>`
       : `<span class="lt-act">${["won", "lost", "push", "void"].map((s) => `<button class="btn sm ghost" data-set="${b.id}|${s}" title="mark ${s}">${s[0].toUpperCase()}</button>`).join("")}</span>`}
-      <button class="x" data-del="${b.id}" title="delete">×</button></div>
+      <span class="row" style="gap:4px"><button class="btn sm ghost" data-edit="${b.id}" title="check or fix odds, stake, promo">Edit</button><button class="x" data-del="${b.id}" title="delete">×</button></span></div>
     ${multi ? `<div class="lt-legs">${legs.map((l) => `<span class="lt-leg">${betImage({ gameId: l.gameId, label: l.label, player: l.player, league: b.league }, 18)}<span>${esc(l.label || "")}</span></span>`).join("")}</div>` : ""}
   </div>`;
 }
@@ -186,6 +189,13 @@ function mine(el) {
       <div class="kpi"><div class="k">Avg CLV</div><div class="v ${s.clv > 0 ? "pos" : s.clv < 0 ? "neg" : ""}">${s.clv != null ? pct(s.clv) : "–"}</div><div class="s">beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
       <div class="kpi"><div class="k">Open</div><div class="v">${pend.length}</div><div class="s">${money(pend.reduce((x, b) => x + (b.stake || 0), 0))} at risk</div></div>
     </div>
+    ${(() => { const chk = bets.filter(needsCheck); return chk.length ? `<div class="card lg-chk"><b>${chk.length} boosted bet${chk.length > 1 ? "s" : ""} to double-check</b>
+      <div class="small muted" style="margin:4px 0 8px">If you typed the price the app showed after the boost, the ledger added the boost a second time. Tap the one that's right for each bet.</div>
+      <div class="col" style="gap:6px">${chk.map((b) => { const p = S.promos.get(b.promoId), st = ["won", "lost"].includes(b.status) ? b.status : "won";
+        const a = settleProfit({ ...b, boostIn: true }, p, st), n = settleProfit({ ...b, boostIn: false }, p, st);
+        return `<div class="row lg-chkr" style="gap:8px;flex-wrap:wrap">${bookLogo(b.venue || "any", b.venueName || "", 22)}<span class="grow ellip small" style="min-width:140px">${esc(b.label)} <span class="muted">${am(b.am)} · ${money(b.stake)}${b.status !== "pending" ? ` · ${b.status}` : ""}</span></span>
+          <button class="btn sm ghost" data-bin="${b.id}|1">Boost was in the odds <span class="tiny muted">${st === "won" ? `wins ${money(a)}` : ""}</span></button>
+          <button class="btn sm ghost" data-bin="${b.id}|0">Normal odds <span class="tiny muted">${st === "won" ? `wins ${money(n)}` : ""}</span></button></div>`; }).join("")}</div></div>` : ""; })()}
     ${pend.length ? `<div class="sec-title">Open bets<span class="line"></span></div>${projectedCard({ items: pend, title: "Projected profit on open bets",
         settledToday: bets.filter((b) => ["won", "lost", "push"].includes(b.status) && b.settledAt && new Date(b.settledAt).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }) === todayPT()).reduce((x, b) => x + (b.profit || 0), 0) })}` : ""}
     ${ins.length ? `<div class="sec-title">What the numbers say<span class="line"></span></div><div class="card col lg-ins">${ins.map(([t, x]) => `<div class="lg-in ${t}">${t === "pos" ? "▲" : t === "neg" ? "▼" : "●"} ${esc(x)}</div>`).join("")}</div>`
@@ -266,6 +276,12 @@ export function renderLedger(el) {
   $$("[data-set]", el).forEach((b) => b.onclick = () => {
     const [id, st] = b.dataset.set.split("|"); const bet = S.bets.get(id);
     saveBet({ ...bet, status: st, profit: profitFor(bet, st), settledAt: new Date().toISOString() });
+  });
+  $$("[data-edit]", el).forEach((b) => b.onclick = () => logSheet(S.bets.get(b.dataset.edit)));
+  $$("[data-bin]", el).forEach((b) => b.onclick = () => {
+    const [id, v] = b.dataset.bin.split("|"), bet = { ...S.bets.get(id), boostIn: v === "1", checkedAt: new Date().toISOString() };
+    if (["won", "lost", "push", "void"].includes(bet.status)) bet.profit = profitFor(bet, bet.status);
+    saveBet(bet);
   });
   $$("[data-del]", el).forEach((b) => b.onclick = () => { if (b.dataset.c) deleteBet(b.dataset.del); else { b.dataset.c = 1; b.textContent = "?"; b.title = "tap again to delete"; } });
   bindTips(el);

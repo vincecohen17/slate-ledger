@@ -1,6 +1,8 @@
 import { S, saveBet } from "../store.js";
 import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, $ } from "../util.js";
 import { VENUES } from "../lab.js";
+import { settleProfit, isBoost } from "../promo.js";
+import { money } from "../util.js";
 
 // image for a bet: player headshot for props, team logo for team sides, league logo otherwise
 export function betImage(item, size = 42) {
@@ -53,9 +55,12 @@ export function ladder(line, side, limit = 8, showAll = false) {
 }
 
 // log-a-bet sheet (from edges, lab, picks or promos)
+// log a new bet, or edit one already logged (pre.id): odds, stake, venue, promo, and whether the odds typed in already
+// include the boost. Editing a settled bet re-figures its profit.
 export function logSheet(pre = {}) {
-  const venues = VENUES.filter((v) => v.key !== "any");
-  sheet(`<h3>Log a bet</h3>
+  const venues = VENUES.filter((v) => v.key !== "any"), edit = !!pre.id;
+  const settled = ["won", "lost", "push", "void"].includes(pre.status);
+  sheet(`<h3>${edit ? "Check this bet" : "Log a bet"}</h3>
     <div class="col" style="gap:10px">
       <label class="f">Bet<input id="lb-label" value="${esc(pre.label || "")}" placeholder="e.g. Knicks -3.5"></label>
       <div class="fgrid">
@@ -63,22 +68,52 @@ export function logSheet(pre = {}) {
         <label class="f">Odds (American)<input id="lb-odds" inputmode="numeric" value="${pre.am ?? ""}" placeholder="-110"></label>
         <label class="f">Stake $<input id="lb-stake" inputmode="decimal" value="${pre.stake ?? ""}" placeholder="10"></label>
         <label class="f">Promo<select id="lb-promo"><option value="">None</option>${[...S.promos.values()].map((p) => `<option value="${p.id}" ${p.id === pre.promoId ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}</select></label>
+        ${settled ? `<label class="f">Result<select id="lb-status">${["won", "lost", "push", "void"].map((s) => `<option ${s === pre.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
       </div>
-      <p class="note">Our fair at logging: ${pre.fair != null ? prob(pre.fair, 1) : "none"}. Closing line value fills in automatically once grading runs.</p>
-      <div class="row"><button class="btn" id="lb-save">Save bet</button><button class="btn ghost" id="lb-cancel">Cancel</button></div>
+      <label class="row lb-boost" style="gap:8px;align-items:flex-start" hidden><input type="checkbox" id="lb-boostin" ${pre.boostIn ? "checked" : ""} style="margin-top:3px">
+        <span class="small">The odds above already include the boost (what the app showed after boosting). Leave unchecked if you typed the normal price.</span></label>
+      <div class="lb-pay card" style="padding:10px 12px"></div>
+      <p class="note">Our fair at logging: ${(pre.fairAtLog ?? pre.fair) != null ? prob(pre.fairAtLog ?? pre.fair, 1) : "none"}. Closing line value fills in automatically once grading runs.</p>
+      <div class="row"><button class="btn" id="lb-save">${edit ? "Save changes" : "Save bet"}</button><button class="btn ghost" id="lb-cancel">Cancel</button></div>
     </div>`, (el, close) => {
     $("#lb-cancel", el).onclick = close;
+    const read = () => {
+      const odds = parseFloat($("#lb-odds", el).value), stake = parseFloat($("#lb-stake", el).value), promo = S.promos.get($("#lb-promo", el).value) || null;
+      return { odds, stake, promo, boostIn: !!$("#lb-boostin", el).checked };
+    };
+    const preview = () => {          // what it pays, so a double-counted boost is easy to spot
+      const { odds, stake, promo, boostIn } = read(), boost = isBoost(promo);
+      $(".lb-boost", el).hidden = !boost;
+      if (isNaN(odds) || isNaN(stake)) { $(".lb-pay", el).innerHTML = `<span class="tiny muted">Enter odds and stake to see the payout.</span>`; return; }
+      const b = { stake, dec: decFromAm(odds), boostIn };
+      const base = stake * (b.dec - 1), w = settleProfit(b, promo, "won"), l = settleProfit(b, promo, "lost");
+      $(".lb-pay", el).innerHTML = `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <span class="small">If it wins: <b class="pos num">${money(w)}</b>${boost && w !== base ? ` <span class="tiny muted">(${money(base)} at ${am(odds)} + ${money(w - base)} boost)</span>` : boost ? ` <span class="tiny muted">(boost already in the odds)</span>` : ""}</span>
+        <span class="small">If it loses: <b class="neg num">${money(l)}</b></span></div>`;
+    };
+    ["lb-odds", "lb-stake"].forEach((id) => $("#" + id, el).oninput = preview);
+    ["lb-promo", "lb-boostin"].forEach((id) => $("#" + id, el).onchange = preview);
+    preview();
     $("#lb-save", el).onclick = async () => {
-      const odds = parseFloat($("#lb-odds", el).value), stake = parseFloat($("#lb-stake", el).value);
+      const { odds, stake, boostIn } = read();
       if (!$("#lb-label", el).value.trim() || isNaN(odds) || isNaN(stake)) { toast("Bet, odds and stake are required"); return; }
       const v = venues.find((x) => x.key === $("#lb-venue", el).value);
-      const bet = { id: uid(), createdAt: new Date().toISOString(), date: todayPT(), label: $("#lb-label", el).value.trim(),
-        venue: v.key, venueName: v.name, am: odds, dec: decFromAm(odds), stake, status: "pending",
-        promoId: $("#lb-promo", el).value || null, gameId: pre.gameId || null, league: pre.league || null,
-        matchup: pre.matchup || null, commence: pre.commence || null, market: pre.market || null,
-        side: pre.side ?? null, point: pre.point ?? null, player: pre.player || null, team: pre.team || null,
-        fairAtLog: pre.fair ?? null, legs: pre.legs || null, source: pre.source || "manual", pickId: pre.pickId || null };
-      try { await saveBet(bet); toast("Bet logged"); close(); } catch (e) { toast("Could not save: " + e.message); }
+      const promoId = $("#lb-promo", el).value || null;
+      const common = { label: $("#lb-label", el).value.trim(), venue: v.key, venueName: v.name, am: odds, dec: decFromAm(odds), stake, promoId,
+        boostIn: isBoost(S.promos.get(promoId)) ? boostIn : null };
+      let bet;
+      if (edit) {
+        bet = { ...pre, ...common, checkedAt: new Date().toISOString() };
+        const st = $("#lb-status", el)?.value || pre.status;
+        if (settled) { bet.status = st; bet.profit = settleProfit(bet, promoId ? S.promos.get(promoId) : null, st); }
+      } else {
+        bet = { id: uid(), createdAt: new Date().toISOString(), date: todayPT(), ...common, status: "pending",
+          gameId: pre.gameId || null, league: pre.league || null,
+          matchup: pre.matchup || null, commence: pre.commence || null, market: pre.market || null,
+          side: pre.side ?? null, point: pre.point ?? null, player: pre.player || null, team: pre.team || null,
+          fairAtLog: pre.fair ?? null, legs: pre.legs || null, source: pre.source || "manual", pickId: pre.pickId || null };
+      }
+      try { await saveBet(bet); toast(edit ? "Bet updated" : "Bet logged"); close(); } catch (e) { toast("Could not save: " + e.message); }
     };
   });
 }

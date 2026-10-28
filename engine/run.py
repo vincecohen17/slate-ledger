@@ -211,7 +211,7 @@ def live():
         ls = {}
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
     if ls.get("day") != today:
-        ls = {"day": today, "used": 0, "props": {}}
+        ls = {"day": today, "used": 0, "props": {}, "docs": ls.get("docs", []), "betLegs": ls.get("betLegs"), "betsAt": ls.get("betsAt")}
     room = C.LIVE_DAY_CAP - ls.get("used", 0)
     if room <= 0:
         log("live credit cap reached for today")
@@ -230,21 +230,26 @@ def live():
     # with an open prop bet also get live prop prices
     import livebets as LB
     bet_legs, bet_games = {}, set()
-    try:
-        _db = firestore_db()
-        if _db:
-            for snap in _db.collection("bets").where("status", "==", "pending").stream():
-                b = snap.to_dict() or {}
-                for i, leg in enumerate(b.get("legs") or [b]):
-                    if not leg.get("gameId"):
-                        continue
-                    r = LB.resolve(leg, DATA_DIR)
-                    if r and r.get("player"):
-                        bet_legs.setdefault(leg["gameId"], {})[f"{snap.id}#{i}"] = r
-                        bet_games.add(leg["gameId"])
-    except Exception as e:
-        log(f"open bets read failed: {type(e).__name__}")
-    bet_games = set(sorted(bet_games)[:4])
+    # open bets are read every 5 minutes (Firestore reads are on a daily quota), the legs kept in live_state between reads
+    if _age_min(ls.get("betsAt")) >= 5 or "betLegs" not in ls:
+        try:
+            _db = firestore_db()
+            if _db:
+                found = {}
+                for snap in _db.collection("bets").where("status", "==", "pending").stream():
+                    b = snap.to_dict() or {}
+                    for i, leg in enumerate(b.get("legs") or [b]):
+                        if not leg.get("gameId"):
+                            continue
+                        r = LB.resolve(leg, DATA_DIR)
+                        if r and r.get("player"):
+                            found.setdefault(leg["gameId"], {})[f"{snap.id}#{i}"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")}
+                ls["betLegs"], ls["betsAt"] = found, iso(NOW)
+        except Exception as e:
+            log(f"open bets read failed: {type(e).__name__}")
+    bet_legs = ls.get("betLegs") or {}
+    bet_games = set(bet_legs)
+    prop_games = set(sorted(bet_games)[:4])          # live prop prices cost credits: at most 4 games besides the watched one
     for s in sports:
         try:
             data = api.odds(s, C.GAME_MARKETS, None, bookmakers=C.EVENT_BOOKS)
@@ -279,7 +284,7 @@ def live():
                     if p:
                         l["model"] = {o: round(v, 4) for o, v in p.items()}
             props, fresh_props = [], False
-            want = pres.get("game") == g["id"] or g["id"] in bet_games
+            want = pres.get("game") == g["id"] or g["id"] in prop_games
             if want and st and s in ("basketball_nba", "basketball_wnba", "icehockey_nhl", "americanfootball_nfl"):
                 # prop prices refresh every few minutes; the player stats (ESPN box score, free) refresh every run,
                 # so between price pulls the last lines are kept and re-projected instead of disappearing
@@ -327,27 +332,67 @@ def live():
               open(os.path.join(DATA_DIR, "latest", "live.json"), "w"), indent=0)
     json.dump(sorted("|".join(k) for k in states), open(os.path.join(DATA_DIR, "latest", "live_keys.json"), "w"), indent=0)
     db = firestore_db()
-    if db:
-        batch, size = db.batch(), 0
+    fs = ls.get("fs") if (ls.get("fs") or {}).get("day") == today else {"day": today, "n": 0}
+    quota_wait = (ls.get("quota") or {}).get("day") == today and _age_min((ls.get("quota") or {}).get("at")) < 30
+    if db and not quota_wait:
+        # Spark plan: 20k writes a day shared with the pre-game runs. A live doc is written only when it changed; near the
+        # cap, only the watched game and games with open bets.
+        try:
+            hz = json.load(open(os.path.join(DATA_DIR, "latest", "hashes.json"))).get("_writes", {})
+            auto_today = hz.get("n", 0) if hz.get("day") == today else 0
+        except Exception:
+            auto_today = 0
+        tight = auto_today + fs["n"] > 18500
+        hashes, writes = ls.get("hash") or {}, []
         for d in docs:
+            if tight and d["id"] not in bet_games and pres.get("game") != d["id"]:
+                continue
             sdoc = _payload(d)
-            if size + len(sdoc) > 6_000_000:
-                batch.commit()
-                batch, size = db.batch(), 0
-            batch.set(db.document(f"live/{d['id']}"), {"payload": sdoc, "league": d["league"], "updated": d["updated"]})
-            size += len(sdoc)
+            h = hashlib.sha1(_payload({k: v for k, v in d.items() if k != "updated"}).encode()).hexdigest()
+            if hashes.get(d["id"]) == h:
+                continue
+            writes.append((f"live/{d['id']}", {"payload": sdoc, "league": d["league"], "updated": d["updated"]}, d["id"], h))
         summary = [{"id": d["id"], "league": d["league"], "home": d["home"], "away": d["away"], "homeRef": d["homeRef"], "awayRef": d["awayRef"],
                     "state": d["state"], "pHome": (d["model"] or {}).get("pHome"),
                     "mkt": next(((l.get("fair") or {}).get(d["home"]) for l in d["lines"] if l["market"] == "h2h"), None),
                     "edges": len(d["edges"])} for d in docs]
         edges_all.sort(key=lambda e: -e["score"])
-        batch.set(db.document("board/live"), {"payload": json.dumps({"games": summary, "edges": edges_all[:150], "updated": iso(NOW),
-                                                                      "creditsToday": ls["used"]}, separators=(",", ":"))})
+        hb = hashlib.sha1(json.dumps([summary, edges_all[:150]], separators=(",", ":")).encode()).hexdigest()
+        if hashes.get("_board") != hb or _age_min(ls.get("boardAt")) >= 10:       # the "updated" stamp still moves every 10 min
+            writes.append(("board/live", {"payload": json.dumps({"games": summary, "edges": edges_all[:150], "updated": iso(NOW),
+                                                                  "creditsToday": ls["used"]}, separators=(",", ":"))}, "_board", hb))
         keep = {d["id"] for d in docs}
-        for snap in db.collection("live").stream():
-            if snap.id not in keep:
-                batch.delete(snap.reference)
-        batch.commit()
+        gone = [x for x in ls.get("docs", []) if x not in keep]
+        try:
+            batch, size, n = db.batch(), 0, 0
+            for path, data, gid, h in writes:
+                if size + len(data["payload"]) > 6_000_000:
+                    batch.commit()
+                    batch, size = db.batch(), 0
+                batch.set(db.document(path), data)
+                size += len(data["payload"])
+                n += 1
+            for gid in gone:
+                batch.delete(db.document(f"live/{gid}"))
+                n += 1
+            batch.commit()
+            for path, data, gid, h in writes:
+                if gid:
+                    hashes[gid] = h
+            if any(g == "_board" for _, _, g, _ in writes):
+                ls["boardAt"] = iso(NOW)
+            ls["hash"] = {k: v for k, v in hashes.items() if k in keep or k == "_board"}
+            ls["docs"] = sorted(keep | (set(ls.get("docs", [])) - set(gone)))
+            fs["n"] += n
+        except Exception as e:
+            if "quota" not in str(e).lower() and "429" not in str(e):
+                raise
+            ls["quota"] = {"day": today, "at": iso(NOW)}
+            log("live: Firestore daily write quota reached; pausing live writes for 30 minutes")
+    elif quota_wait:
+        log("live: Firestore quota hit earlier; skipping writes")
+    ls["fs"] = fs
+    json.dump(ls, open(fn, "w"))
     log(f"live: {len(docs)} games, {len(edges_all)} edges, credits {api.used_run} (today {ls['used']})")
 
 
@@ -921,45 +966,87 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
         put("board/finals", {}, {"games": finals.summary(fin)})
     writes.append(("board/status", status))
 
-    # Spark plan: 20k writes a day. Past 14k, prop docs only for games starting within 2 hours; past 19k, none.
+    # Spark plan: 20k writes a day, shared with the live lane (its count is in live_state.json). Prop docs for games more
+    # than 3 hours out are rewritten at most every 30 minutes; past 12k writes, prop docs only for games starting within
+    # 2 hours; past 16.5k, none.
     day = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
     used = old.get("_writes", {}) if isinstance(old.get("_writes"), dict) else {}
     used_today = used.get("n", 0) if used.get("day") == day else 0
-    soon = iso(NOW + timedelta(hours=2))
+    try:
+        lsf = json.load(open(os.path.join(DATA_DIR, "latest", "live_state.json")))
+        live_today = (lsf.get("fs") or {}).get("n", 0) if (lsf.get("fs") or {}).get("day") == day else 0
+    except Exception:
+        live_today = 0
+    q = old.get("_quota") or {}
+    if q.get("day") == day and _age_min(q.get("at")) < 60:
+        log("firestore: daily quota hit earlier, skipping writes for now (data repo still updated)")
+        return 0
+    pt_old = old.get("_pt") or {}
+    new["_pt"] = {}
+    soon, later = iso(NOW + timedelta(hours=2)), iso(NOW + timedelta(hours=3))
     kept = []
     for path, data in writes:
-        if path.startswith("props/") and (used_today + len(kept) > 19000 or (used_today + len(kept) > 14000 and data.get("commence", "") > soon)):
-            new.pop(path, None)         # not written: leave the hash unset so it is written later
-            continue
+        if path.startswith("props/"):
+            tot = used_today + live_today + len(kept)
+            far = data.get("commence", "") > later
+            if tot > 16500 or (tot > 12000 and data.get("commence", "") > soon) or (far and path in pt_old and _age_min(pt_old[path]) < 30):
+                if path in old:
+                    new[path] = old[path]       # not written: keep the old hash so the change is written later
+                else:
+                    new.pop(path, None)
+                if path in pt_old:
+                    new["_pt"][path] = pt_old[path]
+                continue
+            new["_pt"][path] = iso(NOW)
         kept.append((path, data))
     if len(kept) < len(writes):
         log(f"firestore write budget: deferred {len(writes) - len(kept)} prop docs")
     writes = kept
 
-    # batches stay well under Firestore's request size limit
-    batch, n, size = db.batch(), 0, 0
-    for path, data in writes:
-        sz = len(data.get("payload", "")) + 500 if isinstance(data, dict) else 500
-        if n and (size + sz > 6_000_000 or n % 400 == 0):
-            batch.commit()
-            batch, size = db.batch(), 0
-        batch.set(db.document(path), data)
-        n += 1
-        size += sz
-    # remove docs for games that ended more than 6 hours ago
-    gone_before = iso(NOW - timedelta(hours=6))
-    for col in ("games", "props", "matchups"):
-        for snap in db.collection(col).where("commence", "<", gone_before).stream():
-            batch.delete(snap.reference)
-            new.pop(f"{col}/{snap.id}", None)
+    # batches stay well under Firestore's request size limit; a quota error keeps what was committed and stops cleanly
+    batch, n, size, inb, done = db.batch(), 0, 0, [], 0
+    try:
+        for path, data in writes:
+            sz = len(data.get("payload", "")) + 500 if isinstance(data, dict) else 500
+            if inb and (size + sz > 6_000_000 or len(inb) >= 400):
+                batch.commit()
+                done += len(inb)
+                batch, size, inb = db.batch(), 0, []
+            batch.set(db.document(path), data)
+            inb.append(path)
             n += 1
-    if fin is not None:     # finals: keep three days
-        cut = (NOW - timedelta(hours=7) - timedelta(days=2)).strftime("%Y-%m-%d")
-        for snap in db.collection("finals").where("date", "<", cut).stream():
-            batch.delete(snap.reference)
-            new.pop(f"finals/{snap.id}", None)
-            n += 1
-    batch.commit()
+            size += sz
+        # remove docs for games that ended more than 6 hours ago
+        gone_before = iso(NOW - timedelta(hours=6))
+        for col in ("games", "props", "matchups"):
+            for snap in db.collection(col).where("commence", "<", gone_before).stream():
+                batch.delete(snap.reference)
+                new.pop(f"{col}/{snap.id}", None)
+                inb.append(None)
+                n += 1
+        if fin is not None:     # finals: keep three days
+            cut = (NOW - timedelta(hours=7) - timedelta(days=2)).strftime("%Y-%m-%d")
+            for snap in db.collection("finals").where("date", "<", cut).stream():
+                batch.delete(snap.reference)
+                new.pop(f"finals/{snap.id}", None)
+                inb.append(None)
+                n += 1
+        batch.commit()
+        done += len(inb)
+    except Exception as e:
+        if "quota" not in str(e).lower() and "429" not in str(e):
+            raise
+        for path in inb:              # this batch didn't land: write it again next time
+            if path:
+                if path in old:
+                    new[path] = old[path]
+                else:
+                    new.pop(path, None)
+        new["_quota"] = {"day": day, "at": iso(NOW)}
+        log(f"firestore: daily write quota reached after {done} writes; pausing writes for an hour")
+        n = done
+    if "_quota" not in new and q.get("day") == day:
+        new["_quota"] = q
     new["_writes"] = {"day": day, "n": used_today + n}
     with open(hash_file, "w") as f:
         json.dump(new, f)
