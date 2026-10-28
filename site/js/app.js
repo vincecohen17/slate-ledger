@@ -44,6 +44,7 @@ function renderStatus() {
   const old = Date.now() - new Date(s.updated) > 30 * 60000;
   const waiting = S.refreshAsked && S.refreshAsked > s.updated && Date.now() - new Date(S.refreshAsked) < 15 * 60000;
   $("#status").innerHTML = `<span title="Prices update every few minutes while the site is open"><i class="dot ${old ? "old" : ""}"></i>prices ${ago(s.updated)}</span>
+    ${S.fsLimit ? `<span class="pill neg" title="Firebase's free plan allows 20,000 writes a day and today's are used up. Prices and stats still update in the engine; the site shows them again when the allowance resets at midnight Pacific.">Firebase daily limit · resumes midnight PT</span>` : ""}
     <button class="btn sm ghost" id="rf" title="${S.instant ? "Pull fresh prices now (about a minute)" : "Ask for fresh prices now (next engine run, usually within 5 minutes)"}" ${waiting ? "disabled" : ""}>${waiting ? (S.instant ? "refreshing…" : "refresh queued") : "↻ refresh"}</button>
     ${S.instant ? `<span class="hide-sm ${S.dispatch && S.dispatch !== "ok" ? "neg" : "pos"}" title="${S.dispatch && S.dispatch !== "ok" ? "Instant refresh problem: " + S.dispatch : "Instant refresh is on: opening the site starts a price check"}">⚡ ${S.dispatch && S.dispatch !== "ok" ? "check token" : "instant"}</span>` : ""}
     <span class="hide-sm">${s.plan === "free" || s.mode === "mock" ? "free plan · " : ""}${s.creditsRemaining ?? "?"} credits</span>

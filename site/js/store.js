@@ -102,7 +102,7 @@ function liveKick() {
   if (!dispatchToken || document.visibilityState !== "visible" || !view.live || Date.now() - lastLive < 55000) return;
   lastLive = Date.now();
   setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), view: view.view, game: view.game }, { merge: true })
-    .then(() => dispatch("live")).catch(() => {});
+    .then(() => fsOk(), fsFail).finally(() => dispatch("live"));
 }
 export function setView(v, game, isLive) {
   const was = view.live;
@@ -110,8 +110,12 @@ export function setView(v, game, isLive) {
   if (isLive && !was) { liveKick(); clearInterval(liveTimer); liveTimer = setInterval(liveKick, 60000); }
   if (!isLive && was) { clearInterval(liveTimer); liveTimer = null; }
 }
+// Firebase's free daily write allowance can run out; the engine is still started directly so the data repo keeps
+// updating, and the header says why the screen isn't changing
+function fsFail(e) { if (/resource-exhausted|quota/i.test(`${e?.code} ${e?.message}`)) { if (!S.fsLimit) { S.fsLimit = true; changed(); } } }
+function fsOk() { if (S.fsLimit) { S.fsLimit = false; changed(); } }
 const ping = (extra = {}) => setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), view: view.view, game: view.game, ...extra }, { merge: true })
-  .then(() => kick(!!extra.force)).catch(() => {});
+  .then(() => fsOk(), fsFail).finally(() => kick(!!extra.force));
 export function startPresence() {
   const on = () => { if (document.visibilityState === "visible") { ping(); clearInterval(beat); beat = setInterval(ping, 120000); } else { clearInterval(beat); beat = null; } };
   document.addEventListener("visibilitychange", on);

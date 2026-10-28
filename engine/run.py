@@ -201,7 +201,9 @@ def live():
         raise RuntimeError("ODDS_API_KEY secret is missing or empty")
     pres = presence_doc()
     at = pres.get("at")
-    if not at or (NOW - datetime.fromisoformat(at.replace("Z", "+00:00"))).total_seconds() > C.ACTIVE_MINUTES * 60:
+    # the site dispatches live runs itself; if its presence write didn't land (Firebase daily limit), trust the dispatch
+    asked = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    if not asked and (not at or (NOW - datetime.fromisoformat(at.replace("Z", "+00:00"))).total_seconds() > C.ACTIVE_MINUTES * 60):
         log("site closed: no live pull")
         return
     fn = os.path.join(DATA_DIR, "latest", "live_state.json")
