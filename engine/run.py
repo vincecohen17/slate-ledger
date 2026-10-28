@@ -385,7 +385,7 @@ def live():
             ls["docs"] = sorted(keep | (set(ls.get("docs", [])) - set(gone)))
             fs["n"] += n
         except Exception as e:
-            if "quota" not in str(e).lower() and "429" not in str(e):
+            if not _fs_busy(e):
                 raise
             ls["quota"] = {"day": today, "at": iso(NOW)}
             log("live: Firestore daily write quota reached; pausing live writes for 30 minutes")
@@ -894,8 +894,13 @@ def publish(game_docs, prop_docs, status, stamp):
     with open(os.path.join(DATA_DIR, "latest", "matchups.json"), "w") as f:
         json.dump(mups, f, separators=(",", ":"))
     if os.environ.get("FIREBASE_SERVICE_ACCOUNT"):
-        n = write_firestore(game_docs, prop_docs, edge_list, status, rep, picks, mups, previews, fin)
-        log(f"firestore: {n} docs written")
+        try:
+            n = write_firestore(game_docs, prop_docs, edge_list, status, rep, picks, mups, previews, fin)
+            log(f"firestore: {n} docs written")
+        except Exception as e:      # the data repo is already written; the site catches up on the next run
+            if not _fs_busy(e):
+                raise
+            log(f"firestore busy ({type(e).__name__}): skipped this run")
     log(f"published: {len(game_docs)} games ({n_logo} with logos), {len(prop_docs)} prop docs "
         f"({n_head} rows with headshots), {len(edge_list)} edges, {len(mups)} matchups, {len(picks)} picks")
 
@@ -1034,7 +1039,7 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
         batch.commit()
         done += len(inb)
     except Exception as e:
-        if "quota" not in str(e).lower() and "429" not in str(e):
+        if not _fs_busy(e):
             raise
         for path in inb:              # this batch didn't land: write it again next time
             if path:
@@ -1043,7 +1048,7 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
                 else:
                     new.pop(path, None)
         new["_quota"] = {"day": day, "at": iso(NOW)}
-        log(f"firestore: daily write quota reached after {done} writes; pausing writes for an hour")
+        log(f"firestore: {type(e).__name__} after {done} writes; pausing writes for an hour")
         n = done
     if "_quota" not in new and q.get("day") == day:
         new["_quota"] = q
@@ -1053,12 +1058,19 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
     return n
 
 
+def _fs_busy(e):
+    """Firestore saying no for now: daily quota (429), timeouts (504), unavailable (503)"""
+    t = f"{type(e).__name__} {e}".lower()
+    return any(x in t for x in ("quota", "429", "resourceexhausted", "deadline", "504", "503", "unavailable"))
+
+
 def _record_failure(e):
     """write what went wrong to the private data repo (key redacted) so it can be read without the Actions log"""
     key = os.environ.get("ODDS_API_KEY") or "\x00"
     msg = f"{type(e).__name__}: {e}"
     detail = getattr(e, "detail", "") or ""
     info = {"at": iso(NOW), "mode": MODE, "error": msg.replace(key, "***")[:400], "detail": str(detail).replace(key, "***")[:400],
+            "where": [f"{os.path.basename(f.filename)}:{f.lineno} {f.name}" for f in __import__("traceback").extract_tb(e.__traceback__)][-6:],
             "keyLength": len(os.environ.get("ODDS_API_KEY") or ""), "keyHasSpace": any(c.isspace() for c in (os.environ.get("ODDS_API_KEY") or ""))}
     try:
         os.makedirs(os.path.join(DATA_DIR, "latest"), exist_ok=True)
