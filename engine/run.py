@@ -978,6 +978,16 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"edge card: {n_new} new edges logged, {n_eg} graded, {ecard.get('n', 0)} in the card; {n_moved} lines moved since first seen")
     except Exception as e:
         log(f"edge card failed: {type(e).__name__}: {str(e)[:120]}")
+    opp_list = []
+    try:            # arbs and middles across Vince's venues, then phone alerts for the strong new ones
+        import opps as OP
+        import alerts
+        opp_list = OP.find(game_docs, prop_docs, iso(NOW))
+        status["opps"] = len(opp_list)
+        n_al = alerts.send(DATA_DIR, NOW, edges=edge_list[:60], opps=opp_list, log=log)
+        log(f"opportunities: {sum(o['kind'] == 'arb' for o in opp_list)} arbs, {sum(o['kind'] == 'middle' for o in opp_list)} middles; {n_al} alerts sent")
+    except Exception as e:
+        log(f"opportunities failed: {type(e).__name__}: {str(e)[:120]}")
     status["tuning"] = {"graded": n_graded, "groups": len(params), "calibrated": n_cal}
     for e in edge_list:     # what the model knew about this game beyond the box scores (verified news, weather, rest)
         c = (mups.get(e["gameId"]) or {}).get("context")
@@ -998,6 +1008,8 @@ def publish(game_docs, prop_docs, status, stamp):
     write_data_repo(game_docs, prop_docs, edge_list, status)
     with open(os.path.join(DATA_DIR, "latest", "matchups.json"), "w") as f:
         json.dump(mups, f, separators=(",", ":"))
+    with open(os.path.join(DATA_DIR, "latest", "opps.json"), "w") as f:
+        json.dump(opp_list, f, separators=(",", ":"))
     if os.environ.get("FIREBASE_SERVICE_ACCOUNT"):
         pre_ok = False
         try:        # games, props, edges and status go to the Realtime Database (free, only changed pieces sent)
@@ -1005,7 +1017,7 @@ def publish(game_docs, prop_docs, status, stamp):
             rc = rt.ensure_rules(DATA_DIR, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             if rc != 200:
                 raise RuntimeError(f"rules {rc}")
-            kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log, mups=mups, rep=rep, fin=fin)
+            kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log, mups=mups, rep=rep, fin=fin, opps=opp_list)
             pre_ok = True
             log(f"realtime database: {npcs} pieces, {kb} KB")
         except Exception as e:

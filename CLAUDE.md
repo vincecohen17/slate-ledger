@@ -50,6 +50,13 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   CLV at the flagged / last / best price and the result; summary stats/edgecard.json (by venue, line type, market, edge
   size, logic, timing, sport, venue x type, venue x sport) shown on Reports, and edges re-ranked by it (shrunk, n/(n+150)).
   Also opening lines: first fair seen per main line/prop row (track/opens.json) stamped as open/openPt/openAt on lines and edges.
+- `engine/opps.py` arbs and middles across Vince's venues (all-in prices; middles priced with the alt-line fairs: EV = 1 - S +
+  P(middle)); suspect ones (8%+ or a leg 12+ pts off fair) are flagged. Published as RTDB `pre/opps`, Edges > Arbs & middles.
+- `engine/alerts.py` phone alerts via ntfy (topic only in the private data repo config/alerts.json): arbs/middles, strong new
+  edges (logic agrees, outside quiet hours), optional bet results; each item once (latest/alerts_state.json).
+- Site sizing: Firestore `settings/owner` {bankroll, kelly, maxPct, unit} (Ledger > Analysis) drives the suggested stake on
+  edges (half for model/estimated fairs), the log sheet's default stake and units in dollars; parlays down to one leg show a
+  hedge to lock a result and its expected cost.
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,

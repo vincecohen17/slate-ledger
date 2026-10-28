@@ -1,7 +1,7 @@
 // Ledger > Analysis: everything the settled bets can say. Skill vs luck, closing line value over time, how well the
 // prices were judged, where (venue x bet type) the money is made or lost, timing, sizing against Kelly, promo value,
 // parlays, and the biggest swings. Each section says in one line what to do with it.
-import { S } from "../store.js";
+import { S, saveSettings } from "../store.js";
 import { esc, am, pct, prob, money, fmtShortDay, bookLogo } from "../util.js";
 import { settleProfit, kindOf, normalize } from "../promo.js";
 import { VENUES } from "../lab.js";
@@ -41,7 +41,7 @@ const TIMING = ["36h+ before", "12-36h before", "3-12h before", "1-3h before", "
 const day = (b) => new Date(b.commence || b.createdAt).toLocaleDateString("en-US", { weekday: "short", timeZone: "America/Los_Angeles" });
 const stakeBand = (b, cuts) => (b.stake <= cuts[0] ? `Smallest third (≤ ${money(cuts[0])})` : b.stake <= cuts[1] ? "Middle third" : `Biggest third (> ${money(cuts[1])})`);
 
-let bankroll = (() => { try { return +localStorage.getItem("sl_bankroll") || 0; } catch { return 0; } })();
+
 
 function table(rows, head) {
   return `<div style="overflow-x:auto"><table class="l10t an-t"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
@@ -63,6 +63,7 @@ function statTable(rows, label = "") {
 }
 
 export function analysis() {
+  const bankroll = S.settings?.bankroll || 0;
   const all = [...S.bets.values()];
   const st = all.filter((b) => DONE.includes(b.status)).sort((a, b) => (a.settledAt || "").localeCompare(b.settledAt || ""));
   if (st.length < 3) return `<div class="card note" style="margin-top:12px">The analysis fills in after a few settled bets.</div>`;
@@ -160,7 +161,11 @@ export function analysis() {
   <div class="card" style="margin-top:10px"><b>By day</b>${statTable(groupRows(st, day, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]), "Day")}</div>
 
   <div class="sec-title">Sizing<span class="line"></span></div>
-  <div class="card"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><b>Bankroll</b><input id="an-bank" inputmode="decimal" placeholder="e.g. 1000" value="${bankroll || ""}" style="width:120px"><span class="tiny muted">kept on this device only</span></div>
+  <div class="card"><div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><b>Bankroll</b><input id="an-bank" inputmode="decimal" placeholder="e.g. 1000" value="${bankroll || ""}" style="width:110px">
+      <b>Kelly</b><select id="an-kelly">${[[0.1, "tenth"], [0.25, "quarter"], [0.5, "half"], [1, "full"]].map(([v, l]) => `<option value="${v}" ${(S.settings?.kelly ?? 0.25) === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <b>Max per bet</b><select id="an-cap">${[0.01, 0.02, 0.03, 0.05, 0.1].map((v) => `<option value="${v}" ${(S.settings?.maxPct ?? 0.05) === v ? "selected" : ""}>${v * 100}%</option>`).join("")}</select>
+      <b>1 unit</b><input id="an-unit" inputmode="decimal" placeholder="$" value="${S.settings?.unit || ""}" style="width:80px">
+      <span class="tiny muted">used for the suggested stake on every edge, pick and bet slip</span></div>
     ${bankroll ? `<p class="small" style="margin:8px 0 0">Your median stake is <b>${medR != null ? `${medR.toFixed(2)}×` : "–"}</b> full Kelly at the fair when logged. ${medR == null ? "" : medR > 0.5 ? "That's aggressive: most sharp bettors use a quarter to a half Kelly because the fair itself is uncertain." : medR < 0.1 ? "Very conservative: fine while you build a record, but you're leaving growth on the table on your best edges." : "A sensible fraction."}</p>` : `<p class="note">Enter a bankroll to compare each stake with the Kelly stake its edge supports.</p>`}
     ${negEV.length ? `<p class="small neg" style="margin:6px 0 0">${negEV.length} settled bets had no edge at the fair when logged (Kelly says skip): ${money(negEV.reduce((s, x) => s + (x.b.profit || 0), 0))} on them.</p>` : ""}
     ${statTable(groupRows(st, (b) => stakeBand(b, sc), [`Smallest third (≤ ${money(sc[0])})`, "Middle third", `Biggest third (> ${money(sc[1])})`]), "Stake size")}</div>
@@ -180,5 +185,9 @@ export function analysis() {
 
 export function bindAnalysis(el, rerender) {
   const i = el.querySelector("#an-bank");
-  if (i) i.onchange = () => { bankroll = +i.value || 0; try { localStorage.setItem("sl_bankroll", String(bankroll)); } catch {} rerender(); };
+  const save = (x) => saveSettings(x).then(rerender).catch(() => {});
+  if (i) i.onchange = () => save({ bankroll: +i.value || 0 });
+  const k = el.querySelector("#an-kelly"); if (k) k.onchange = () => save({ kelly: +k.value });
+  const c = el.querySelector("#an-cap"); if (c) c.onchange = () => save({ maxPct: +c.value });
+  const u = el.querySelector("#an-unit"); if (u) u.onchange = () => save({ unit: +u.value || 0 });
 }

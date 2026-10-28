@@ -10,6 +10,7 @@ export const S = {
   propsLoadedFor: new Set(),   // gameIds subscribed
   allProps: false,
   denied: false,
+  settings: { bankroll: 0, kelly: 0.25, maxPct: 0.05, unit: 0 }, opps: [],
 };
 const subs = [];
 const listeners = new Set();
@@ -166,6 +167,8 @@ export function start() {
   watchCol("previews", S.previews);
   watchCol("bets", S.bets, (d) => d.data());
   watchCol("promos", S.promos, (d) => d.data());
+  subs.push(onSnapshot(doc(db, "settings", "owner"), (d) => { S.settings = { ...SETTINGS0, ...(d.exists() ? d.data() : {}) }; changed(); }, onErr));
+  listen("pre/opps", async (v) => { S.opps = v ? (await dec("pre/opps", v)).items || [] : []; });
 }
 
 export function stop() {
@@ -199,6 +202,10 @@ export function loadAllProps() {
 export const propsFor = (gameId) => [...S.props.values()].filter((p) => p.id === gameId);
 
 // saving a bet also nudges the engine (presence.betsAt) so a new live bet is tracked on the next live pull
+// bankroll and sizing (Ledger > Analysis): one doc, read everywhere stakes are suggested
+const SETTINGS0 = { bankroll: 0, kelly: 0.25, maxPct: 0.05, unit: 0 };
+export const saveSettings = (x) => setDoc(doc(db, "settings", "owner"), { ...S.settings, ...x });
+
 export const saveBet = (b) => setDoc(doc(db, "bets", b.id), JSON.parse(JSON.stringify(b)))
   .then((r) => { rupdate(rref(rtdb, "presence"), { betsAt: new Date().toISOString() }).catch(() => {}); return r; });
 export const deleteBet = (id) => deleteDoc(doc(db, "bets", id));

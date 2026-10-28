@@ -262,6 +262,38 @@ function barHtml(b) {
 }
 const progressHtml = (pg) => `<div class="pj-pg ${pg.cls}"><span class="pj-ic">${pg.icon}</span><span class="pj-tx">${esc(pg.text)}${pg.held ? ` <span class="tiny muted">(last live reading)</span>` : ""}</span>${barHtml(pg.bar)}</div>`;
 
+// the other side of a leg at the best price Vince can get, with its fair (live if the game is on)
+function opposite(leg) {
+  const d = S.liveGames.get(leg.gameId), g = S.games.get(leg.gameId);
+  if (leg.player) {
+    const docs = [...(d?.props || []), ...[...S.props.values()].filter((x) => x.id === leg.gameId)];
+    const r = findProp(docs, leg); if (!r) return null;
+    const opp = ["Over", "Under"].find((o) => o !== leg.side && (r.bestVenue?.[o] || r.fair?.[o] != null)); if (!opp) return null;
+    const q = r.bestVenue?.[opp]; return q ? { label: `${leg.player} ${opp} ${r.point ?? ""}`, q, fair: r.fair?.[opp] } : null;
+  }
+  for (const src of [d, g]) {
+    if (!src) continue;
+    const l = findLine(src.lines, src.home, leg); if (!l) continue;
+    const opp = (l.outcomes || []).find((o) => N(o) !== N(leg.side)); const q = opp && l.bestVenue?.[opp];
+    if (q) { const pt = /spreads/.test(l.market) ? ` ${(opp === src.home ? l.point : -l.point) > 0 ? "+" : ""}${opp === src.home ? l.point : -l.point}` : /totals/.test(l.market) ? ` ${l.point}` : " ML";
+      return { label: `${opp}${pt}`, q, fair: (l.fair || {})[opp] }; }
+  }
+  return null;
+}
+// a parlay down to its last leg: what it takes to lock a profit, and what that costs in expectation
+function hedgeHtml(b, r, legs) {
+  const open = legs.filter((x) => !(x.p >= 0.999));
+  if (open.length !== 1 || legs.some((x) => x.p === 0)) return "";
+  const o = opposite(open[0].leg); if (!o || !o.q?.cost) return "";
+  const pay = settleProfit(b, b.promoId ? S.promos.get(b.promoId) : null, "won") + (b.stake || 0), dh = 1 / o.q.cost;
+  const H = pay / dh, lock = pay - (b.stake || 0) - H, cost = o.fair != null ? H * (1 - o.fair * dh) : null;
+  if (!(H > 0)) return "";
+  const half = H / 2;
+  return `<div class="pj-hedge"><b>Down to one leg.</b> To lock a result: bet <b>${money(H)}</b> on ${esc(o.label)} at ${bookLogo(o.q.book, o.q.name, 14)} ${esc(o.q.name)} <b class="num">${am(o.q.am)}</b>
+    → <b class="${lock >= 0 ? "pos" : "neg"}">${money(lock)}</b> either way${cost != null ? ` · costs about ${money(cost)} in expectation (it's a bet at ${prob(o.q.cost)} on a ${prob(o.fair)} side)` : ""}.
+    <span class="tiny muted">Half hedge (${money(half)}): ${money(pay - b.stake - half)} if the parlay hits, ${money(half * dh - half - b.stake)} if not. Letting it ride keeps the full ${money(pay - b.stake)} at ${prob(open[0].p)}.</span></div>`;
+}
+
 // the picture for a leg: player headshot, else the team's logo, else the league's
 function legImg(leg, size = 26) {
   const g = S.games.get(leg.gameId) || S.liveGames.get(leg.gameId);
@@ -320,7 +352,7 @@ export function projectedCard({ items, title, fmt = money, units = false, settle
             ${multi ? `<span class="small ellip">${esc(x.leg.label || "")}${lst ? ` <span class="tiny muted">· ${lst.away?.score ?? ""}–${lst.home?.score ?? ""} ${esc(sitText(lst, x.leg.league || b.league))}</span>` : ""}</span>`
               : lst ? `<span class="tiny muted">${lst.away?.score ?? ""}–${lst.home?.score ?? ""} ${esc(sitText(lst, b.league))}</span>` : ""}
             ${progressHtml(progress(x.leg, x))}</div></div>`;
-        }).join("")}</div>
+        }).join("")}</div>${!units && multi ? hedgeHtml(b, r, legs) : ""}
       </div>`;
     }).join("")}</div>
     <div class="tiny muted">The ring is the chance right now (its tick is where it started). Player stats come from the live box score every minute; the dot on each bar is the projected finish, the line is what the bet needs.</div>

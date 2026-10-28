@@ -179,3 +179,12 @@ export function marketInfo(mk) {
   const label = `${period ? period[0].toUpperCase() + period.slice(1) + " " : ""}${alt ? "alt " : ""}${period ? base.toLowerCase() : base}`;
   return { kind, alt, period, label: label[0].toUpperCase() + label.slice(1) };
 }
+
+// Kelly stake at a fair probability and decimal price, as a fraction of the bankroll (settings: kelly fraction, cap)
+export function kellyStake(p, dec, set) {
+  if (!set?.bankroll || p == null || !dec || dec <= 1) return null;
+  const f = (p * dec - 1) / (dec - 1);
+  if (f <= 0) return 0;
+  const st = Math.min(set.bankroll * (set.maxPct ?? 0.05), set.bankroll * (set.kelly ?? 0.25) * f);
+  return st >= 10 ? Math.round(st) : Math.round(st * 2) / 2;
+}

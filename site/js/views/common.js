@@ -1,5 +1,5 @@
 import { S, saveBet } from "../store.js";
-import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, $ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, $ } from "../util.js";
 import { VENUES } from "../lab.js";
 import { settleProfit, isBoost } from "../promo.js";
 import { money } from "../util.js";
@@ -36,6 +36,7 @@ export function edgeCard(e) {
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
         ${e.track || e.open != null ? `<span class="tiny row" style="gap:6px;flex-wrap:wrap">${e.track ? `<span class="pill ${e.track.clv > 0 ? "pos" : e.track.clv < 0 ? "neg" : ""}" title="how ${esc(e.track.cat)} edges have done at the close: ${Math.round(e.track.beat * 100)}% beat it">track ${pct(e.track.clv)} CLV · ${e.track.n}</span>` : ""}${e.open != null ? moveTag(e) : ""}</span>` : ""}
+        ${(() => { const k0 = !e.pickem && e.am != null ? kellyStake(e.fair, decFromAm(e.am), S.settings) : null, k = k0 && (e.model || e.est) ? Math.round(k0 / 2) : k0;  // model/estimated fairs: half size return k ? `<span class="tiny"><span class="pill s" title="${Math.round((S.settings.kelly ?? 0.25) * 100)}% Kelly at the fair, capped at ${Math.round((S.settings.maxPct ?? 0.05) * 100)}% of the bankroll (set in Ledger > Analysis)">stake $${k}</span></span>` : ""; })()}
         <span class="tiny muted">fair ${bothP(e.fair)} · edge <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill" title="fair moved from the main line with the stat model">alt line</span>` : ""}${e.est ? ` · <span class="pill" title="nobody quotes the other side, so the fair is estimated (first-scorer markets de-vig across the whole field; others strip each book's measured margin)">est. fair</span>` : ""}</span>
         ${e.ctx?.length ? `<span class="tiny muted ellip" title="${esc(e.ctx.join(" · "))}">ⓘ ${esc(e.ctx[0])}${e.ctx.length > 1 ? ` +${e.ctx.length - 1}` : ""}</span>` : ""}
         ${e.last10?.length ? `<span class="l10">${spark(e.last10, e.point, { side: (e.label.match(/ (Over|Under) /) || [])[1] })}<span>last ${e.last10.length}: ${hitRate(e.last10, e.point, (e.label.match(/ (Over|Under) /) || [])[1])}</span></span>` : ""}
@@ -80,7 +81,7 @@ export function logSheet(pre = {}) {
       <div class="fgrid">
         <label class="f">Venue<select id="lb-venue">${venues.map((v) => `<option value="${v.key}" ${v.key === pre.venue ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></label>
         <label class="f">Odds (American)<input id="lb-odds" inputmode="numeric" value="${pre.am ?? ""}" placeholder="-110"></label>
-        <label class="f">Stake $<input id="lb-stake" inputmode="decimal" value="${pre.stake ?? ""}" placeholder="10"></label>
+        <label class="f">Stake $<input id="lb-stake" inputmode="decimal" value="${pre.stake ?? (!edit && pre.fair != null && pre.am != null ? kellyStake(pre.fair, decFromAm(pre.am), S.settings) || "" : "")}" placeholder="10"></label>
         <label class="f">Promo<select id="lb-promo"><option value="">None</option>${[...S.promos.values()].map((p) => `<option value="${p.id}" ${p.id === pre.promoId ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}</select></label>
         ${settled ? `<label class="f">Result<select id="lb-status">${["won", "lost", "push", "void"].map((s) => `<option ${s === pre.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
       </div>
