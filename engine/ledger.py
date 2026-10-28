@@ -325,5 +325,14 @@ def debug_bets(db, data_dir, fin_by_gid):
                         info["grade"] = f"error {type(e).__name__}: {str(e)[:80]}"
             row["legs"].append(info)
         out.append(row)
+    # and the last three days' settled bets, to see how each was settled
+    cut = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+    for snap in db.collection("bets").where("createdAt", ">=", cut).stream():
+        b = snap.to_dict() or {}
+        if b.get("status") == "pending":
+            continue
+        out.append({"id": snap.id, "label": b.get("label"), "status": b.get("status"), "profit": b.get("profit"), "auto": b.get("auto"),
+                    "autoSettled": b.get("autoSettled"), "am": b.get("am"), "stake": b.get("stake"), "promoId": b.get("promoId"),
+                    "boostIn": b.get("boostIn"), "live": b.get("live"), "settledAt": b.get("settledAt")})
     json.dump(out, open(os.path.join(data_dir, "latest", "ledger_debug.json"), "w"), indent=1, default=str)
     return len(out)
