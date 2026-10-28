@@ -1,5 +1,5 @@
 // Live data from Firestore. Engine docs carry their body as a JSON string in `payload`.
-import { db, doc, collection, onSnapshot, query, where, setDoc, deleteDoc } from "./fb.js";
+import { db, rtdb, doc, collection, onSnapshot, query, where, setDoc, deleteDoc, rref, onValue, rupdate } from "./fb.js";
 
 export const S = {
   games: new Map(), status: null, edges: [], reports: null,
@@ -20,11 +20,38 @@ const changed = () => { clearTimeout(timer); timer = setTimeout(() => listeners.
 const parse = (d) => { const x = d.data(); return x.payload ? JSON.parse(x.payload) : x; };
 function onErr(e) { if (e.code === "permission-denied") { S.denied = true; changed(); } else console.error(e); }
 
-function watchCol(name, map, mapFn = parse) {
+function watchCol(name, map, mapFn = parse, after = changed) {
   subs.push(onSnapshot(collection(db, name), (qs) => {
     qs.docChanges().forEach((c) => c.type === "removed" ? map.delete(c.doc.id) : map.set(c.doc.id, { id: c.doc.id, ...mapFn(c.doc) }));
-    changed();
+    after();
   }, onErr));
+}
+
+// ---------- in play: the Realtime Database (live/board, live/g/<id>/{m,e,l/*,p/*}, each a JSON string; only changed
+// pieces travel), with the old Firestore copies as a fallback; whichever was updated last wins
+const LV = { fsBoard: null, fsGames: new Map(), rtBoard: null, rtGames: new Map(), cache: new Map() };
+const pj = (path, s) => { const c = LV.cache.get(path); if (c && c.s === s) return c.v; const v = JSON.parse(s); LV.cache.set(path, { s, v }); return v; };
+function watchLive() {
+  subs.push(onValue(rref(rtdb, "live"), (snap) => {
+    const t = snap.val() || {}, games = new Map();
+    LV.rtBoard = t.board ? pj("board", t.board) : null;
+    for (const [gid, g] of Object.entries(t.g || {})) {
+      if (!g.m) continue;
+      const m = pj(`${gid}/m`, g.m);
+      const lines = Object.entries(g.l || {}).map(([k, s]) => pj(`${gid}/l/${k}`, s)).sort((a, b) => a._i - b._i);
+      const props = Object.entries(g.p || {}).map(([k, s]) => pj(`${gid}/p/${k}`, s)).sort((a, b) => a._i - b._i);
+      games.set(gid, { ...m, id: gid, lines, props, edges: g.e ? pj(`${gid}/e`, g.e) : [] });
+    }
+    LV.rtGames = games;
+    pickLive();
+  }, (e) => console.warn("realtime database:", e?.code || e)));
+}
+function pickLive() {
+  const rt = LV.rtBoard?.updated || "", fs = LV.fsBoard?.updated || "";
+  const useRt = rt && rt >= fs;
+  S.live = useRt ? LV.rtBoard : LV.fsBoard;
+  S.liveGames = useRt ? LV.rtGames : LV.fsGames;
+  changed();
 }
 
 export function start() {
@@ -32,9 +59,10 @@ export function start() {
   subs.push(onSnapshot(doc(db, "board", "status"), (d) => { S.status = d.exists() ? d.data() : null; changed(); }, onErr));
   subs.push(onSnapshot(doc(db, "board", "edges"), (d) => { S.edges = d.exists() ? parse(d).items : []; changed(); }, onErr));
   subs.push(onSnapshot(doc(db, "board", "reports"), (d) => { S.reports = d.exists() ? parse(d) : null; changed(); }, onErr));
-  subs.push(onSnapshot(doc(db, "board", "live"), (d) => { S.live = d.exists() ? parse(d) : null; changed(); }, onErr));
+  subs.push(onSnapshot(doc(db, "board", "live"), (d) => { LV.fsBoard = d.exists() ? parse(d) : null; pickLive(); }, onErr));
   subs.push(onSnapshot(doc(db, "board", "finals"), (d) => { S.finals = d.exists() ? parse(d).games || [] : []; changed(); }, onErr));
-  watchCol("live", S.liveGames);
+  watchCol("live", LV.fsGames, parse, pickLive);
+  watchLive();
   watchCol("games", S.games);
   watchCol("picks", S.picks);
   watchCol("matchups", S.matchups);
@@ -43,7 +71,7 @@ export function start() {
   watchCol("promos", S.promos, (d) => d.data());
 }
 
-export function stop() { subs.splice(0).forEach((u) => u()); finalSubs.clear(); S.games.clear(); S.props.clear(); S.matchups.clear(); S.propsLoadedFor.clear(); S.allProps = false; }
+export function stop() { subs.splice(0).forEach((u) => u()); LV.cache.clear(); finalSubs.clear(); S.games.clear(); S.props.clear(); S.matchups.clear(); S.propsLoadedFor.clear(); S.allProps = false; }
 
 const finalSubs = new Set();
 export function loadFinal(key) {
@@ -101,8 +129,7 @@ let view = { view: "board", game: null }, lastLive = 0, liveTimer = null;
 function liveKick() {
   if (!dispatchToken || document.visibilityState !== "visible" || !view.live || Date.now() - lastLive < 55000) return;
   lastLive = Date.now();
-  setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), view: view.view, game: view.game }, { merge: true })
-    .then(() => fsOk(), fsFail).finally(() => dispatch("live"));
+  beatOut({ at: new Date().toISOString(), view: view.view, game: view.game }).finally(() => dispatch("live"));
 }
 export function setView(v, game, isLive) {
   const was = view.live;
@@ -114,8 +141,10 @@ export function setView(v, game, isLive) {
 // updating, and the header says why the screen isn't changing
 function fsFail(e) { if (/resource-exhausted|quota/i.test(`${e?.code} ${e?.message}`)) { if (!S.fsLimit) { S.fsLimit = true; changed(); } } }
 function fsOk() { if (S.fsLimit) { S.fsLimit = false; changed(); } }
-const ping = (extra = {}) => setDoc(doc(db, "presence", "owner"), { at: new Date().toISOString(), view: view.view, game: view.game, ...extra }, { merge: true })
-  .then(() => fsOk(), fsFail).finally(() => kick(!!extra.force));
+// the heartbeat goes to the Realtime Database (free to write as often as needed); Firestore only if that fails
+const beatOut = (x) => rupdate(rref(rtdb, "presence"), x)
+  .catch(() => setDoc(doc(db, "presence", "owner"), x, { merge: true }).then(() => fsOk(), fsFail));
+const ping = (extra = {}) => beatOut({ at: new Date().toISOString(), view: view.view, game: view.game, ...extra }).finally(() => kick(!!extra.force));
 export function startPresence() {
   const on = () => { if (document.visibilityState === "visible") { ping(); clearInterval(beat); beat = setInterval(ping, 120000); } else { clearInterval(beat); beat = null; } };
   document.addEventListener("visibilitychange", on);

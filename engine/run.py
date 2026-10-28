@@ -145,11 +145,17 @@ def run_history():
 
 
 def presence_doc():
+    """the site's heartbeat {at, view, game, force}: Realtime Database first (where the site writes it now), else Firestore"""
     db = firestore_db()
-    try:
-        return (db.document("presence/owner").get().to_dict() or {}) if db else {}
-    except Exception:
+    if not db:
         return {}
+    import rt
+    a = rt.presence(DATA_DIR)
+    try:
+        b = db.document("presence/owner").get().to_dict() or {}
+    except Exception:
+        b = {}
+    return a if (a.get("at") or "") >= (b.get("at") or "") else b
 
 
 def _live_pre(s, g, mu, games):
@@ -213,7 +219,7 @@ def live():
         ls = {}
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
     if ls.get("day") != today:
-        ls = {"day": today, "used": 0, "props": {}, "docs": ls.get("docs", []), "betLegs": ls.get("betLegs"), "betsAt": ls.get("betsAt")}
+        ls = {"day": today, "used": 0, "props": {}, **{k: ls[k] for k in ("betLegs", "betsAt", "rt", "rtBoardAt", "fsLiveCleared") if k in ls}}
     room = C.LIVE_DAY_CAP - ls.get("used", 0)
     if room <= 0:
         log("live credit cap reached for today")
@@ -333,6 +339,42 @@ def live():
                 "edges": len(d["edges"]), "props": len(d["props"]), "betLegs": len(d["betLegs"])} for d in docs],
               open(os.path.join(DATA_DIR, "latest", "live.json"), "w"), indent=0)
     json.dump(sorted("|".join(k) for k in states), open(os.path.join(DATA_DIR, "latest", "live_keys.json"), "w"), indent=0)
+    # in-play data goes to the Realtime Database (no daily write count); only changed pieces are sent
+    summary = [{"id": d["id"], "league": d["league"], "home": d["home"], "away": d["away"], "homeRef": d["homeRef"], "awayRef": d["awayRef"],
+                "state": d["state"], "pHome": (d["model"] or {}).get("pHome"),
+                "mkt": next(((l.get("fair") or {}).get(d["home"]) for l in d["lines"] if l["market"] == "h2h"), None),
+                "edges": len(d["edges"])} for d in docs]
+    edges_all.sort(key=lambda e: -e["score"])
+    if firestore_db():
+        import rt
+        try:
+            sent, nw = rt.publish(docs, {"games": summary, "edges": edges_all[:150], "updated": iso(NOW), "creditsToday": ls["used"]}, ls, DATA_DIR)
+            day_kb = ((ls.get("rtKb") or {}).get("kb", 0) if (ls.get("rtKb") or {}).get("day") == today else 0) + sent / 1024
+            ls["rtKb"] = {"day": today, "kb": round(day_kb)}
+            log(f"live: {nw} pieces, {sent // 1024} KB to the realtime database (today {round(day_kb)} KB)")
+        except Exception as e:
+            log(f"live: realtime database write failed ({type(e).__name__}); using Firestore")
+            _fs_live(docs, edges_all, ls, today, pres, bet_games)
+            ls["rtOk"] = False
+        else:
+            ls["rtOk"] = True
+        if ls.get("rtOk") and not ls.get("fsLiveCleared"):       # the old Firestore copies, once
+            try:
+                db = firestore_db()
+                for snap in db.collection("live").stream():
+                    snap.reference.delete()
+                db.document("board/live").delete()
+                ls["fsLiveCleared"] = True
+            except Exception as e:
+                log(f"live: old Firestore live docs not cleared yet ({type(e).__name__})")
+    fs = ls.get("fs") or {}
+    ls["fs"] = fs
+    json.dump(ls, open(fn, "w"))
+    log(f"live: {len(docs)} games, {len(edges_all)} edges, credits {api.used_run} (today {ls['used']})")
+
+
+def _fs_live(docs, edges_all, ls, today, pres, bet_games):
+    """fallback until the Realtime Database exists: in-play docs to Firestore (quota-aware)"""
     db = firestore_db()
     fs = ls.get("fs") if (ls.get("fs") or {}).get("day") == today else {"day": today, "n": 0}
     quota_wait = (ls.get("quota") or {}).get("day") == today and _age_min((ls.get("quota") or {}).get("at")) < 30
@@ -394,8 +436,6 @@ def live():
     elif quota_wait:
         log("live: Firestore quota hit earlier; skipping writes")
     ls["fs"] = fs
-    json.dump(ls, open(fn, "w"))
-    log(f"live: {len(docs)} games, {len(edges_all)} edges, credits {api.used_run} (today {ls['used']})")
 
 
 def presence():
@@ -404,8 +444,7 @@ def presence():
     if not db:
         return False, None
     try:
-        d = db.document("presence/owner").get()
-        x = d.to_dict() or {}
+        x = presence_doc()
     except Exception:
         return False, None
     at = x.get("at")

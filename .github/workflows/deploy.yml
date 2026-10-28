@@ -2,7 +2,7 @@ name: deploy-site
 on:
   push:
     branches: [main]
-    paths: ["site/**", "firebase.json", "firestore.rules.template", ".github/workflows/deploy.yml"]
+    paths: ["site/**", "firebase.json", "firestore.rules.template", "database.rules.template.json", ".github/workflows/deploy.yml"]
   workflow_dispatch:
 concurrency: { group: deploy, cancel-in-progress: true }
 jobs:
@@ -17,7 +17,9 @@ jobs:
           path: data
           sparse-checkout: config
       - name: Build rules from private config
-        run: python3 -c "import json;e=json.load(open('data/config/access.json'))['email'];open('firestore.rules','w').write(open('firestore.rules.template').read().replace('__ALLOWED_EMAIL__',e))"
+        run: |
+          python3 -c "import json;e=json.load(open('data/config/access.json'))['email'];open('firestore.rules','w').write(open('firestore.rules.template').read().replace('__ALLOWED_EMAIL__',e))"
+          python3 -c "import json;e=json.load(open('data/config/access.json'))['email'];open('database.rules.json','w').write(open('database.rules.template.json').read().replace('__ALLOWED_EMAIL__',e))"
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - name: Credentials
@@ -27,6 +29,9 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
       - name: Deploy hosting and rules
         run: npx -y firebase-tools@13 deploy --only hosting,firestore:rules --project slate-ledger --non-interactive
+      - name: Realtime Database rules (once the database exists)
+        continue-on-error: true
+        run: npx -y firebase-tools@13 deploy --only database --project slate-ledger --non-interactive
       - name: Clean up
         if: always()
         run: rm -f "$RUNNER_TEMP/sa.json"

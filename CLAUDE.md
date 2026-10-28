@@ -36,6 +36,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - `engine/livebets.py` every live run: each leg of Vince's open bets gets its current stat from the ESPN box score (all sports,
   MLB included), projected finish and chance, written to `live/{gameId}` as betLegs {"<betId>#<leg>"}; old bets without
   market/side are read from their labels (also used by ledger grading).
+- `engine/rt.py` Realtime Database (free, no daily write count): in-play data under `live/` (board + per game m/e/l/p pieces,
+  JSON strings, only changed pieces written) and the site's `presence` heartbeat. Live runs fall back to Firestore
+  `live/*` if the database is unreachable. Rules: `database.rules.template.json` (email filled at deploy).
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,
@@ -57,6 +60,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - This repo is PUBLIC. Never commit keys, odds data, picks, bets or the owner's email. Logs print counts only.
 - Keys live in GitHub secrets: ODDS_API_KEY, FIREBASE_SERVICE_ACCOUNT, DATA_REPO_TOKEN.
 - Firestore docs store their body as a JSON string in `payload`; writes are skipped when the hash is unchanged.
-- Firebase is on the free Spark plan. Keep writes low (one doc per game, one per game+prop market).
+- Firebase is on the free Spark plan. Firestore allows 20k writes a day: keep its writes low (one doc per game, one per
+  game+prop market; far-off prop docs at most every 30 min). Anything that changes every minute goes to the Realtime Database.
 - Kalshi/Polymarket prices are always shown all-in (ask + fee).
 - Never place, edit or cancel bets or move money anywhere.
