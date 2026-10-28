@@ -673,6 +673,9 @@ def main():
         return live()
     if MODE == "history":
         return run_history()
+    if MODE == "rtdb_setup":
+        import rtdb_setup
+        return rtdb_setup.main(DATA_DIR, log)
     if MODE == "backtest":
         import backtest
         return backtest.main(DATA_DIR)
