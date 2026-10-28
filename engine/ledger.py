@@ -301,3 +301,29 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
                                         "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}})
         n += 1
     return n
+
+
+def debug_bets(db, data_dir, fin_by_gid):
+    """why each pending bet is or isn't graded yet (written to the private data repo for checking)"""
+    out = []
+    for snap in db.collection("bets").where("status", "==", "pending").stream():
+        b = snap.to_dict() or {}
+        row = {"id": snap.id, "label": b.get("label"), "created": b.get("createdAt"), "auto": b.get("auto"), "legs": []}
+        for leg in (b.get("legs") or [b]):
+            r = LB.resolve(dict(leg, gameId=leg.get("gameId") or b.get("gameId")), data_dir) if (leg.get("gameId") or b.get("gameId")) else None
+            info = {"label": leg.get("label"), "gameId": leg.get("gameId") or b.get("gameId"), "resolved": bool(r)}
+            if r:
+                info.update({k: r.get(k) for k in ("market", "side", "point", "player", "team")})
+                s = _snap(data_dir, r["gameId"])
+                info["snap"] = bool(s)
+                info["final"] = r["gameId"] in fin_by_gid
+                if s:
+                    try:
+                        g = grade_leg(data_dir, r, fin_by_gid)
+                        info["grade"] = g
+                    except Exception as e:
+                        info["grade"] = f"error {type(e).__name__}: {str(e)[:80]}"
+            row["legs"].append(info)
+        out.append(row)
+    json.dump(out, open(os.path.join(data_dir, "latest", "ledger_debug.json"), "w"), indent=1, default=str)
+    return len(out)
