@@ -111,13 +111,15 @@ function optRow(p, o, i, max) {
   const pick = o.pick, dep = o.deposit;
   const legsH = o.legs.map((c) => `<div class="row pr-leg">${betImage({ gameId: c.leg.gameId, label: c.leg.label, player: c.leg.player, headshot: c.leg.headshot }, 24)}
       <span class="grow ellip">${esc(c.leg.label)}${c.promo ? ` <span class="pill pos">promo</span>` : ""}</span>
-      ${pick && c.mult != null && Math.abs(c.mult - 1) > 0.01 ? `<span class="pill" title="this pick's payout vs a standard pick">${c.mult.toFixed(2)}x</span>` : ""}
+      ${o.perPick ? (c.promo ? `<span class="pill pos" title="the promo pick's own multiplier">${p.promoMult}x</span>` : c.perX != null ? `<span class="pill" title="this pick's own multiplier">${c.perX.toFixed(2)}x</span>` : "")
+        : pick && c.mult != null && Math.abs(c.mult - 1) > 0.01 ? `<span class="pill" title="this pick's payout vs a standard pick">${c.mult.toFixed(2)}x</span>` : ""}
+      ${c.capped ? `<span class="tiny muted" title="the line is nearly certain; the 2% left is an early exit or a DNP that doesn't void">capped at 98%</span>` : ""}
       ${pick && c.needs ? `<span class="pill warn" title="skip this pick if the app shows a lower multiplier">needs ≥ ${c.needs.toFixed(2)}x</span>` : ""}
       ${pick ? "" : `<span class="num small">${c.price?.am != null ? am(c.price.am) : c.price?.standIn ? `~${am(amOf(c.D))}` : am(amOf(c.D))}</span>`}
       <span class="tiny muted" title="our chance">${prob(c.P)}</span></div>`).join("");
   const bar = `<div class="pr-evb"><i class="${o.ev >= 0 ? "pos" : "neg"}" style="width:${Math.min(100, Math.abs(o.ev) / max * 100).toFixed(0)}%"></i></div>`;
   if (dep) return `<div class="row pr-leg">${legsH.replace(/^<div class="row pr-leg">/, "").replace(/<\/div>$/, "")}<button class="btn sm ghost" data-take="${esc(p.id)}|${i}">Log</button></div>`;
-  const head = pick ? `<span>${o.legs.length}-pick · hits all ${prob(o.P, 1)}${p.flex ? " · flex" : ` · pays ${p.mult || payoutFor(p.venue, o.legs.length) || "?"}x`}</span>`
+  const head = pick ? `<span>${o.legs.length}-pick · hits all ${prob(o.P, 1)}${p.flex ? " · flex" : o.perPick ? ` · pays ${o.payX.toFixed(2)}x (${o.legs.map((c) => (c.promo ? p.promoMult : c.perX ?? p.otherMult ?? 1.73).toFixed(2) + "x").join(" × ")})${o.assumed ? ` <span class="tiny muted" title="the feed doesn't carry this app's multipliers; type the other pick's real one in the promo">other pick assumed at 1.73x</span>` : ""}` : ` · pays ${p.mult || payoutFor(p.venue, o.legs.length) || "?"}x`}</span>`
     : `<span>${o.legs.length > 1 ? `${o.legs.length}-leg parlay at ` : "Single at "}<b class="num">${am(amOf(o.D))}</b> · wins ${prob(o.P, 1)}${o.sgp ? " · same-game estimate" : ""}${o.est ? " · chance estimated from the original price" : ""}</span>`;
   return `<div class="pl pr-opt">${legsH}
     <div class="pl-b" style="margin-top:4px;gap:8px;align-items:center">${head}<span class="row" style="gap:8px"><span class="${o.ev >= 0 ? "pos" : "neg"}"><b>${money(o.ev)}</b> EV</span><button class="btn sm ghost" data-take="${esc(p.id)}|${i}">Log</button></span></div>${bar}
@@ -154,7 +156,8 @@ function promoCard(p) {
       ${!venueHasFeed(p.venue) && p.venue !== "any" ? `<div class="note">${esc(venueName(p.venue))} isn't in the odds feed: prices shown are typical sportsbook prices. Check the app's price before betting.</div>` : ""}
       ${VENUES.find((v) => v.key === p.venue)?.proxy ? `<div class="note">${esc(venueName(p.venue))} prices are read from the matching sportsbook; confirm the price in the app.</div>` : ""}
       ${k === "deposit_match" && opts[0]?.deposit ? depSummary(opts[0].deposit) : ""}
-      ${opts.some((o) => o.pick && o.legs.some((c) => c.needs)) ? `<div class="note">${esc(venueName(p.venue))} sets a payout multiplier on each pick that the odds feed doesn't carry. These suggestions stick to near-even picks the app usually pays at 1x; if the app shows a pick below its "needs" number, swap it out.</div>` : ""}
+      ${opts.some((o) => o.perPick) ? `<div class="note">${esc(venueName(p.venue))} pays each pick its own multiplier and the entry pays them multiplied together (the promo pick's ${p.promoMult}x included). ${p.otherMult ? `Other picks use the ${p.otherMult}x you entered.` : `The feed doesn't carry this app's multipliers, so the other pick is assumed at 1.73x: any pick the app pays at or above its "needs" number keeps the entry worth playing. Edit the promo with the real multiplier for an exact EV.`}</div>`
+      : opts.some((o) => o.pick && o.legs.some((c) => c.needs)) ? `<div class="note">${esc(venueName(p.venue))} sets a payout multiplier on each pick that the odds feed doesn't carry. These suggestions stick to near-even picks the app usually pays at 1x; if the app shows a pick below its "needs" number, swap it out.</div>` : ""}
       ${opts.length ? opts.slice(0, 6).map((x, i) => optRow(p, x, i, max)).join("") : `<div class="note">Nothing on the board meets every rule yet. More games and props arrive with each pull.</div>`}</div>` : ""}
   </div>`;
 }
@@ -270,7 +273,7 @@ function bind(el) {
     const p = normalize(S.promos.get(id)), o = best(p)[+i], k = kindOf(p.kind).key;
     const one = o.legs.length === 1 ? o.legs[0].leg : null;
     const pick = ["pickem_boost", "free_entry", "discounted_line"].includes(k);
-    const mult = pick ? (p.mult || payoutFor(p.venue, o.legs.length)) : null;
+    const mult = pick ? (o.payX || p.mult || payoutFor(p.venue, o.legs.length)) : null;
     const stake = ["bonus_bet", "free_entry"].includes(k) ? p.amount : k === "bet_and_get" ? p.qualStake : p.stake;
     const odds = pick ? (mult ? amOf(mult) : "") : k === "odds_boost" ? p.boostedOdds : amOf(o.D);
     logSheet({ label: o.legs.map((c) => c.leg.label).join(" + "), am: odds, stake: stake || "", fair: o.P,

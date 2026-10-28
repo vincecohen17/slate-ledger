@@ -45,7 +45,7 @@ export const KINDS = [
   { key: "free_entry", group: "Pick'em", name: "Free entry", blurb: "An entry you don't pay for",
     fields: ["amount", "picks", "mult", "sports"] },
   { key: "discounted_line", group: "Pick'em", name: "Discounted line / special pick", blurb: "An easier line on one player",
-    fields: ["target", "promoLine", "promoSide", "picks", "mult", "stake"] },
+    fields: ["target", "promoLine", "promoSide", "picks", "promoMult", "otherMult", "mult", "stake"] },
   { key: "custom", group: "Anything else", name: "Custom payout", blurb: "Describe what it pays on a win and on a loss",
     fields: ["stake", "stakeBack", "winBoost", "extraWin", "refundMax", "refundAs", "minOdds", "minLegs", "sports", "betTypes"] },
 ];
@@ -58,6 +58,8 @@ export const FIELDS = {
   refundMax: ["Max refund $", "num"], qualStake: ["Qualifying bet $", "num"], deposit: ["Your deposit $", "num"],
   playthrough: ["Playthrough (x)", "num"], picks: ["Picks in the entry", "int"], mult: ["Payout multiplier (x)", "num"],
   boostedOdds: ["Boosted odds", "odds"], origOdds: ["Original odds", "odds"], promoLine: ["Promo line", "num"],
+  promoMult: ["This pick's own multiplier (x), if it has one (Chalkboard free pick 1.78x)", "num"],
+  otherMult: ["Other picks' multiplier (x each), if the app shows it", "num"],
   feeOff: ["Share of fee waived %", "pct"], winBoost: ["Extra % on winnings", "pct"], extraWin: ["Extra $ if it wins", "num"],
   expires: ["Expires", "date"],
 };
@@ -111,8 +113,11 @@ export function parsePromo(text) {
     const up = m(/up to \$\s*([\d,]+)/); if (up) p.amount = num(up[1]);
     const px = m(/(\d{1,2})\s*x\s*(?:playthrough|rollover|wagering|play-through)/) || m(/(?:playthrough|rollover|wager(?:ed|ing)?)[a-z ]{0,20}?(\d{1,2})\s*(?:x|times)/); if (px) p.playthrough = +px[1];
     if (/deposit (?:\+|and|plus) bonus|bonus (?:\+|and|plus) deposit/.test(t)) p.ptBase = "both";
-  } else if (/(?:discount(?:ed)?|special|taco|reduced|flash) (?:line|pick|projection)|line (?:discount|drop)|discounted|(?:was|from) \d+(?:\.5)? (?:to|now) \d+(?:\.5)?/.test(t) && (pick || /line|pick/.test(t))) {
+  } else if (/(?:discount(?:ed)?|special|taco|reduced|flash|free|bonus|promo|boosted|power|gift) (?:line|pick|projection|square)|line (?:discount|drop)|discounted|(?:was|from) \d+(?:\.5)? (?:to|now) \d+(?:\.5)?/.test(t) && (pick || /line|pick/.test(t))) {
     p.kind = "discounted_line";
+    const px = m(/(\d+(?:\.\d+)?)\s*x\b/) || m(/(?:pays?|multiplier|odds(?: of)?)\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*x?/);
+    if (px && +px[1] > 1 && +px[1] < 20) p.promoMult = +px[1];
+    if (/\bpair\b|2[- ]pick|two[- ]picks?|one other pick|another pick/.test(t)) p.picks = 2;
     const ln = m(/(?:to|now|at)\s*(\d+(?:\.\d)?)\b/) || m(/(\d+(?:\.\d)?)\s*(?:points|pts|rebounds|reb|assists|ast|pra|yards|yds|receptions|shots|sog|saves|strikeouts|ks|hits|threes|3pm|total bases)/) || m(/\b(\d+\.5)\b/);
     if (ln) p.promoLine = +ln[1];
     if (/\bunder\b|less/.test(t)) p.promoSide = "Under";
@@ -314,6 +319,9 @@ export function parseTable(txt) {   // "3:2.25, 2:1.25" -> {3: 2.25, 2: 1.25}
 }
 function entryPay(p, cs) {     // expected multiplier of a pick'em entry
   const n = cs.length;
+  // a promo pick with its own multiplier (Chalkboard's free pick at 1.78x): the entry pays the product of every pick's
+  // multiplier, the promo pick's included, instead of a fixed table
+  if (p.kind === "discounted_line" && p.promoMult) return pAll(cs) * cs.reduce((x, c) => x * (c.promo ? p.promoMult : c.perX ?? (p.otherMult || Math.sqrt(3))), 1);
   const flex = parseTable(p.flex);
   if (flex) { const d = hitsDist(cs.map((c) => c.P)); return Object.entries(flex).reduce((s, [k, m]) => s + (d[+k] || 0) * m, 0); }
   const M = (p.mult || payoutFor(p.venue, n) || 0) * (1 + (p.kind === "pickem_boost" ? p.boost || 0 : 0));
@@ -500,9 +508,11 @@ function pickemPlan(p, top, ctx) {
   let fixed = null;
   if (p.kind === "discounted_line") {
     const l = findTarget(p.target);
-    const P = pAtLine(l, p.promoLine, p.promoSide || "Over");
-    if (P == null) return [];
-    fixed = { leg: { ...l, label: `${l.player} ${p.promoSide || "Over"} ${p.promoLine} ${l.market.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " ")} (promo line)` }, price: { am: null }, D: 1, P, promo: true };
+    const P0 = pAtLine(l, p.promoLine, p.promoSide || "Over");
+    if (P0 == null) return [];
+    const P = Math.min(P0, 0.98);           // a near-lock still loses to an early injury exit or a foul-out
+    fixed = { leg: { ...l, label: `${l.player} ${p.promoSide || "Over"} ${p.promoLine} ${l.market.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " ")} (promo line)` }, price: { am: null }, D: 1, P, promo: true,
+      perX: p.promoMult || null, capped: P0 > 0.98 };
     pool = pool.filter((c) => c.leg.player !== l.player);
   }
   const n = Math.max(fixed ? 1 : 2, p.picks || 2);
@@ -516,7 +526,24 @@ function pickemPlan(p, top, ctx) {
     const alt = [...base]; alt[alt.length - 1 - (i % Math.max(1, n - (fixed ? 1 : 0)))] = rest[i];
     if (new Set(alt.map((c) => c.leg.gameId)).size === alt.length) opts.push(alt);
   }
-  const res = opts.map((cs) => ({ legs: cs, ...value(p, cs, ctx), pick: true, fed }));
+  const perPick = p.kind === "discounted_line" && p.promoMult;
+  if (perPick) for (const c of pool) {       // each other pick's own multiplier: the feed's when known, else what you typed, else ~1.73x assumed
+    const known = c.varPay ? (c.est ? Math.sqrt(3) * c.mult : null) : Math.sqrt(3) * c.mult;
+    c.perX = known ?? null; c.assumed = known == null && !p.otherMult;
+  }
+  const res = opts.map((cs0) => {
+    const cs = cs0.map((c) => ({ ...c }));
+    if (perPick) {
+      const mx = (c) => (c.promo ? p.promoMult : c.perX ?? (p.otherMult || Math.sqrt(3)));
+      for (const c of cs) if (!c.promo) {      // the smallest multiplier this pick can pay for the entry to break even
+        const rest = cs.filter((d) => d !== c).reduce((x, d) => x * d.P * mx(d), 1);
+        c.needs = c.perX == null ? 1 / (rest * c.P) : null;
+        if (c.perX == null) c.perX = p.otherMult || null;
+      }
+      return { legs: cs, ...value(p, cs, ctx), pick: true, fed, payX: cs.reduce((x, c) => x * mx(c), 1), perPick: true, assumed: cs.some((c) => c.assumed) };
+    }
+    return { legs: cs, ...value(p, cs, ctx), pick: true, fed };
+  });
   const seen = new Set();
   return res.filter((r) => { const kk = keyOf(r.legs); if (seen.has(kk)) return false; seen.add(kk); return true; }).sort((a, b) => b.ev - a.ev).slice(0, top);
 }
