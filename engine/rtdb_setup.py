@@ -14,6 +14,12 @@ def main(data_dir, log=print):
     cred = service_account.Credentials.from_service_account_info(sa, scopes=["https://www.googleapis.com/auth/cloud-platform"])
     s = AuthorizedSession(cred)
     out = {"steps": []}
+    # the database management API is off by default in new projects: turn it on (free; needs the service account's rights)
+    r = s.post(f"https://serviceusage.googleapis.com/v1/projects/{sa.get('project_id', PROJECT)}/services/firebasedatabase.googleapis.com:enable")
+    out["steps"].append({"enable": r.status_code, "body": r.text[:300]})
+    if r.ok:
+        import time
+        time.sleep(45)
     r = s.get(f"{API}/projects/{PROJECT}/locations/-/instances")
     out["steps"].append({"list": r.status_code, "body": r.text[:600]})
     inst = (r.json().get("instances") if r.ok else None) or []
