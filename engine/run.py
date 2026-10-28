@@ -45,8 +45,24 @@ def iso(dt):
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_LOG = []
+
+
 def log(msg):
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}", flush=True)
+    line = f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}"
+    _LOG.append(line)
+    print(line, flush=True)
+
+
+def _save_log():
+    """the run's log lines (counts only, never keys or odds) in the private data repo, since Actions logs aren't
+    always reachable: latest/log_<mode>.txt"""
+    try:
+        key = os.environ.get("ODDS_API_KEY") or "\x00"
+        text = "\n".join(_LOG[-300:]).replace(key, "***")
+        open(os.path.join(DATA_DIR, "latest", f"log_{MODE or 'auto'}.txt"), "w").write(text + "\n")
+    except Exception:
+        pass
 
 
 def save_raw(sport, kind, payload):
@@ -1164,6 +1180,8 @@ def _record_failure(e):
 
 
 if __name__ == "__main__":
+    import atexit
+    atexit.register(_save_log)
     try:
         main()
         try:
