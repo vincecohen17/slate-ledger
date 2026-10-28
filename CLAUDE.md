@@ -66,6 +66,11 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - Site sizing: Firestore `settings/owner` {bankroll, kelly, maxPct, unit} (Ledger > Analysis) drives the suggested stake on
   edges (half for model/estimated fairs), the log sheet's default stake and units in dollars; parlays down to one leg show a
   hedge to lock a result and its expected cost.
+- Wallet (Ledger > Wallet, `site/js/wallet.js` + `views/wallet.js`): Firestore `wallet/{id}` entries {venue, type: balance |
+  deposit | withdrawal | bonus, cash/bonus or amount, at, note}. From each balance check-in it replays deposits, withdrawals,
+  bonus credits and every bet placed/settled at that venue (bonus-funded = promo kind bonus_bet/free_entry: stake from bonus,
+  winnings to cash) to know what each app should hold; later check-ins that differ are "unaccounted". Real profit per app =
+  cash + open cash stakes + withdrawn - deposited - opening (first check-in + its open stakes), next to the ledger's P/L.
 - `engine/picklive.py` every run re-checks each open pick's playTo venues (current price, pick'em line still listed, in range vs
   goodAt) -> RTDB pre/pickslive and latest/pickslive.json; the Picks screen shows it. Pick'em payouts: Underdog/Dabble real,
   PrizePicks standard = fixed 1.732/leg, DK Pick6 multiplier estimated from DraftKings' no-vig price (dfs estMult in props).

@@ -3,7 +3,7 @@ import { db, rtdb, doc, collection, onSnapshot, query, where, setDoc, deleteDoc,
 
 export const S = {
   games: new Map(), status: null, edges: [], reports: null,
-  picks: new Map(), bets: new Map(), promos: new Map(), matchups: new Map(), previews: new Map(),
+  picks: new Map(), bets: new Map(), promos: new Map(), wallet: new Map(), matchups: new Map(), previews: new Map(),
   live: null, liveGames: new Map(),   // in-play: board/live summary + live/{gameId} docs
   finals: [], finalDocs: new Map(),   // finished games: board/finals list + finals/{key} loaded when opened
   props: new Map(),            // docId -> prop doc
@@ -167,6 +167,7 @@ export function start() {
   watchCol("previews", S.previews);
   watchCol("bets", S.bets, (d) => d.data());
   watchCol("promos", S.promos, (d) => d.data());
+  watchCol("wallet", S.wallet, (d) => d.data());
   subs.push(onSnapshot(doc(db, "settings", "owner"), (d) => { S.settings = { ...SETTINGS0, ...(d.exists() ? d.data() : {}) }; changed(); }, onErr));
   listen("pre/opps", async (v) => { S.opps = v ? (await dec("pre/opps", v)).items || [] : []; });
   listen("pre/pickslive", async (v) => { S.picksLive = v ? await dec("pre/pickslive", v) : null; });
@@ -212,6 +213,9 @@ export const saveBet = (b) => setDoc(doc(db, "bets", b.id), JSON.parse(JSON.stri
 export const deleteBet = (id) => deleteDoc(doc(db, "bets", id));
 export const savePromo = (p) => setDoc(doc(db, "promos", p.id), JSON.parse(JSON.stringify(p)));
 export const deletePromo = (id) => deleteDoc(doc(db, "promos", id));
+// wallet entries: balance check-ins, deposits, withdrawals, bonus credits (see wallet.js)
+export const saveWallet = (w) => setDoc(doc(db, "wallet", w.id), JSON.parse(JSON.stringify(w)));
+export const deleteWallet = (id) => deleteDoc(doc(db, "wallet", id));
 
 // ---------- presence: tells the engine the site is open, so it refreshes prices only while you use it
 let beat = null;

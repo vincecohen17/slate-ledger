@@ -596,3 +596,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .pr-read { background: var(--panel-2); border-radius: 10px; padding: 8px 10px; }
 .pr-form .miss input, .pr-form .miss select, .pr-form .col.miss > input { outline: 2px solid var(--neg); outline-offset: 1px; }
 .pr-form .col.miss > .tiny { color: var(--neg); }
+/* wallet */
+.wl-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.wl-nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.wl-nums .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.wl-nums .v { font-size: 17px; font-weight: 700; }
+.wl-nums .s { font-size: 11px; color: var(--muted); }
+.wl-h { gap: 8px; align-items: baseline; border-top: 1px dashed var(--line); padding-top: 4px; }
+@media (max-width: 520px) { .wl-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

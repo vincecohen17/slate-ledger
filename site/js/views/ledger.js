@@ -8,6 +8,7 @@ import { VENUES } from "../lab.js";
 import { projectedCard, betLegs } from "../projected.js";
 import { betImage } from "./common.js";
 import { analysis, bindAnalysis } from "./analysis.js";
+import { walletHtml, bindWallet } from "./wallet.js";
 import { unify, outcomes, arbSheet, unpair, findPairs, autoPair, pairBets } from "../arbs.js";
 
 let tab = "mine", filter = "pending", groupBy = "type";
@@ -340,9 +341,10 @@ export function renderLedger(el) {
   for (const b of S.bets.values()) if (b.status === "pending") for (const l of betLegs(b)) if (l.player && l.gameId) loadProps(l.gameId);
   for (const p of S.picks.values()) if (p.player && p.gameId && !["won", "lost", "push", "void"].includes(p.status)) loadProps(p.gameId);
   el.innerHTML = `<div class="row" style="justify-content:space-between;margin-top:18px;flex-wrap:wrap;gap:8px"><h2 style="margin:0;font-size:18px">Ledger</h2>
-      <div class="bar" style="margin:0"><button class="chip ${tab === "mine" ? "on" : ""}" data-tab="mine">My bets</button><button class="chip ${tab === "analysis" ? "on" : ""}" data-tab="analysis">Analysis</button><button class="chip ${tab === "ours" ? "on" : ""}" data-tab="ours">Our picks</button></div></div>
-    ${tab === "mine" ? mine(el) : tab === "analysis" ? analysis() : ours()}`;
+      <div class="bar" style="margin:0"><button class="chip ${tab === "mine" ? "on" : ""}" data-tab="mine">My bets</button><button class="chip ${tab === "wallet" ? "on" : ""}" data-tab="wallet">Wallet</button><button class="chip ${tab === "analysis" ? "on" : ""}" data-tab="analysis">Analysis</button><button class="chip ${tab === "ours" ? "on" : ""}" data-tab="ours">Our picks</button></div></div>
+    ${tab === "mine" ? mine(el) : tab === "wallet" ? walletHtml() : tab === "analysis" ? analysis() : ours()}`;
   if (tab === "analysis") bindAnalysis(el, () => renderLedger(el));
+  if (tab === "wallet") bindWallet(el, () => renderLedger(el));
   $$("[data-tab]", el).forEach((b) => b.onclick = () => { tab = b.dataset.tab; renderLedger(el); });
   const ab = $("#add-bet", el); if (ab) ab.onclick = () => logSheet({});
   autoPair([...S.bets.values()]);
