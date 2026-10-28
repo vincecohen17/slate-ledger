@@ -6,11 +6,13 @@ import { esc, am, pct, prob, money, fmtShortDay, bookLogo } from "../util.js";
 import { settleProfit, kindOf, normalize } from "../promo.js";
 import { VENUES } from "../lab.js";
 import { lineChart, legend, divRows, calibChart, heat } from "./charts.js";
+import { unify } from "../arbs.js";
 
 const DFS = new Set(VENUES.filter((v) => v.dfs).map((v) => v.key));
 const DONE = ["won", "lost", "push"];
 const promoOf = (b) => (b.promoId ? S.promos.get(b.promoId) : null);
 export function betType(b) {
+  if (b.isGroup) return b.kind === "arb" ? "Arb" : "Middle";
   if ((b.legs || []).length > 1) return "Parlay";
   if (DFS.has(b.venue)) return "Pick'em";
   const m = b.market || b.legs?.[0]?.market || "";
@@ -22,6 +24,7 @@ export function betType(b) {
 }
 // what a bet was expected to make at the fair when logged (promo math included)
 function expOf(b) {
+  if (b.isGroup) return b.expPl != null ? { ev: b.expPl, v: b.expVar || 0 } : null;     // an arb or middle: its own expectation
   const p = b.fairAtLog;
   if (p == null || !b.dec) return null;
   const pr = promoOf(b), w = settleProfit(b, pr, "won"), l = settleProfit(b, pr, "lost");
@@ -64,7 +67,7 @@ function statTable(rows, label = "") {
 
 export function analysis() {
   const bankroll = S.settings?.bankroll || 0;
-  const all = [...S.bets.values()];
+  const raw = [...S.bets.values()], all = unify(raw);     // an arb or middle counts once, at its net result
   const st = all.filter((b) => DONE.includes(b.status)).sort((a, b) => (a.settledAt || "").localeCompare(b.settledAt || ""));
   if (st.length < 3) return `<div class="card note" style="margin-top:12px">The analysis fills in after a few settled bets.</div>`;
   const A = agg(st);
@@ -81,9 +84,9 @@ export function analysis() {
   const z = v > 0 ? (c - e) / Math.sqrt(v) : 0;
   // streaks
   let cur = 0, curT = null, longL = 0, longW = 0, k = 0, kt = null;
-  st.forEach((b) => { if (b.status === "push") return; if (b.status === kt) k++; else { kt = b.status; k = 1; } if (kt === "lost") longL = Math.max(longL, k); else longW = Math.max(longW, k); });
+  st.forEach((b) => { if (b.status === "push" || b.isGroup) return; if (b.status === kt) k++; else { kt = b.status; k = 1; } if (kt === "lost") longL = Math.max(longL, k); else longW = Math.max(longW, k); });
   cur = k; curT = kt;
-  const avgDec = st.reduce((s, b) => s + (b.dec || 0), 0) / st.length;
+  const wd = st.filter((b) => b.dec), avgDec = wd.length ? wd.reduce((s, b) => s + b.dec, 0) / wd.length : 2;
   const days = Math.max(1, (new Date(st.at(-1).settledAt || Date.now()) - new Date(st[0].createdAt || st[0].settledAt)) / 86400000);
 
   // rolling CLV
@@ -107,15 +110,15 @@ export function analysis() {
 
   // promo value: what each promo added over the same bet without it
   const promoRows = new Map();
-  st.filter((b) => b.promoId).forEach((b) => { const p = promoOf(b); const kind = p ? kindOf(normalize(p).kind).name : "Promo (deleted)";
+  raw.filter((b) => DONE.includes(b.status) && b.promoId).forEach((b) => { const p = promoOf(b); const kind = p ? kindOf(normalize(p).kind).name : "Promo (deleted)";
     const base = settleProfit(b, null, b.status), extra = (b.profit || 0) - base; const r = promoRows.get(kind) || { k: kind, n: 0, extra: 0, pl: 0 }; r.n++; r.extra += extra; r.pl += b.profit || 0; promoRows.set(kind, r); });
   const promoTot = [...promoRows.values()].reduce((s, r) => s + r.extra, 0);
 
   // parlays by legs
-  const legsN = (b) => { const n = (b.legs || []).length || 1; return n === 1 ? "Single" : n <= 3 ? `${n} legs` : n <= 5 ? "4-5 legs" : "6+ legs"; };
+  const legsN = (b) => { if (b.isGroup) return "Arbs & middles"; const n = (b.legs || []).length || 1; return n === 1 ? "Single" : n <= 3 ? `${n} legs` : n <= 5 ? "4-5 legs" : "6+ legs"; };
 
   // stake thirds
-  const ss = st.map((b) => b.stake).sort((a, b) => a - b), sc = [ss[Math.floor(ss.length / 3)], ss[Math.floor(ss.length * 2 / 3)]];
+  const sg = st.filter((b) => !b.isGroup), ss = sg.map((b) => b.stake).sort((a, b) => a - b), sc = [ss[Math.floor(ss.length / 3)], ss[Math.floor(ss.length * 2 / 3)]];
 
   const swing = [...st].sort((a, b) => (b.profit || 0) - (a.profit || 0));
   const clvS = st.filter((b) => b.clv != null).sort((a, b) => b.clv - a.clv);
@@ -168,13 +171,21 @@ export function analysis() {
       <span class="tiny muted">used for the suggested stake on every edge, pick and bet slip</span></div>
     ${bankroll ? `<p class="small" style="margin:8px 0 0">Your median stake is <b>${medR != null ? `${medR.toFixed(2)}×` : "–"}</b> full Kelly at the fair when logged. ${medR == null ? "" : medR > 0.5 ? "That's aggressive: most sharp bettors use a quarter to a half Kelly because the fair itself is uncertain." : medR < 0.1 ? "Very conservative: fine while you build a record, but you're leaving growth on the table on your best edges." : "A sensible fraction."}</p>` : `<p class="note">Enter a bankroll to compare each stake with the Kelly stake its edge supports.</p>`}
     ${negEV.length ? `<p class="small neg" style="margin:6px 0 0">${negEV.length} settled bets had no edge at the fair when logged (Kelly says skip): ${money(negEV.reduce((s, x) => s + (x.b.profit || 0), 0))} on them.</p>` : ""}
-    ${statTable(groupRows(st, (b) => stakeBand(b, sc), [`Smallest third (≤ ${money(sc[0])})`, "Middle third", `Biggest third (> ${money(sc[1])})`]), "Stake size")}</div>
+    ${statTable(groupRows(sg, (b) => stakeBand(b, sc), [`Smallest third (≤ ${money(sc[0])})`, "Middle third", `Biggest third (> ${money(sc[1])})`]), "Stake size")}</div>
 
   <div class="sec-title">Parlays and promos<span class="line"></span></div>
-  <div class="card">${statTable(groupRows(st, legsN, ["Single", "2 legs", "3 legs", "4-5 legs", "6+ legs"]), "Legs")}
+  <div class="card">${statTable(groupRows(st, legsN, ["Single", "2 legs", "3 legs", "4-5 legs", "6+ legs", "Arbs & middles"]), "Legs")}
     <p class="note">Each extra leg compounds the hold; parlays only make sense with correlation (same-game legs that move together) or a boost that covers the extra margin.</p></div>
   ${promoRows.size ? `<div class="card" style="margin-top:10px"><b>What each promo type added</b>${divRows([...promoRows.values()].map((r) => ({ k: r.k, v: r.extra, n: r.n, tip: `${r.k}: ${money(r.extra)} added over ${r.n} bets (total P/L ${money(r.pl)})` })), { fmt: money })}
     <p class="note">Profit above what the same bet would have paid without the promo.</p></div>` : ""}
+
+  ${(() => { const gs = st.filter((b) => b.isGroup); if (!gs.length) return "";
+    const row = (k) => { const x = gs.filter((b) => b.kind === k); if (!x.length) return "";
+      const pl = x.reduce((s2, b) => s2 + (b.profit || 0), 0), ex = x.reduce((s2, b) => s2 + (b.expPl || 0), 0), stk = x.reduce((s2, b) => s2 + b.stake, 0);
+      const hit = k === "middle" ? x.filter((b) => b.legsB.every((l) => l.status === "won")).length : null;
+      return `<tr><td>${k === "arb" ? "Arbs" : "Middles"}</td><td class="num">${x.length}</td><td class="num">${money(stk)}</td><td class="num ${cls(pl)}">${money(pl)}</td><td class="num ${cls(ex)}">${money(ex)}</td><td class="num">${hit == null ? "–" : `${hit} of ${x.length}`}</td></tr>`; };
+    return `<div class="sec-title">Arbs and middles<span class="line"></span></div><div class="card">${table([row("arb"), row("middle")], ["", "Pairs", "Staked", "Net P/L", "Expected", "Middles hit"])}
+      <p class="note">Each pair counts once everywhere in this analysis, at its net result, so the losing leg of an arb never shows up as a lost bet or drags a venue's record. An arb's P/L should match what it locked; if it doesn't, a leg was voided or a price was typed wrong.</p></div>`; })()}
 
   <div class="sec-title">Biggest swings<span class="line"></span></div>
   <div class="an-two">

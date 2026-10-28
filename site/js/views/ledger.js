@@ -1,13 +1,14 @@
 // Ledger: Vince's bets and our picks, graded automatically after the games (result + closing line value), with the
 // breakdowns and plain-words takeaways that say what to keep betting and what to stop.
 import { S, saveBet, deleteBet, loadProps } from "../store.js";
-import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, bookLogo, teamLogo, todayPT, $, $$ } from "../util.js";
+import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, bookLogo, teamLogo, todayPT, toast, $, $$ } from "../util.js";
 import { logSheet } from "./common.js";
 import { settleProfit, isBoost } from "../promo.js";
 import { VENUES } from "../lab.js";
 import { projectedCard, betLegs } from "../projected.js";
 import { betImage } from "./common.js";
 import { analysis, bindAnalysis } from "./analysis.js";
+import { unify, outcomes, arbSheet, unpair } from "../arbs.js";
 
 let tab = "mine", filter = "pending", groupBy = "type";
 const inflight = new Set();
@@ -28,6 +29,7 @@ export function autoSettle() {
 // ---------- how each bet is classified
 const DFS = new Set(VENUES.filter((v) => v.dfs).map((v) => v.key));
 function betType(b) {
+  if (b.isGroup) return b.kind === "arb" ? "Arb" : "Middle";
   if ((b.legs || []).length > 1) return "Parlay";
   if (DFS.has(b.venue)) return "Pick'em";
   const m = b.market || "";
@@ -39,14 +41,16 @@ function betType(b) {
 }
 const evAtLog = (b) => b.fairAtLog != null && b.dec ? b.fairAtLog * b.dec - 1 : null;
 function oddsBand(b) {
+  if (b.isGroup) return "Arbs & middles";
   const d = b.dec || 0;
   return d < 1.67 ? "-150 or shorter" : d < 2.1 ? "-149 to +110" : d < 3 ? "+111 to +200" : d < 6 ? "+201 to +500" : "+500 and longer";
 }
 function edgeBand(b) {
+  if (b.isGroup) return "Arbs & middles";
   const e = evAtLog(b);
   return e == null ? "No fair logged" : e < 0 ? "Below fair (no edge)" : e < 0.03 ? "0–3% edge" : e < 0.06 ? "3–6% edge" : "6%+ edge";
 }
-const SOURCES = { edge: "Edges screen", pick: "Our picks", promo: "Promos", lab: "Bet Lab", manual: "Typed in" };
+const SOURCES = { arb: "Arbs & middles", edge: "Edges screen", pick: "Our picks", promo: "Promos", lab: "Bet Lab", manual: "Typed in" };
 const GROUPS = {
   type: ["Bet type", betType], sport: ["Sport", (b) => b.league || "Unknown"], venue: ["Venue", (b) => b.venueName || b.venue],
   odds: ["Odds range", oddsBand], edge: ["Edge when logged", edgeBand], source: ["Where it came from", (b) => SOURCES[b.source] || b.source || "Typed in"],
@@ -58,18 +62,18 @@ function summarize(list) {
   const g = list.filter((b) => ["won", "lost", "push"].includes(b.status));
   const staked = g.reduce((s, b) => s + (b.stake || 0), 0), pl = g.reduce((s, b) => s + (b.profit || 0), 0);
   const clv = g.filter((b) => b.clv != null);
-  const exp = g.filter((b) => evAtLog(b) != null);
+  const exp = g.filter((b) => evAtLog(b) != null || b.expPl != null);
   return { n: g.length, w: g.filter((b) => b.status === "won").length, l: g.filter((b) => b.status === "lost").length, p: g.filter((b) => b.status === "push").length,
     staked, pl, roi: staked ? pl / staked : null, clv: clv.length ? clv.reduce((s, b) => s + b.clv, 0) / clv.length : null, nClv: clv.length,
     beat: clv.length ? clv.filter((b) => b.clv > 0).length / clv.length : null,
-    expPl: exp.reduce((s, b) => s + b.stake * evAtLog(b), 0), nExp: exp.length };
+    expPl: exp.reduce((s, b) => s + (b.isGroup ? b.expPl : b.stake * evAtLog(b)), 0), nExp: exp.length };
 }
 
 // ---------- charts
 function plChart(settled, expectedToo = true, fmt = money) {
   if (settled.length < 2) return `<div class="note">The chart appears after two settled bets.</div>`;
   const pts = []; let c = 0, e = 0;
-  settled.forEach((b) => { c += b.profit || 0; e += evAtLog(b) != null ? b.stake * evAtLog(b) : 0; pts.push({ y: c, e, b }); });
+  settled.forEach((b) => { c += b.profit || 0; e += b.isGroup ? b.expPl || 0 : evAtLog(b) != null ? b.stake * evAtLog(b) : 0; pts.push({ y: c, e, b }); });
   const W = 800, H = 230, P = { l: 52, r: 12, t: 14, b: 24 };
   const ys = pts.flatMap((p) => [p.y, expectedToo ? p.e : 0]), lo = Math.min(0, ...ys), hi = Math.max(0, ...ys), span = hi - lo || 1;
   const X = (i) => P.l + i * (W - P.l - P.r) / (pts.length - 1), Y = (v) => P.t + (hi - v) * (H - P.t - P.b) / span;
@@ -176,20 +180,49 @@ function betRow(b) {
     ${multi ? `<div class="lt-legs">${legs.map((l) => `<span class="lt-leg">${betImage({ gameId: l.gameId, label: l.label, player: l.player, league: b.league }, 18)}<span>${esc(l.label || "")}</span></span>`).join("")}</div>` : ""}
   </div>`;
 }
+// an arb or middle: one ticket, one result (net of both legs); each leg below with its own grade and edit
+function legRow(b) {
+  const done = ["won", "lost", "push", "void"].includes(b.status);
+  return `<div class="lt-gleg">${bookLogo(b.venue || "any", b.venueName || "", 20)}<span class="ellip" title="${esc(b.label)}">${esc(b.label)}</span>
+    <span class="num">${am(b.am)}</span><span class="num muted">${money(b.stake)}</span>
+    <span class="lg-clv">${b.clv != null ? `<span class="lt-chip ${b.clv > 0 ? "pos" : b.clv < 0 ? "neg" : ""}" title="this leg's price at the closing fair">CLV ${pct(b.clv)}</span>` : ""}</span>
+    <span class="lg-st">${done ? `<span class="pill ${b.status === "won" ? "pos" : b.status === "lost" ? "neg" : ""}">${b.status}${b.autoSettled ? " · auto" : ""}</span>`
+      : `<span class="lt-act">${["won", "lost", "push", "void"].map((s) => `<button class="btn sm ghost" data-set="${b.id}|${s}" title="mark ${s}">${s[0].toUpperCase()}</button>`).join("")}</span>`}</span>
+    <span class="row lg-ac" style="gap:4px"><button class="btn sm ghost" data-edit="${b.id}" title="check or fix odds, stake, promo">Edit</button><button class="x" data-del="${b.id}" title="delete this leg">×</button></span></div>`;
+}
+function groupRow(g) {
+  const o = outcomes(g.legsB), done = g.status !== "pending", pl = g.legsB[0].player;
+  const range = g.kind === "arb" ? `<span>${o.worst >= 0 ? "locks" : "worst"} <b class="num ${o.worst >= 0 ? "pos" : "neg"}">${money(o.worst)}</b></span>`
+    : `<span><b class="num ${o.worst >= 0 ? "pos" : "neg"}">${money(o.worst)}</b> to <b class="num pos">${money(o.both)}</b></span>`;
+  return `<div class="lt lt-grp ${esc(g.status)}">
+    <span class="lt-gico">${g.legsB.map((l) => bookLogo(l.venue || "any", l.venueName || "", 26)).join("")}</span>
+    <div class="col" style="gap:3px;min-width:0">
+      <div class="row" style="gap:8px;min-width:0"><span class="pill ${g.kind === "arb" ? "pos" : "s"}">${g.kind}</span><span class="lt-t ellip">${esc(pl ? `${pl} · ${g.matchup || ""}` : g.matchup || g.label)}</span></div>
+      <div class="lt-m"><span>${money(g.stake)} across ${g.legsB.length} venues</span>${g.league ? `<span>${esc(g.league)}</span>` : ""}${done ? "" : range}
+        ${g.group.window ? `<span>middle ${esc(g.group.window[0])} to ${esc(g.group.window[1])}${g.group.pMiddle != null ? ` (~${prob(g.group.pMiddle)})` : ""}</span>` : ""}
+        ${g.expPl != null ? `<span class="lt-chip ${g.expPl > 0 ? "pos" : g.expPl < 0 ? "neg" : ""}" title="what the pair was worth at the fairs when logged">expected ${money(g.expPl)}</span>` : ""}</div>
+    </div>
+    <div class="lt-r">${done ? `<span class="pill ${g.status === "won" ? "pos" : g.status === "lost" ? "neg" : ""}">${g.status === "won" ? "profit" : g.status === "lost" ? "loss" : g.status}</span><span class="lt-res ${(g.profit || 0) >= 0 ? "pos" : "neg"}">${money(g.profit)}</span>`
+      : `<span class="pill">open</span>`}
+      <button class="btn sm ghost" data-unlink="${esc(g.id)}" title="split back into two separate bets">Unlink</button></div>
+    <div class="lt-glegs">${g.legsB.map(legRow).join("")}</div>
+  </div>`;
+}
 function betList(list) {
   const by = new Map();
   list.forEach((b) => { const d = b.date || (b.createdAt || "").slice(0, 10); if (!by.has(d)) by.set(d, []); by.get(d).push(b); });
   return `<div class="lt-list">${[...by.entries()].map(([d, bs]) => {
     const pl = bs.filter((b) => ["won", "lost", "push"].includes(b.status)).reduce((x, b) => x + (b.profit || 0), 0);
     const any = bs.some((b) => ["won", "lost", "push"].includes(b.status));
-    return `<div class="lt-day row" style="justify-content:space-between"><span>${d ? esc(fmtShortDay(d + "T12:00:00")) : "Undated"}</span>${any ? `<span class="num ${pl >= 0 ? "pos" : "neg"}">${money(pl)}</span>` : ""}</div>${bs.map(betRow).join("")}`;
+    return `<div class="lt-day row" style="justify-content:space-between"><span>${d ? esc(fmtShortDay(d + "T12:00:00")) : "Undated"}</span>${any ? `<span class="num ${pl >= 0 ? "pos" : "neg"}">${money(pl)}</span>` : ""}</div>${bs.map((b) => b.isGroup ? groupRow(b) : betRow(b)).join("")}`;
   }).join("")}</div>`;
 }
 
 function mine(el) {
-  const bets = [...S.bets.values()].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const raw = [...S.bets.values()];
+  const bets = unify(raw).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const settled = bets.filter((b) => ["won", "lost", "push"].includes(b.status)).sort((a, b) => (a.settledAt || "").localeCompare(b.settledAt || ""));
-  const s = summarize(bets), pend = bets.filter((b) => b.status === "pending");
+  const s = summarize(bets), pend = raw.filter((b) => b.status === "pending");
   const shown = bets.filter((b) => filter === "all" || (filter === "live" ? b.live : filter === "pending" ? b.status === "pending" : b.status !== "pending"));
   const ins = insights(bets);
   return `<div class="kpis" style="margin-top:12px">
@@ -199,7 +232,7 @@ function mine(el) {
       <div class="kpi"><div class="k">Avg CLV</div><div class="v ${s.clv > 0 ? "pos" : s.clv < 0 ? "neg" : ""}">${s.clv != null ? pct(s.clv) : "–"}</div><div class="s">beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
       <div class="kpi"><div class="k">Open</div><div class="v">${pend.length}</div><div class="s">${money(pend.reduce((x, b) => x + (b.stake || 0), 0))} at risk</div></div>
     </div>
-    ${(() => { const chk = bets.filter(needsCheck); return chk.length ? `<div class="card lg-chk"><b>${chk.length} boosted bet${chk.length > 1 ? "s" : ""} to double-check</b>
+    ${(() => { const chk = raw.filter(needsCheck); return chk.length ? `<div class="card lg-chk"><b>${chk.length} boosted bet${chk.length > 1 ? "s" : ""} to double-check</b>
       <div class="small muted" style="margin:4px 0 8px">If you typed the price the app showed after the boost, the ledger added the boost a second time. Tap the one that's right for each bet.</div>
       <div class="col" style="gap:6px">${chk.map((b) => { const p = S.promos.get(b.promoId), st = ["won", "lost"].includes(b.status) ? b.status : "won";
         const a = settleProfit({ ...b, boostIn: true }, p, st), n = settleProfit({ ...b, boostIn: false }, p, st);
@@ -207,7 +240,7 @@ function mine(el) {
           <button class="btn sm ghost" data-bin="${b.id}|1">Boost was in the odds <span class="tiny muted">${st === "won" ? `wins ${money(a)}` : ""}</span></button>
           <button class="btn sm ghost" data-bin="${b.id}|0">Normal odds <span class="tiny muted">${st === "won" ? `wins ${money(n)}` : ""}</span></button></div>`; }).join("")}</div></div>` : ""; })()}
     ${pend.length ? `<div class="sec-title">Open bets<span class="line"></span></div>${projectedCard({ items: pend, title: "Projected profit on open bets",
-        settledToday: bets.filter((b) => ["won", "lost", "push"].includes(b.status) && b.settledAt && new Date(b.settledAt).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }) === todayPT()).reduce((x, b) => x + (b.profit || 0), 0) })}` : ""}
+        settledToday: raw.filter((b) => ["won", "lost", "push"].includes(b.status) && b.settledAt && new Date(b.settledAt).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }) === todayPT()).reduce((x, b) => x + (b.profit || 0), 0) })}` : ""}
     ${ins.length ? `<div class="sec-title">What the numbers say<span class="line"></span></div><div class="card col lg-ins">${ins.map(([t, x]) => `<div class="lg-in ${t}">${t === "pos" ? "▲" : t === "neg" ? "▼" : "●"} ${esc(x)}</div>`).join("")}</div>`
       : `<div class="card note" style="margin-top:12px">Takeaways appear once 8+ bets are settled with a closing price. Bets logged from the Edges, Picks, Promos and Lab screens grade themselves after the game; typed-in bets need a W/L tap.</div>`}
     <div class="sec-title">Running profit<span class="line"></span></div><div class="card">${plChart(settled)}</div>
@@ -215,7 +248,7 @@ function mine(el) {
     <div class="bar">${Object.entries(GROUPS).map(([k, [lab]]) => `<button class="chip sm ${k === groupBy ? "on" : ""}" data-grp="${k}">${lab}</button>`).join("")}</div>
     <div class="card">${groupTable(bets, groupBy)}<p class="note">CLV is what your price was worth at the closing sharp fair: positive means you got a better number than the market settled on. Over a few hundred bets it predicts profit far better than wins and losses do.</p></div>
     <div class="row" style="justify-content:space-between;margin-top:14px;flex-wrap:wrap;gap:8px"><div class="bar" style="margin:0">${["pending", "settled", "live", "all"].map((f) => `<button class="chip ${f === filter ? "on" : ""}" data-flt="${f}">${f === "live" ? "● Live bets" : f[0].toUpperCase() + f.slice(1)}</button>`).join("")}</div>
-      <button class="btn" id="add-bet">Log a bet</button></div>
+      <span class="row" style="gap:6px"><button class="btn ghost" id="add-arb" title="both legs of an arb or middle, counted as one result">Log arb / middle</button><button class="btn" id="add-bet">Log a bet</button></span></div>
     ${shown.length ? betList(shown)
       : `<div class="empty"><h3>No ${filter === "all" ? "" : filter} bets</h3>Log bets from Edges, the Lab, Picks or Promos, or add one here.</div>`}`;
 }
@@ -229,8 +262,8 @@ function ours() {
   const s = summarize(graded.map(asBet));
   const byLeague = new Map();
   graded.forEach((p) => { const k = p.league || "?"; if (!byLeague.has(k)) byLeague.set(k, []); byLeague.get(k).push(asBet(p)); });
-  const tailed = [...S.bets.values()].filter((b) => b.pickId || b.source === "pick");
-  const ts = summarize(tailed), own = summarize([...S.bets.values()].filter((b) => !(b.pickId || b.source === "pick")));
+  const ub = unify([...S.bets.values()]), tailed = ub.filter((b) => b.pickId || b.source === "pick");
+  const ts = summarize(tailed), own = summarize(ub.filter((b) => !(b.pickId || b.source === "pick")));
   const recent = [...all].filter((p) => p.tier !== "likely").sort((a, b) => (b.commence || "").localeCompare(a.commence || "")).slice(0, 30);
   const u = (x) => `${x >= 0 ? "+" : ""}${(x || 0).toFixed(2)}u`;
   const openPicks = all.filter((p) => ["open", "pending", undefined, null].includes(p.status) && p.tier !== "likely").map((p) => {
@@ -294,6 +327,11 @@ export function renderLedger(el) {
   if (tab === "analysis") bindAnalysis(el, () => renderLedger(el));
   $$("[data-tab]", el).forEach((b) => b.onclick = () => { tab = b.dataset.tab; renderLedger(el); });
   const ab = $("#add-bet", el); if (ab) ab.onclick = () => logSheet({});
+  const aa = $("#add-arb", el); if (aa) aa.onclick = () => arbSheet({});
+  $$("[data-unlink]", el).forEach((b) => b.onclick = () => {
+    if (!b.dataset.c) { b.dataset.c = 1; b.textContent = "Unlink?"; return; }
+    unpair([...S.bets.values()].filter((x) => x.group?.id === b.dataset.unlink)).then(() => toast("Split into two bets")).catch((e) => toast("Could not save: " + e.message));
+  });
   $$("[data-grp]", el).forEach((b) => b.onclick = () => { groupBy = b.dataset.grp; renderLedger(el); });
   $$("[data-flt]", el).forEach((b) => b.onclick = () => { filter = b.dataset.flt; renderLedger(el); });
   $$("[data-set]", el).forEach((b) => b.onclick = () => {

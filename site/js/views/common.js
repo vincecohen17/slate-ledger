@@ -89,6 +89,10 @@ export function logSheet(pre = {}) {
         <span class="small">Live bet (placed during the game)${liveSt ? ` <span class="tiny muted">· ${esc(liveSt.text)}</span>` : ""}</span></label>
       <label class="row lb-boost lb-bst" style="gap:8px;align-items:flex-start" hidden><input type="checkbox" id="lb-boostin" ${pre.boostIn ? "checked" : ""} style="margin-top:3px">
         <span class="small">The odds above already include the boost (what the app showed after boosting). Leave unchecked if you typed the normal price.</span></label>
+      ${edit && !pre.group ? (() => {           // legs of an arb or middle logged one at a time: pair them so they count as one result
+        const cands = [...S.bets.values()].filter((b) => b.id !== pre.id && !b.group && ((pre.gameId && b.gameId === pre.gameId) || (b.date && b.date === pre.date)));
+        return cands.length ? `<div class="fgrid"><label class="f" style="grid-column:span 2">Other leg of an arb or middle<select id="lb-pair"><option value="">Not paired</option>${cands.map((b) => `<option value="${b.id}">${esc(b.label)} · ${esc(b.venueName || b.venue || "")} ${am(b.am)}</option>`).join("")}</select></label>
+          <label class="f">Kind<select id="lb-pairk"><option value="arb">Arb</option><option value="middle">Middle</option></select></label></div>` : ""; })() : ""}
       <div class="lb-pay card" style="padding:10px 12px"></div>
       <p class="note">Our fair at logging: ${(pre.fairAtLog ?? pre.fair) != null ? prob(pre.fairAtLog ?? pre.fair, 1) : "none"}. Closing line value fills in automatically once grading runs.</p>
       <div class="row"><button class="btn" id="lb-save">${edit ? "Save changes" : "Save bet"}</button><button class="btn ghost" id="lb-cancel">Cancel</button></div>
@@ -131,7 +135,13 @@ export function logSheet(pre = {}) {
           side: pre.side ?? null, point: pre.point ?? null, player: pre.player || null, team: pre.team || null,
           fairAtLog: pre.fair ?? null, legs: pre.legs || null, source: pre.source || "manual", pickId: pre.pickId || null };
       }
-      try { await saveBet(bet); toast(edit ? "Bet updated" : "Bet logged"); close(); } catch (e) { toast("Could not save: " + e.message); }
+      const pairId = $("#lb-pair", el)?.value, partner = pairId && S.bets.get(pairId);
+      if (partner) {
+        const group = { id: uid(), kind: $("#lb-pairk", el).value, n: 2, at: new Date().toISOString() };
+        bet.group = { ...group, i: 0 };
+        try { await saveBet({ ...partner, group: { ...group, i: 1 } }); } catch (e) { toast("Could not pair: " + e.message); return; }
+      }
+      try { await saveBet(bet); toast(partner ? "Paired: they count as one result now" : edit ? "Bet updated" : "Bet logged"); close(); } catch (e) { toast("Could not save: " + e.message); }
     };
   });
 }

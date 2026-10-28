@@ -52,6 +52,10 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   Also opening lines: first fair seen per main line/prop row (track/opens.json) stamped as open/openPt/openAt on lines and edges.
 - `engine/opps.py` arbs and middles across Vince's venues (all-in prices; middles priced with the alt-line fairs: EV = 1 - S +
   P(middle)); suspect ones (8%+ or a leg 12+ pts off fair) are flagged. Published as RTDB `pre/opps`, Edges > Arbs & middles.
+  Each leg carries market/side/point/team so a logged pair grades itself. `site/js/arbs.js`: "Log both legs" (or Ledger >
+  Log arb / middle, or pairing two bets in a bet's Edit sheet) saves both legs as normal bets sharing `group` {id, kind, i,
+  window?, pMiddle?}; `unify()` folds each pair into one row (net profit, total stake, expected profit from the legs' fairs)
+  for every ledger stat and the Analysis tab, so the losing leg never counts as a lost bet or skews venues, CLV or Kelly.
 - `engine/alerts.py` phone alerts via ntfy (topic only in the private data repo config/alerts.json): arbs/middles, strong new
   edges (logic agrees, outside quiet hours), optional bet results; each item once (latest/alerts_state.json).
 - Site sizing: Firestore `settings/owner` {bankroll, kelly, maxPct, unit} (Ledger > Analysis) drives the suggested stake on

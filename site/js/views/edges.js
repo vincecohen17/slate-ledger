@@ -1,12 +1,15 @@
 import { S } from "../store.js";
 import { esc, bookLogo, am, pct, prob, fmtTime, money, $$ } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
+import { arbSheet } from "../arbs.js";
 
 const F = { league: "All", type: "All", min: 0.015, venue: "All", logic: "All", tab: "edges" };
 
 // arbs and middles across your venues (all-in prices), with the stake split for a chosen total
 let oppTotal = 100;
+let OPPS = [];
 function oppCard(o) {
+  OPPS.push(o);
   const tot = oppTotal, st = o.stakes.map((x) => x * tot);
   const ret = o.legs.map((l, i) => st[i] * l.dec);
   const head = o.kind === "arb" ? `<span class="pill pos">arb +${(o.profit * 100).toFixed(2)}%</span>` : `<span class="pill s">middle · EV ${pct(o.ev)}</span>`;
@@ -17,7 +20,8 @@ function oppCard(o) {
       <b class="num">${am(l.am)}</b><span class="num op-stake">${money(st[i])}</span></div>`).join("")}</div>
     <div class="tiny" style="margin-top:8px">${o.kind === "arb"
       ? `Either way you get back about <b>${money(Math.min(...ret))}</b> on ${money(tot)}: <b class="pos">${money(Math.min(...ret) - tot)}</b> locked.`
-      : `If one side wins: ${money(Math.min(...ret) - tot)}. If the result lands ${o.window[0]} to ${o.window[1]} (about ${prob(o.pMiddle)}): <b class="pos">${money(ret[0] + ret[1] - tot)}</b>. Expected <b class="${o.ev >= 0 ? "pos" : "neg"}">${money(o.ev * tot * o.stakes[0] * o.legs[0].dec)}</b>.`}</div></div>`;
+      : `If one side wins: ${money(Math.min(...ret) - tot)}. If the result lands ${o.window[0]} to ${o.window[1]} (about ${prob(o.pMiddle)}): <b class="pos">${money(ret[0] + ret[1] - tot)}</b>. Expected <b class="${o.ev >= 0 ? "pos" : "neg"}">${money(o.ev * tot * o.stakes[0] * o.legs[0].dec)}</b>.`}</div>
+    <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn sm ghost" data-arb="${OPPS.length - 1}" title="log both legs as one ${o.kind} in the ledger">Log both legs</button></div></div>`;
 }
 function oppsHtml() {
   const L = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && (F.league === "All" || o.league === F.league));
@@ -41,10 +45,12 @@ export function renderEdges(el) {
   const nOpp = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && !o.suspect).length;
   const tabs = `<div class="bar"><button class="chip ${F.tab === "edges" ? "on" : ""}" data-tab="edges">Edges</button><button class="chip ${F.tab === "opps" ? "on" : ""}" data-tab="opps">Arbs & middles${nOpp ? ` <span class="pill pos">${nOpp}</span>` : ""}</button></div>`;
   if (F.tab === "opps") {
+    OPPS = [];
     el.innerHTML = tabs + `<div class="bar" style="margin-top:0">${chips("league", ["All", ...new Set((S.opps || []).map((o) => o.league))])}</div>` + oppsHtml();
     $$("[data-tab]", el).forEach((b) => b.onclick = () => { F.tab = b.dataset.tab; renderEdges(el); });
     $$("[data-f]", el).forEach((b) => b.onclick = () => { F[b.dataset.f] = b.dataset.v; renderEdges(el); });
     const t = el.querySelector("#op-tot"); if (t) t.onchange = () => { oppTotal = +t.value || 100; renderEdges(el); };
+    $$("[data-arb]", el).forEach((b) => b.onclick = () => arbSheet({ ...OPPS[+b.dataset.arb], total: oppTotal }));
     return;
   }
   el.innerHTML = tabs + `<div class="bar">${chips("league", leagues)}<span class="spacer"></span>${chips("type", ["All", "Lines", "Props", "Pick'em"])}</div>

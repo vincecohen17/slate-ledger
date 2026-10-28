@@ -25,12 +25,25 @@ def _side_quotes(line, side):
     return sorted(out)
 
 
-def _leg(book, name, am, cost, label, fair=None):
-    return {"book": book, "name": name, "am": am, "dec": round(1 / cost, 4), "label": label,
-            "fair": fair, "off": None if fair is None else round(fair - cost, 4)}
+def _leg(book, name, am, cost, label, fair=None, spec=None):
+    """spec: what the ledger grades from (market, side, that side's own point, team for team totals), so a logged
+    arb or middle settles itself leg by leg"""
+    return dict({"book": book, "name": name, "am": am, "dec": round(1 / cost, 4), "label": label,
+                 "fair": fair, "off": None if fair is None else round(fair - cost, 4)}, **(spec or {}))
 
 
-def _arbs_in(lines, meta, labels):
+def _spec(l, side, home=None, mk=None):
+    mk = l.get("market") or mk or ""
+    pt = l.get("point")
+    if "spreads" in mk and pt is not None and home is not None:
+        pt = pt if side == home else -pt
+    out = {"market": mk, "side": side, "point": None if mk.startswith("h2h") else pt}
+    if "team_totals" in mk:
+        out["team"] = l.get("team")
+    return out
+
+
+def _arbs_in(lines, meta, labels, home=None):
     out = []
     for l in lines:
         outs = l.get("outcomes") or []
@@ -50,13 +63,13 @@ def _arbs_in(lines, meta, labels):
         if best and best[0] < 0.995:
             s, (ca, ba, na, aa), (cb, bb, nb, ab) = best
             out.append(dict(meta, kind="arb", market=l.get("market") or meta.get("market"), point=l.get("point"), profit=round(1 / s - 1, 4),
-                            legs=[_leg(ba, na, aa, ca, labels(l, outs[0]), (l.get("fair") or {}).get(outs[0])),
-                                  _leg(bb, nb, ab, cb, labels(l, outs[1]), (l.get("fair") or {}).get(outs[1]))],
+                            legs=[_leg(ba, na, aa, ca, labels(l, outs[0]), (l.get("fair") or {}).get(outs[0]), _spec(l, outs[0], home, meta.get("market"))),
+                                  _leg(bb, nb, ab, cb, labels(l, outs[1]), (l.get("fair") or {}).get(outs[1]), _spec(l, outs[1], home, meta.get("market")))],
                             stakes=[round(ca / s, 4), round(cb / s, 4)]))
     return out
 
 
-def _middles_in(lines, meta, labels, up, down, fair_up, key):
+def _middles_in(lines, meta, labels, up, down, fair_up, key, home=None):
     """lines of one market family; up(l) / down(l) name the side that wins when the result is high / low; fair_up(l)
     is the fair of the high side; key(l) the number on the high side's terms (higher number = harder for the high side)"""
     out = []
@@ -85,8 +98,8 @@ def _middles_in(lines, meta, labels, up, down, fair_up, key):
             if ev >= 0.005 and 1 - S >= -0.06:
                 out.append(dict(meta, kind="middle", market=l1.get("market") or meta.get("market"), window=[key(l1), key(l2)], pMiddle=round(pm, 4),
                                 ev=round(ev, 4), worst=round(1 - S, 4),
-                                legs=[_leg(b1, n1, a1, c1, labels(l1, up(l1)), (l1.get("fair") or {}).get(up(l1))),
-                                      _leg(b2, n2, a2, c2, labels(l2, down(l2)), (l2.get("fair") or {}).get(down(l2)))],
+                                legs=[_leg(b1, n1, a1, c1, labels(l1, up(l1)), (l1.get("fair") or {}).get(up(l1)), _spec(l1, up(l1), home, meta.get("market"))),
+                                      _leg(b2, n2, a2, c2, labels(l2, down(l2)), (l2.get("fair") or {}).get(down(l2)), _spec(l2, down(l2), home, meta.get("market")))],
                                 stakes=[round(c1 / S, 4), round(c2 / S, 4)]))
     out.sort(key=lambda x: -x["ev"])
     return out[:3]          # the best few windows per market
@@ -111,12 +124,12 @@ def find(game_docs, prop_docs, now_iso=None):
             return f"{o} ML" if mk == "h2h" else f"{o} ({mk.replace('_', ' ')})"
         lines = [l for l in g.get("lines") or [] if "_q" not in l.get("market", "") and "_h" not in l.get("market", "")[-3:]
                  and "_p" not in l.get("market", "")[-3:]]
-        out += _arbs_in(lines, meta, lab)
+        out += _arbs_in(lines, meta, lab, g["home"])
         tot = [l for l in lines if (l.get("market") or "").replace("alternate_", "") == "totals"]
-        out += _middles_in(tot, meta, lab, lambda l: "Over", lambda l: "Under", lambda l: (l.get("fair") or {}).get("Over"), lambda l: l["point"])
+        out += _middles_in(tot, meta, lab, lambda l: "Over", lambda l: "Under", lambda l: (l.get("fair") or {}).get("Over"), lambda l: l["point"], g["home"])
         sp = [l for l in lines if (l.get("market") or "").replace("alternate_", "") == "spreads" and l.get("point") is not None]
         # home side covers when margin > -point: the home "high" side at line h wins above -h
-        out += _middles_in(sp, meta, lab, lambda l: g["home"], lambda l: g["away"], lambda l: (l.get("fair") or {}).get(g["home"]), lambda l: -l["point"])
+        out += _middles_in(sp, meta, lab, lambda l: g["home"], lambda l: g["away"], lambda l: (l.get("fair") or {}).get(g["home"]), lambda l: -l["point"], g["home"])
     for p in prop_docs:
         if now_iso and p["commence"] <= now_iso:
             continue
