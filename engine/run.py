@@ -272,22 +272,33 @@ def live():
                         p = None
                     if p:
                         l["model"] = {o: round(v, 4) for o, v in p.items()}
-            props = []
+            props, fresh_props = [], False
             want = pres.get("game") == g["id"] or g["id"] in bet_games
-            if want and st and s in ("basketball_nba", "basketball_wnba", "icehockey_nhl", "americanfootball_nfl") \
-                    and _age_min(ls["props"].get(g["id"])) >= C.LIVE_PROP_EVERY_MIN:
+            if want and st and s in ("basketball_nba", "basketball_wnba", "icehockey_nhl", "americanfootball_nfl"):
+                # prop prices refresh every few minutes; the player stats (ESPN box score, free) refresh every run,
+                # so between price pulls the last lines are kept and re-projected instead of disappearing
+                pdir = os.path.join(DATA_DIR, "latest", "live_props")
+                pfn = os.path.join(pdir, f"{g['id']}.json")
                 try:
-                    pm = [m for m in C.core_markets(s) if build.is_player_market(m)]
-                    ed, _ = api.event_odds_all(s, g["id"], pm, C.EVENT_BOOKS)
-                    props = list(build.build_props(ed, C.label(s)).values()) if ed else []
-                    for p in props:
-                        refs.decorate_props(p, Rf)
-                    bx, _wp = LV.box(s, st["espnId"])
-                    LV.live_props(s, props, bx, mu, pj or {})
-                    ls["props"][g["id"]] = iso(NOW)
+                    if _age_min(ls["props"].get(g["id"])) >= C.LIVE_PROP_EVERY_MIN:
+                        pm = [m for m in C.core_markets(s) if build.is_player_market(m)]
+                        ed, _ = api.event_odds_all(s, g["id"], pm, C.EVENT_BOOKS)
+                        props = list(build.build_props(ed, C.label(s)).values()) if ed else []
+                        for p in props:
+                            refs.decorate_props(p, Rf)
+                        fresh_props = bool(props)
+                        if props:
+                            os.makedirs(pdir, exist_ok=True)
+                            json.dump(props, open(pfn, "w"), separators=(",", ":"))
+                        ls["props"][g["id"]] = iso(NOW)
+                    if not props and os.path.exists(pfn):
+                        props = json.load(open(pfn))
+                    if props:
+                        bx, _wp = LV.box(s, st["espnId"])
+                        LV.live_props(s, props, bx, mu, pj or {})
                 except Exception as e:
                     log(f"live props failed: {type(e).__name__}")
-            E = build.edges([g], props, min_edge=0.015)
+            E = build.edges([g], props if fresh_props else [], min_edge=0.015)      # kept lines are for stats, not edges
             for e in E:
                 e["live"] = True
             edges_all += E

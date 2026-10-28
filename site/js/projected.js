@@ -69,7 +69,41 @@ function fromLiveModel(d, leg) {
   return null;
 }
 
+// Last known numbers per leg and per game: a live pull that comes back without a game or its props must not wipe
+// what we already knew. Running stats and scores never go backwards, a cleared line stays cleared, and the last live
+// reading is kept (up to 3 hours) until a newer live number or the final arrives.
+const memo = new Map(), stMemo = new Map();
+const RANK = { final: 5, live: 4, "live market": 3, "live model": 3, "last pre-game": 1, now: 1, "when logged": 0 };
+const legKey = (l) => [l.gameId, l.market, l.side, l.point, l.player, l.team].join("|");
+export function gameState(gid) {
+  const st = S.liveGames.get(gid)?.state || (S.live?.games || []).find((x) => x.id === gid)?.state;
+  const old = stMemo.get(gid);
+  if (st) {
+    const keep = old && old.st && ["home", "away"].some((h) => (old.st[h]?.score ?? 0) > (st[h]?.score ?? 0));
+    if (!keep) stMemo.set(gid, { st, at: Date.now() });
+    return keep ? old.st : st;
+  }
+  return old && Date.now() - old.at < 3 * 3600000 ? old.st : null;
+}
+
 export function legNow(leg) {
+  const raw = legRaw(leg), k = legKey(leg), old = memo.get(k);
+  let r = raw;
+  if (old && raw.src !== "final") {
+    const fresh = Date.now() - old.at < 3 * 3600000;
+    if (old.cashed) r = { ...old };                                           // already won or lost on the stat
+    else if (fresh && (RANK[raw.src] ?? 0) < 3 && (RANK[old.src] ?? 0) >= 3) r = { ...old, held: true };
+    else if (raw.cur != null && old.cur != null && raw.cur < old.cur) r = { ...raw, cur: old.cur, proj: Math.max(raw.proj ?? 0, old.proj ?? 0) || raw.proj };
+  }
+  // a running stat or total past the line settles the leg: over = won, under = lost
+  if (r.cur != null && leg.point != null && r.cur > leg.point && ["Over", "Under", "Yes", "No"].includes(leg.side)) {
+    r = { ...r, p: leg.side === "Over" || leg.side === "Yes" ? 1 : 0, cashed: true };
+  }
+  if (!r.held && (RANK[r.src] ?? 0) >= 3 || r.cashed) memo.set(k, { ...r, at: r.held ? old.at : Date.now() });
+  return r;
+}
+
+function legRaw(leg) {
   const fin = S.finals.find((x) => x.gameId === leg.gameId);
   const fr = fromFinal(fin, leg);
   if (fr != null) return { p: fr, src: "final" };
@@ -83,9 +117,12 @@ export function legNow(leg) {
     } else {
       const l = findLine(d.lines, d.home, leg);
       const k = l && (sideKey(l.fair, leg.side) || sideKey(l.model, leg.side));
-      if (l && k) return { p: l.fair?.[k] ?? l.model?.[k], src: "live" };
+      const st = d.state, base = (leg.market || "").replace("alternate_", "");
+      const cur = st && st.home?.score != null && base.startsWith("totals") ? st.home.score + st.away.score
+        : st && st.home?.score != null && base.startsWith("team_totals") ? (N(leg.team) === N(d.home) ? st.home.score : st.away.score) : null;
+      if (l && k) return { p: l.fair?.[k] ?? l.model?.[k], src: "live", cur };
       const lm = fromLiveModel(d, leg);
-      if (lm != null) return { p: lm, src: "live model" };
+      if (lm != null) return { p: lm, src: "live model", cur };
     }
   }
   const g = S.games.get(leg.gameId);
@@ -130,10 +167,14 @@ export function summary(rows) {
 // where a leg stands right now: score, what it still needs, where it's headed
 const fmtN = (x) => Number.isInteger(+x) ? `${+x}` : (+x).toFixed(1);
 export function progress(leg, r) {
-  if (r.src === "final") return { cls: r.p === 1 ? "pos" : r.p === 0 ? "neg" : "", icon: r.p === 1 ? "✓" : r.p === 0 ? "✗" : "=", text: r.p === 1 ? "Won" : r.p === 0 ? "Lost" : "Push" };
-  const d = S.liveGames.get(leg.gameId), st = d?.state || (S.live?.games || []).find((x) => x.id === leg.gameId)?.state;
+  const pg = progress0(leg, r);
+  return r.held ? { ...pg, held: true } : pg;
+}
+function progress0(leg, r) {
+  if (r.src === "final") return { cls: r.p === 1 ? "pos" : r.p === 0 ? "neg" : "", icon: r.p === 1 ? "✓" : r.p === 0 ? "✗" : "=", text: r.p === 1 ? "Won" : r.p === 0 ? "Lost" : "Push", bar: { done: r.p } };
+  const d = S.liveGames.get(leg.gameId), st = gameState(leg.gameId);
   const g = S.games.get(leg.gameId);
-  if (!st) return { cls: "muted", icon: "○", text: g ? `Starts ${fmtTime(g.commence)}` : "Not started" };
+  if (!st) return { cls: "muted", icon: "○", text: g ? `Starts ${fmtTime(g.commence)}` : "Not started", bar: { cur: 0, line: null, proj: null } };
   const base = (leg.market || "").replace("alternate_", ""), pt = leg.point, m = d?.model || {};
   const over = leg.side === "Over" || leg.side === "Yes";
   const bar = (cur, target, proj) => {      // how far along: filled to now, tick at the line, dot at the projected finish
@@ -141,7 +182,7 @@ export function progress(leg, r) {
     return { cur: cur / hi, line: target / hi, proj: proj != null ? Math.min(1, proj / hi) : null };
   };
   if (leg.player) {
-    if (r.cur == null) return { cls: "muted", icon: "●", text: "In play · live stat appears with the next live pull" };
+    if (r.cur == null) return { cls: "muted", icon: "●", text: "In play · live stat appears with the next live pull", bar: { cur: 0, line: 0.9, proj: null } };
     const cur = r.cur, proj = r.proj;
     if (over) {
       if (cur > pt) return { cls: "pos", icon: "✓", text: `${fmtN(cur)} · already over ${pt}`, bar: bar(cur, pt, proj) };
@@ -159,10 +200,13 @@ export function progress(leg, r) {
   const me = isHome ? hs : as_, them = isHome ? as_ : hs, diff = me - them, who = ab(isHome);
   const lead = diff > 0 ? `${who} up ${fmtN(diff)}` : diff < 0 ? `${who} down ${fmtN(-diff)}` : "Tied";
   const projM = m.margin != null ? (isHome ? m.margin : -m.margin) : null;
-  if (base === "h2h") return { cls: diff > 0 ? "pos" : diff < 0 ? "neg" : "", icon: "●", text: `${lead}${projM != null ? ` · model finish ${projM > 0 ? "+" : ""}${fmtN(Math.round(projM * 10) / 10)}` : ""}` };
+  // margin bar: centre = the result needed (win, or cover), filled to where it stands, dot at the model's finish
+  const SCALE = { NHL: 3, MLB: 4, NBA: 14, WNBA: 12, NFL: 14, NCAAF: 17 }[d?.league || g?.league] ?? 3;
+  const mbar = (cushion, projC) => { const sc = Math.max(SCALE, Math.abs(cushion), Math.abs(projC ?? 0)) * 1.15; return { div: true, v: cushion / sc, proj: projC != null ? projC / sc : null }; };
+  if (base === "h2h") return { cls: diff > 0 ? "pos" : diff < 0 ? "neg" : "", icon: "●", text: `${lead}${projM != null ? ` · model finish ${projM > 0 ? "+" : ""}${fmtN(Math.round(projM * 10) / 10)}` : ""}`, bar: mbar(diff, projM) };
   if (base.startsWith("spreads") && pt != null) {
     const cover = diff + pt;
-    return { cls: cover > 0 ? "pos" : "neg", icon: "●", text: `${lead} · ${cover > 0 ? `covering ${pt > 0 ? "+" : ""}${pt} by ${fmtN(cover)}` : `${fmtN(-cover)} short of ${pt > 0 ? "+" : ""}${pt}`}${projM != null ? ` · model finish ${projM > 0 ? "+" : ""}${fmtN(Math.round(projM * 10) / 10)}` : ""}` };
+    return { cls: cover > 0 ? "pos" : "neg", icon: "●", bar: mbar(cover, projM != null ? projM + pt : null), text: `${lead} · ${cover > 0 ? `covering ${pt > 0 ? "+" : ""}${pt} by ${fmtN(cover)}` : `${fmtN(-cover)} short of ${pt > 0 ? "+" : ""}${pt}`}${projM != null ? ` · model finish ${projM > 0 ? "+" : ""}${fmtN(Math.round(projM * 10) / 10)}` : ""}` };
   }
   if ((base.startsWith("totals") || base.startsWith("team_totals")) && pt != null) {
     const team = base.startsWith("team_totals");
@@ -178,8 +222,16 @@ export function progress(leg, r) {
   }
   return { cls: "muted", icon: "●", text: lead };
 }
-const progressHtml = (pg) => `<div class="pj-pg ${pg.cls}"><span class="pj-ic">${pg.icon}</span><span class="pj-tx">${esc(pg.text)}</span>
-  ${pg.bar ? `<span class="pj-trk"><i style="width:${(Math.min(1, pg.bar.cur) * 100).toFixed(1)}%"></i><s style="left:${(pg.bar.line * 100).toFixed(1)}%"></s>${pg.bar.proj != null ? `<b style="left:${(pg.bar.proj * 100).toFixed(1)}%"></b>` : ""}</span>` : ""}</div>`;
+function barHtml(b) {
+  if (!b) return `<span></span>`;
+  if (b.done != null) return `<span class="pj-trk"><i style="width:100%"></i></span>`;
+  if (b.div) {        // diverging around the needed result
+    const v = Math.max(-1, Math.min(1, b.v)), x = 50 + v * 50;
+    return `<span class="pj-trk div"><s style="left:50%"></s><i style="left:${Math.min(50, x).toFixed(1)}%;width:${Math.abs(x - 50).toFixed(1)}%"></i>${b.proj != null ? `<b style="left:${(50 + Math.max(-1, Math.min(1, b.proj)) * 50).toFixed(1)}%"></b>` : ""}</span>`;
+  }
+  return `<span class="pj-trk"><i style="width:${(Math.min(1, b.cur) * 100).toFixed(1)}%"></i>${b.line != null ? `<s style="left:${(b.line * 100).toFixed(1)}%"></s>` : ""}${b.proj != null ? `<b style="left:${(b.proj * 100).toFixed(1)}%"></b>` : ""}</span>`;
+}
+const progressHtml = (pg) => `<div class="pj-pg ${pg.cls}"><span class="pj-ic">${pg.icon}</span><span class="pj-tx">${esc(pg.text)}${pg.held ? ` <span class="tiny muted">(last live reading)</span>` : ""}</span>${barHtml(pg.bar)}</div>`;
 
 const SRC = { final: "final", live: "live", "live model": "live model", "live market": "live market", now: "pre-game", "last pre-game": "pre-game", "when logged": "when logged" };
 
@@ -200,7 +252,7 @@ export function projectedCard({ items, title, fmt = money, units = false, settle
       <div class="kpi"><div class="k">Range</div><div class="v small">${fmt(s.worst)} to ${fmt(s.best)}</div><div class="s">all lose · all win</div></div>
     </div>
     <div class="col" style="gap:4px">${rows.map((r) => {
-      const b = r.b, st = state(b.gameId), was = b.fairAtLog ?? b.fair, d = r.p != null && was != null ? r.p - was : null;
+      const b = r.b, st = gameState(b.gameId), was = b.fairAtLog ?? b.fair, d = r.p != null && was != null ? r.p - was : null;
       return `<div class="pj-row">
         <div class="col" style="gap:1px;min-width:0"><span class="ellip small">${esc(b.label || b.selection)}</span>
           <span class="tiny muted ellip">${st ? `<b>${st.away?.score ?? ""}–${st.home?.score ?? ""}</b> ${esc(sitText(st, b.league))} · ` : b.commence ? `${fmtTime(b.commence)} · ` : ""}${esc(SRC[r.srcs[0]?.src] || "")}${r.srcs[0]?.cur != null ? ` · ${r.srcs[0].cur} so far` : ""}${!units && b.am != null ? ` · ${am(b.am)} · ${money(b.stake)}` : units ? ` · ${b.units}u` : ""}</span></div>

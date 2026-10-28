@@ -483,3 +483,5 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .pj-trk b { position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; border: 2px solid var(--fg); background: var(--panel); }
 .pj-ll { margin-top: 2px; }
 @media (max-width: 520px) { .pj-pg { grid-template-columns: 14px minmax(0, 1fr); } .pj-trk { grid-column: 2; } }
+.pj-trk.div i { border-radius: 0; }
+.pj-trk.div s { background: var(--muted); }
