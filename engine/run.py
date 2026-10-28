@@ -21,7 +21,7 @@ import build  # noqa: E402
 import refs  # noqa: E402
 import reports  # noqa: E402
 import matchup  # noqa: E402
-from api import OddsAPI, BudgetExceeded  # noqa: E402
+from api import OddsAPI, BudgetExceeded, APIError  # noqa: E402
 
 NOW = datetime.now(timezone.utc)
 def _mode():
@@ -592,7 +592,11 @@ def auto():
     horizon = iso(NOW + timedelta(days=7))
     soon = {}
     for s in sports:
-        evs = api.events(s, commenceTimeFrom=iso(NOW - timedelta(minutes=5)), commenceTimeTo=horizon)
+        try:
+            evs = api.events(s, commenceTimeFrom=iso(NOW - timedelta(minutes=5)), commenceTimeTo=horizon)
+        except (APIError, RuntimeError) as e:          # one sport's hiccup skips that sport, not the whole run
+            errors.append(f"{s}: {e}")
+            continue
         if evs:
             soon[s] = sorted(evs, key=lambda e: e["commence_time"])
     # game lines: one call per sport
@@ -778,7 +782,11 @@ def main():
     game_docs, prop_docs, raw_by_sport = [], [], {}
     upcoming = {}
     for s in sports:
-        evs = api.events(s, commenceTimeFrom=iso(NOW - timedelta(hours=3)), commenceTimeTo=to)
+        try:
+            evs = api.events(s, commenceTimeFrom=iso(NOW - timedelta(hours=3)), commenceTimeTo=to)
+        except RuntimeError as e:                       # one sport's hiccup skips that sport, not the whole run
+            errors.append(f"{s}: {e}")
+            continue
         if not evs:
             continue
         upcoming[s] = evs

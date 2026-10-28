@@ -50,7 +50,8 @@ class OddsAPI:
                     self.calls.append({"path": path, "cost": last})
                     return body
             except urllib.error.HTTPError as e:
-                if e.code == 429 and attempt < 2:
+                # rate limit or a hiccup on their side (500/502/503/504): wait and try again before giving up
+                if e.code in (429, 500, 502, 503, 504) and attempt < 2:
                     time.sleep(2 + attempt * 3)
                     continue
                 # message without the URL so the key never reaches a log
