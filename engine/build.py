@@ -684,6 +684,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "am": pe.get("allInAm", pe["am"]), "fair": line["fair"][o],
                         "fairAm": line["fairAm"][o], "edge": e, "ev": pe.get("ev"),
                         "fairWeight": line["fairWeight"], "model": bool(line.get("modelFair")), "est": bool(line.get("oneSided")),
+                        "main": bool(line.get("isMain")) or line.get("point") is None,
                     })
 
     for g in game_docs:

@@ -964,6 +964,20 @@ def publish(game_docs, prop_docs, status, stamp):
         tracker.snapshot(DATA_DIR, game_docs, prop_docs, NOW)
     except Exception as e:
         log(f"snapshot failed: {type(e).__name__}")
+    # the edges' report card: log new edges, refresh their fairs to the close, grade finished ones, re-rank by history
+    import edgecard
+    card = None
+    try:
+        n_moved = edgecard.opens(DATA_DIR, game_docs, prop_docs, NOW)
+        n_new = edgecard.observe(DATA_DIR, game_docs, prop_docs, edge_list, NOW)
+        n_eg = edgecard.grade(DATA_DIR, {d["gameId"]: d for d in (fin or {}).values() if d.get("gameId")}, NOW)
+        card = edgecard.summarize(DATA_DIR, now=NOW)
+        edgecard.rerank(edge_list, card)
+        edgecard.annotate_moves(edge_list, game_docs, prop_docs)
+        status["moved"] = n_moved
+        log(f"edge card: {n_new} new edges logged, {n_eg} graded, {card.get('n', 0)} in the card; {n_moved} lines moved since first seen")
+    except Exception as e:
+        log(f"edge card failed: {type(e).__name__}: {str(e)[:120]}")
     status["tuning"] = {"graded": n_graded, "groups": len(params), "calibrated": n_cal}
     for e in edge_list:     # what the model knew about this game beyond the box scores (verified news, weather, rest)
         c = (mups.get(e["gameId"]) or {}).get("context")
@@ -977,6 +991,8 @@ def publish(game_docs, prop_docs, status, stamp):
         rep["models"] = [r for r in card if r.get("llModel") is not None][:80]
         rep["modelsPending"] = [r for r in card if r.get("llModel") is None][:80]
         rep["backtest"] = _backtest_summary()
+        if card:
+            rep["edgecard"] = card
     picks = load_picks()
     previews = load_previews()
     write_data_repo(game_docs, prop_docs, edge_list, status)
