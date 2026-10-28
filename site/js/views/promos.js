@@ -5,6 +5,7 @@ const draftLine = (p, c) => p.promoLine ?? legSpec(c.leg).point;
 import { KINDS, FIELDS, SPORTS, BET_TYPES, PICKEM, FEE_VENUES, kindOf, blank, normalize, parsePromo, describe, optimize, legs,
   bonusConv, convCurve, findTarget, pAtLine, autoTarget, decOf, amOf, payoutFor, venueHasFeed } from "../promo.js";
 import { betImage, logSheet } from "./common.js";
+import { labWithPromo } from "./lab.js";
 
 let draft = null, open = new Set(), checker = { q: "", key: null, odds: "", line: "", boost: "", mult: "" }, targetQ = "";
 const results = new Map();        // promo id -> {stamp, opts}
@@ -199,6 +200,7 @@ function promoCard(p) {
     ${usesBonus ? `<div class="tiny muted">Bonus bets here convert at about <b>${Math.round(bonusConv(p.venue) * 100)}%</b> right now</div>` : ""}
     ${bets.length ? `<div class="tiny">${bets.length} bet${bets.length > 1 ? "s" : ""} logged · P/L <span class="${pl >= 0 ? "pos" : "neg"}">${money(pl)}</span></div>` : ""}
     <div class="row" style="flex-wrap:wrap"><button class="btn sm" data-open="${esc(p.id)}">${open.has(p.id) ? "Hide bets" : "See best bets"}</button><button class="btn sm ghost" data-edit="${esc(p.id)}">Edit</button>
+      ${k === "discounted_line" && st !== "used" && st !== "expired" && p.target ? `<button class="btn sm ghost" data-lab="${esc(p.id)}" title="pair it with any pick you like and log it">Build your own in the Bet Lab</button>` : ""}
       <button class="btn sm ghost" data-used="${esc(p.id)}">${p.used ? "Mark active" : "Mark used"}</button><button class="btn sm ghost" data-del="${esc(p.id)}">Delete</button></div>
     ${open.has(p.id) ? `<div class="col" style="gap:8px">${usesBonus ? convChart(p) : ""}
       ${!venueHasFeed(p.venue) && p.venue !== "any" ? `<div class="note">${esc(venueName(p.venue))} isn't in the odds feed: prices shown are typical sportsbook prices. Check the app's price before betting.</div>` : ""}
@@ -335,6 +337,7 @@ function bind(el) {
   });
   $$("[data-edit]", el).forEach((b) => b.onclick = () => { draft = normalize(S.promos.get(b.dataset.edit)); draft.titleSet = false; rerender(); scrollTo(0, 0); });
   $$("[data-used]", el).forEach((b) => b.onclick = () => { const p = S.promos.get(b.dataset.used); savePromo({ ...p, used: !p.used, usedAt: !p.used ? new Date().toISOString() : null }).then(() => toast(p.used ? "Back in your promos" : "Marked used: moved to Used and expired")); });
+  $$("[data-lab]", el).forEach((b) => b.onclick = () => { labWithPromo(b.dataset.lab); location.hash = "#/lab"; });
   const po = $("#pr-old", el); if (po) po.onclick = () => { showOld = !showOld; rerender(); };
 
   $$("[data-del]", el).forEach((b) => b.onclick = () => { if (b.dataset.confirm) { deletePromo(b.dataset.del); open.delete(b.dataset.del); } else { b.dataset.confirm = 1; b.textContent = "Tap again to delete"; } });

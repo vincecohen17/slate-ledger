@@ -31,7 +31,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   discounted lines via `site/js/dist.js` (port of build.p_over; keep in sync), settlement for the ledger. Special picks with their
   own multiplier (Chalkboard free pick 1.78x) pay the product of every pick's multiplier (promoMult / otherMult). The reader
   (parsePromo) is checked against `tests/promo_corpus.json` (71 phrasings with the expected fields): keep it passing, add to it.
-  The Promos page shows a live readout of what it read and flags what's missing before saving.
+  The Promos page shows a live readout of what it read and flags what's missing before saving. Unused special picks show at
+  the top of the Bet Lab (`promoLegs()`); with one in the slip the Lab prices the slip as that app's entry (multipliers
+  multiplied, or the app's table; per-pick multipliers typed in) and logs it with the promo attached.
 - `engine/ledger.py` grades after each game: Vince's pending bets (writes bets/{id}.auto {result, clv, closeFair}; the site
   settles them with the promo math) and our picks (status, profit in units, clv, closeFair in picks/<date>.json).
   CLV = closing sharp fair x decimal price - 1, from the pre-game snapshot (tracker keeps them in `track/closed/` 21 days).
