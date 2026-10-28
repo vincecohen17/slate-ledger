@@ -18,7 +18,7 @@ export const onChange = (fn) => listeners.add(fn);
 const changed = () => { clearTimeout(timer); timer = setTimeout(() => listeners.forEach((f) => f()), 80); };
 
 const parse = (d) => { const x = d.data(); return x.payload ? JSON.parse(x.payload) : x; };
-function onErr(e) { if (e.code === "permission-denied") { S.denied = true; changed(); } else console.error(e); }
+function onErr(e) { if (/permission.denied/i.test(e?.code || e?.message || "")) { S.denied = true; changed(); } else console.error(e); }
 
 function watchCol(name, map, mapFn = parse, after = changed) {
   subs.push(onSnapshot(collection(db, name), (qs) => {
@@ -27,122 +27,173 @@ function watchCol(name, map, mapFn = parse, after = changed) {
   }, onErr));
 }
 
-// ---------- pre-game board: the Realtime Database (pre/status, pre/edges, pre/g/<id>/{m,l/*}, pre/p/<id>/<market>/{m,r/*}),
-// the old Firestore docs as a fallback; whichever status is newer wins
-const PRE = { fsStatus: null, fsEdges: [], fsGames: new Map(), rtStatus: null, rtEdges: null, rtGames: new Map() };
+// ---------- the Realtime Database: what the engine publishes. Values are strings: JSON, or "z:" + base64 deflated JSON
+// (6-7x smaller; the free plan allows 10 GB of downloads a month). Only pieces that changed travel.
+//   pre/status, pre/edges, pre/reports; pre/g/<id> (a game with its main lines); pre/ga/<id> (its alternate lines, on
+//   demand); pre/p/<id>/<market> (main prop rows); pre/pa/<id>/<market> (alternate rows, on demand); pre/mu/<id>
+//   (matchups); pre/fin/board, pre/fin/d/<key> (finished games)
+//   live/board, live/g/<id>/{m, e, l, p/<market>} (in play)
+const zc = new Map();
+async function dec(path, s) {
+  const c = zc.get(path);
+  if (c && c.s === s) return c.v;
+  let v;
+  if (typeof s === "string" && s.startsWith("z:")) {
+    const bin = Uint8Array.from(atob(s.slice(2)), (ch) => ch.charCodeAt(0));
+    v = JSON.parse(await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream("deflate"))).text());
+  } else v = typeof s === "string" ? JSON.parse(s) : s;
+  zc.set(path, { s, v });
+  return v;
+}
+// one listener; the newest snapshot wins even if an older one finishes decoding later
+function listen(path, fn) {
+  let seq = 0;
+  subs.push(onValue(rref(rtdb, path), async (sn) => {
+    const my = ++seq, val = sn.val();
+    try { const out = await fn(val); if (my === seq && out !== false) changed(); } catch (e) { console.error("rtdb", path, e); }
+    return my;
+  }, onErr));
+  return () => seq;
+}
+const ents = (o) => Object.entries(o || {});
+
+const PRE = { games: new Map(), altLines: new Map(), propDocs: new Map(), altRows: new Map(), altGames: new Set(), allAlt: false };
 function watchPre() {
-  subs.push(onValue(rref(rtdb, "pre/status"), (sn) => { PRE.rtStatus = sn.val() ? pj("pre/status", sn.val()) : null; pickPre(); }, (e) => console.warn("rtdb status:", e?.code || e)));
-  subs.push(onValue(rref(rtdb, "pre/edges"), (sn) => { PRE.rtEdges = sn.val() ? pj("pre/edges", sn.val()).items : null; pickPre(); }, () => {}));
-  subs.push(onValue(rref(rtdb, "pre/g"), (sn) => {
-    const t = sn.val() || {}, games = new Map();
-    for (const [gid, g] of Object.entries(t)) {
-      if (!g.m) continue;
-      const lines = Object.entries(g.l || {}).map(([k, x]) => pj(`pg/${gid}/l/${k}`, x)).sort((a, b) => a._i - b._i);
-      games.set(gid, { ...pj(`pg/${gid}/m`, g.m), id: gid, lines });
-    }
-    PRE.rtGames = games;
-    pickPre();
-  }, () => {}));
+  listen("pre/status", async (v) => { S.status = v ? await dec("pre/status", v) : null; });
+  listen("pre/edges", async (v) => { S.edges = v ? (await dec("pre/edges", v)).items : []; });
+  listen("pre/reports", async (v) => { S.reports = v ? await dec("pre/reports", v) : null; });
+  listen("pre/fin/board", async (v) => { S.finals = v ? (await dec("pre/fin/board", v)).games || [] : []; });
+  listen("pre/mu", async (v) => {
+    const m = new Map();
+    await Promise.all(ents(v).map(async ([gid, x]) => m.set(gid, { id: gid, ...(await dec(`mu/${gid}`, x)) })));
+    S.matchups = m;
+  });
+  listen("pre/g", async (v) => {
+    const m = new Map();
+    await Promise.all(ents(v).map(async ([gid, x]) => m.set(gid, await dec(`g/${gid}`, x))));
+    PRE.games = m; buildGames();
+  });
 }
-function pickPre() {
-  const rt = PRE.rtStatus?.updated || "", fs = PRE.fsStatus?.updated || "";
-  const useRt = !!rt && rt >= fs;
-  S.status = useRt ? PRE.rtStatus : PRE.fsStatus;
-  S.edges = (useRt ? PRE.rtEdges : PRE.fsEdges) || PRE.fsEdges || [];
-  S.games = useRt && PRE.rtGames.size ? PRE.rtGames : PRE.fsGames;
-  changed();
+function buildGames() {
+  const games = new Map();
+  for (const [gid, g] of PRE.games) {
+    const alt = PRE.altLines.get(gid);
+    games.set(gid, { ...g, id: gid, lines: alt ? [...g.lines, ...alt].sort((a, b) => a._i - b._i) : g.lines });
+  }
+  S.games = games;
 }
+function buildProps() {
+  const out = new Map();
+  for (const [id, d] of PRE.propDocs) {
+    const alt = PRE.altRows.get(id);
+    out.set(id, alt ? { ...d, rows: [...d.rows, ...alt].sort((a, b) => a._i - b._i) } : d);
+  }
+  S.props = out;
+}
+// main prop rows for one game (pre/p/<id>) or every game (pre/p)
 function rtProps(path, gidFixed) {
   const mine = new Set();
-  subs.push(onValue(rref(rtdb, path), (sn) => {
-    const t = sn.val() || {}, seen = new Set();
-    const games = gidFixed ? { [gidFixed]: t } : t;
-    for (const [gid, mks] of Object.entries(games)) {
-      for (const [mk, x] of Object.entries(mks || {})) {
-        if (!x?.m) continue;
-        const id = `${gid}__${mk}`, rows = Object.entries(x.r || {}).map(([k, r]) => pj(`pp/${gid}/${mk}/r/${k}`, r)).sort((a, b) => a._i - b._i);
-        S.props.set(id, { ...pj(`pp/${gid}/${mk}/m`, x.m), rows });
-        seen.add(id);
+  listen(path, async (v) => {
+    const seen = new Set(), jobs = [];
+    for (const [gid, mks] of ents(gidFixed ? { [gidFixed]: v } : v))
+      for (const [mk, x] of ents(mks)) {
+        const id = `${gid}__${mk}`; seen.add(id);
+        jobs.push(dec(`p/${id}`, x).then((d) => PRE.propDocs.set(id, d)));
       }
-    }
-    for (const id of mine) if (!seen.has(id)) S.props.delete(id);
+    await Promise.all(jobs);
+    for (const id of mine) if (!seen.has(id)) PRE.propDocs.delete(id);
     mine.clear(); seen.forEach((x) => mine.add(x));
-    changed();
-  }, () => {}));
+    buildProps();
+  });
+}
+// alternate lines and prop rows for one game, or every game (the Lab's switch)
+function loadAlt(gid) {
+  if (PRE.allAlt || PRE.altGames.has(gid)) return;
+  PRE.altGames.add(gid);
+  listen(`pre/ga/${gid}`, async (v) => { if (v) PRE.altLines.set(gid, await dec(`ga/${gid}`, v)); else PRE.altLines.delete(gid); buildGames(); });
+  listen(`pre/pa/${gid}`, async (v) => {
+    const got = await Promise.all(ents(v).map(async ([mk, x]) => [`${gid}__${mk}`, await dec(`pa/${gid}__${mk}`, x)]));
+    for (const k of [...PRE.altRows.keys()]) if (k.startsWith(gid + "__")) PRE.altRows.delete(k);
+    got.forEach(([k, rows]) => PRE.altRows.set(k, rows));
+    buildProps();
+  });
+}
+export function loadAllAlt() {
+  if (PRE.allAlt) return;
+  PRE.allAlt = true; S.allAlt = true;
+  listen("pre/ga", async (v) => {
+    PRE.altLines = new Map(await Promise.all(ents(v).map(async ([gid, x]) => [gid, await dec(`ga/${gid}`, x)])));
+    buildGames();
+  });
+  listen("pre/pa", async (v) => {
+    const jobs = [];
+    for (const [gid, mks] of ents(v)) for (const [mk, x] of ents(mks)) jobs.push(dec(`pa/${gid}__${mk}`, x).then((rows) => [`${gid}__${mk}`, rows]));
+    PRE.altRows = new Map(await Promise.all(jobs));
+    buildProps();
+  });
 }
 
-// ---------- in play: the Realtime Database (live/board, live/g/<id>/{m,e,l/*,p/*}, each a JSON string; only changed
-// pieces travel), with the old Firestore copies as a fallback; whichever was updated last wins
-const LV = { fsBoard: null, fsGames: new Map(), rtBoard: null, rtGames: new Map(), cache: new Map() };
-const pj = (path, s) => { const c = LV.cache.get(path); if (c && c.s === s) return c.v; const v = JSON.parse(s); LV.cache.set(path, { s, v }); return v; };
+// ---------- in play (live/), with the old Firestore copies as a fallback: whichever was updated last wins
+const LV = { fsBoard: null, fsGames: new Map(), rtBoard: null, rtGames: new Map() };
 function watchLive() {
-  subs.push(onValue(rref(rtdb, "live"), (snap) => {
-    const t = snap.val() || {}, games = new Map();
-    LV.rtBoard = t.board ? pj("board", t.board) : null;
-    for (const [gid, g] of Object.entries(t.g || {})) {
-      if (!g.m) continue;
-      const m = pj(`${gid}/m`, g.m);
-      const lines = Object.entries(g.l || {}).map(([k, s]) => pj(`${gid}/l/${k}`, s)).sort((a, b) => a._i - b._i);
-      const props = Object.entries(g.p || {}).map(([k, s]) => pj(`${gid}/p/${k}`, s)).sort((a, b) => a._i - b._i);
-      games.set(gid, { ...m, id: gid, lines, props, edges: g.e ? pj(`${gid}/e`, g.e) : [] });
-    }
+  listen("live", async (t) => {
+    t = t || {};
+    LV.rtBoard = t.board ? await dec("live/board", t.board) : null;
+    const games = new Map();
+    await Promise.all(ents(t.g).map(async ([gid, g]) => {
+      if (!g.m) return;
+      const [m, lines, edges, props] = await Promise.all([dec(`lv/${gid}/m`, g.m), g.l ? dec(`lv/${gid}/l`, g.l) : [], g.e ? dec(`lv/${gid}/e`, g.e) : [],
+        Promise.all(ents(g.p).map(([mk, x]) => dec(`lv/${gid}/p/${mk}`, x)))]);
+      games.set(gid, { ...m, id: gid, lines, props, edges });
+    }));
     LV.rtGames = games;
     pickLive();
-  }, (e) => console.warn("realtime database:", e?.code || e)));
+  });
 }
 function pickLive() {
   const rt = LV.rtBoard?.updated || "", fs = LV.fsBoard?.updated || "";
   const useRt = rt && rt >= fs;
   S.live = useRt ? LV.rtBoard : LV.fsBoard;
   S.liveGames = useRt ? LV.rtGames : LV.fsGames;
-  changed();
 }
 
 export function start() {
   stop();
-  subs.push(onSnapshot(doc(db, "board", "status"), (d) => { PRE.fsStatus = d.exists() ? d.data() : null; pickPre(); }, onErr));
-  subs.push(onSnapshot(doc(db, "board", "edges"), (d) => { PRE.fsEdges = d.exists() ? parse(d).items : []; pickPre(); }, onErr));
   watchPre();
-  subs.push(onSnapshot(doc(db, "board", "reports"), (d) => { S.reports = d.exists() ? parse(d) : null; changed(); }, onErr));
-  subs.push(onSnapshot(doc(db, "board", "live"), (d) => { LV.fsBoard = d.exists() ? parse(d) : null; pickLive(); }, onErr));
-  subs.push(onSnapshot(doc(db, "board", "finals"), (d) => { S.finals = d.exists() ? parse(d).games || [] : []; changed(); }, onErr));
-  watchCol("live", LV.fsGames, parse, pickLive);
   watchLive();
-  watchCol("games", PRE.fsGames, parse, pickPre);
+  // Firestore: what Vince writes (bets, promos) and our picks and previews
   watchCol("picks", S.picks);
-  watchCol("matchups", S.matchups);
   watchCol("previews", S.previews);
   watchCol("bets", S.bets, (d) => d.data());
   watchCol("promos", S.promos, (d) => d.data());
 }
 
-export function stop() { subs.splice(0).forEach((u) => u()); LV.cache.clear(); finalSubs.clear(); S.games.clear(); PRE.fsGames.clear(); PRE.rtGames = new Map(); S.props.clear(); S.matchups.clear(); S.propsLoadedFor.clear(); S.allProps = false; }
+export function stop() {
+  subs.splice(0).forEach((u) => u()); zc.clear(); finalSubs.clear();
+  S.games = new Map(); S.props = new Map(); S.matchups = new Map(); S.propsLoadedFor.clear(); S.allProps = false; S.allAlt = false;
+  Object.assign(PRE, { games: new Map(), altLines: new Map(), propDocs: new Map(), altRows: new Map(), altGames: new Set(), allAlt: false });
+}
 
 const finalSubs = new Set();
 export function loadFinal(key) {
   if (!key || finalSubs.has(key)) return;
   finalSubs.add(key);
-  subs.push(onSnapshot(doc(db, "finals", key), (d) => { if (d.exists()) S.finalDocs.set(key, parse(d)); changed(); }, onErr));
+  listen(`pre/fin/d/${key}`, async (v) => { if (v) S.finalDocs.set(key, await dec(`fin/${key}`, v)); });
 }
 
 export function loadProps(gameId) {
+  if (!gameId) return;
+  loadAlt(gameId);
   if (S.allProps || S.propsLoadedFor.has(gameId)) return;
   S.propsLoadedFor.add(gameId);
   rtProps(`pre/p/${gameId}`, gameId);
-  subs.push(onSnapshot(query(collection(db, "props"), where("gameId", "==", gameId)), (qs) => {
-    qs.docChanges().forEach((c) => c.type === "removed" ? S.props.delete(c.doc.id) : S.props.set(c.doc.id, parse(c.doc)));
-    changed();
-  }, onErr));
 }
 
+// every game's main prop rows (Promos, the Lab); alternates come with loadAllAlt
 export function loadAllProps() {
   if (S.allProps) return;
   S.allProps = true;
   rtProps("pre/p", null);
-  subs.push(onSnapshot(collection(db, "props"), (qs) => {
-    qs.docChanges().forEach((c) => c.type === "removed" ? S.props.delete(c.doc.id) : S.props.set(c.doc.id, parse(c.doc)));
-    changed();
-  }, onErr));
 }
 
 export const propsFor = (gameId) => [...S.props.values()].filter((p) => p.id === gameId);

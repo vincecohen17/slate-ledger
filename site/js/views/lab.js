@@ -1,4 +1,4 @@
-import { S, loadAllProps } from "../store.js";
+import { S, loadAllProps, loadAllAlt } from "../store.js";
 import { esc, am, pct, prob, fmtTime, amFromDec, decFromAm, amFromProb, both, bothP, spark, hitRate, bookLogo, $, $$ } from "../util.js";
 import { catalog, parlay, priceAt, evPerDollar, legSpec } from "../lab.js";
 import { betImage, logSheet } from "./common.js";
@@ -68,7 +68,8 @@ export function renderLab(el) {
     <div class="card">
       <input id="lab-q" placeholder="Search a team, player or bet (e.g. brunson points, knicks)" value="${esc(L.q)}" autocomplete="off">
       <div class="bar" style="margin:10px 0 0">${leagues.map((lg) => `<button class="chip ${lg === L.league ? "on" : ""}" data-lg="${esc(lg)}">${esc(lg)}</button>`).join("")}</div>
-      <div class="tiny muted" style="margin-top:8px">${L.q ? `${res.length} matches` : "Best values right now"} · tap to add</div>
+      <div class="row tiny muted" style="margin-top:8px;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>${L.q ? `${res.length} matches` : "Best values right now"} · tap to add</span>
+        ${S.allAlt ? `<span>alt lines on for every game</span>` : `<button class="btn sm ghost" id="lab-alt" title="Main lines and props load for every game; alternates load for games you open. This loads every game's alternates (about 35 MB).">Search alt lines too</button>`}</div>
       <div class="results">${res.map((l) => `<button class="res" data-add="${esc(l.key)}">${betImage({ gameId: l.gameId, label: l.label, player: l.player, headshot: l.headshot, league: l.league }, 30)}
         <span class="col"><span class="ellip" style="font-weight:500">${esc(l.label)}</span><span class="tiny muted ellip">${esc(l.matchup)} · ${fmtTime(l.commence)}${l.model ? " · model fair" : ""}</span></span>
         <span class="col" style="align-items:flex-end"><span class="num small">${l.pickem ? "pick'em" : both(l.best?.am)}</span><span class="tiny ${l.best?.edge > 0.005 ? "pos" : "muted"}">fair ${bothP(l.fair)}</span></span></button>`).join("")}</div>
@@ -91,6 +92,7 @@ export function renderLab(el) {
 
   const rerender = () => renderLab(el);
   const q = $("#lab-q", el);
+  const la = $("#lab-alt", el); if (la) la.onclick = () => loadAllAlt();
   q.oninput = () => { L.q = q.value; clearTimeout(q._t); q._t = setTimeout(() => { rerender(); const n = $("#lab-q", el); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 200); };
   $$("[data-lg]", el).forEach((b) => b.onclick = () => { L.league = b.dataset.lg; rerender(); });
   $$("[data-add]", el).forEach((b) => b.onclick = () => {

@@ -49,6 +49,18 @@ def _result(data_dir, snap, fin_by_gid, need_players):
         res = T._mlb_game(data_dir, snap) if snap["sport"] == "baseball_mlb" else T._espn_game(data_dir, snap)
     except Exception:
         res = None
+    f = fin_by_gid.get(snap["id"])
+    if f and need_players and (not res or not res.get("players")) and f.get("espnId") and f["home"].get("score") is not None:
+        # finished tonight, before the daily box-score collection: read ESPN's final box score directly
+        try:
+            import live as LV
+            bx, _ = LV.box(snap["sport"], f["espnId"])
+        except Exception:
+            bx = {}
+        if bx:
+            swap = T._norm(f["home"].get("name") or "") != T._norm(snap["home"]) and T._norm(f["away"].get("name") or "") == T._norm(snap["home"])
+            hs, as_ = f["home"]["score"], f["away"]["score"]
+            res = {"hs": as_ if swap else hs, "as": hs if swap else as_, "players": bx, "espn": True}
     if not res and not need_players:
         if snap.get("result"):
             res = dict(snap["result"], players={})
@@ -98,7 +110,8 @@ def grade_leg(data_dir, leg, fin_by_gid):
     if not snap:
         return None
     start = datetime.fromisoformat(snap["commence"].replace("Z", "+00:00"))
-    if datetime.now(timezone.utc) - start < timedelta(hours=3):
+    # graded as soon as the game is final (finals.collect only lists finished games), else 3 hours after the start
+    if leg.get("gameId") not in fin_by_gid and datetime.now(timezone.utc) - start < timedelta(hours=3):
         return None
     row, same = _canon(snap, leg)
     mk, side = leg.get("market") or "", leg.get("side")
@@ -115,7 +128,7 @@ def grade_leg(data_dir, leg, fin_by_gid):
             return None
         if p.get("dnp"):
             return {"y": None, "close": close, "void": True}
-        v = T.stat(snap["sport"], mk, p)
+        v = LB.stat(snap["sport"], mk, p) if res.get("espn") else T.stat(snap["sport"], mk, p)
         if v is None:
             return None
         pt = leg.get("point")

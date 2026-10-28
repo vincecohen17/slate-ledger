@@ -952,7 +952,7 @@ def publish(game_docs, prop_docs, status, stamp):
             rc = rt.ensure_rules(DATA_DIR, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             if rc != 200:
                 raise RuntimeError(f"rules {rc}")
-            kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log)
+            kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log, mups=mups, rep=rep, fin=fin)
             pre_ok = True
             log(f"realtime database: {npcs} pieces, {kb} KB")
         except Exception as e:
@@ -1011,8 +1011,8 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
         if old.get(path) != h:
             writes.append((path, dict(meta, payload=s, updated=status["updated"])))
 
-    if pre_ok:          # the board lives in the Realtime Database: Firestore keeps only the small, slow-changing docs
-        game_docs, prop_docs = [], []
+    if pre_ok:          # the board lives in the Realtime Database: Firestore keeps only picks, previews and user data
+        game_docs, prop_docs, rep, mups, fin = [], [], None, None, None
     for g in game_docs:
         put(f"games/{g['id']}", {"sport": g["sport"], "league": g["league"], "commence": g["commence"],
                                  "home": g["home"], "away": g["away"]}, g)
@@ -1035,7 +1035,8 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
         for k, d in fin.items():
             put(f"finals/{k}", {"date": d["date"], "league": d["league"], "gameId": d.get("gameId")}, d)
         put("board/finals", {}, {"games": finals.summary(fin)})
-    writes.append(("board/status", status))
+    if not pre_ok:
+        writes.append(("board/status", status))
 
     # Spark plan: 20k writes a day, shared with the live lane (its count is in live_state.json). Prop docs for games more
     # than 3 hours out are rewritten at most every 30 minutes; past 12k writes, prop docs only for games starting within
@@ -1087,8 +1088,8 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
             inb.append(path)
             n += 1
             size += sz
-        if pre_ok and not old.get("_fsPreCleared"):      # the old Firestore copies of the board, once
-            for col in ("games", "props"):
+        if pre_ok and not old.get("_fsPreCleared2"):      # the old Firestore copies of the board, once
+            for col in ("games", "props", "matchups", "finals"):
                 for snap in db.collection(col).stream():
                     batch.delete(snap.reference)
                     inb.append(None)
@@ -1097,11 +1098,12 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
                         batch.commit()
                         done += len(inb)
                         batch, size, inb = db.batch(), 0, []
-            batch.delete(db.document("board/edges"))
-            inb.append(None)
-            new["_fsPreCleared"] = True
-        elif old.get("_fsPreCleared"):
-            new["_fsPreCleared"] = True
+            for d in ("board/edges", "board/reports", "board/finals"):
+                batch.delete(db.document(d))
+                inb.append(None)
+            new["_fsPreCleared2"] = True
+        elif old.get("_fsPreCleared2"):
+            new["_fsPreCleared2"] = True
         # remove docs for games that ended more than 6 hours ago
         gone_before = iso(NOW - timedelta(hours=6))
         for col in ("games", "props", "matchups"):

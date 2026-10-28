@@ -36,11 +36,13 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - `engine/livebets.py` every live run: each leg of Vince's open bets gets its current stat from the ESPN box score (all sports,
   MLB included), projected finish and chance, written to `live/{gameId}` as betLegs {"<betId>#<leg>"}; old bets without
   market/side are read from their labels (also used by ledger grading).
-- `engine/rt.py` Realtime Database (free, no daily write count): the pre-game board under `pre/` (status, edges, games as
-  g/<id>/{m,l/*}, props as p/<id>/<market>/{m,r/*}), in-play data under `live/` (board + per game m/e/l/p pieces), all JSON
-  strings with only changed pieces written, and the site's `presence` heartbeat. Firestore keeps bets, promos, picks,
-  matchups, previews, finals, reports and private/dispatch. Live runs fall back to Firestore
-  `live/*` if the database is unreachable. Rules: `database.rules.template.json` (email filled at deploy).
+- `engine/rt.py` Realtime Database (free, no daily write count; 10 GB/month download allowance): the board the engine
+  publishes under `pre/` (status, edges, reports, g/<id> a game with main lines, ga/<id> alternate lines, p/<id>/<market>
+  main prop rows, pa/<id>/<market> alternate rows, mu/<id> matchups, fin/board + fin/d/<key> finals) and in-play data
+  under `live/` (board, g/<id>/{m,e,l,p/<market>}), plus the site's `presence` heartbeat. Values are strings: JSON or
+  "z:" + base64 deflate (the site inflates with DecompressionStream); only changed pieces are written. Alternates load
+  only for an opened game or the Lab's switch, so opening the board downloads ~1.5 MB. Firestore keeps bets, promos,
+  picks, previews and private/dispatch. Rules: `database.rules.template.json` (the engine puts them on the database).
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,
