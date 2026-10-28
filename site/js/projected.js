@@ -78,7 +78,7 @@ export function legNow(leg) {
     if (leg.player) {
       const r = findProp(d.props, leg);
       const k = r && (sideKey(r.live, leg.side) || sideKey(r.fair, leg.side));
-      if (r?.live && sideKey(r.live, leg.side)) return { p: r.live[sideKey(r.live, leg.side)], src: "live", cur: r.live.cur };
+      if (r?.live && sideKey(r.live, leg.side)) return { p: r.live[sideKey(r.live, leg.side)], src: "live", cur: r.live.cur, proj: r.live.proj };
       if (k && r.fair?.[k] != null) return { p: r.fair[k], src: "live market" };
     } else {
       const l = findLine(d.lines, d.home, leg);
@@ -109,7 +109,7 @@ export function project(b, promo, units = false) {
     const r = legNow({ ...leg, fair: leg.fair ?? (legs.length === 1 ? b.fairAtLog ?? b.fair : null) });
     if (r.p == null) { known = false; break; }
     p *= r.p === 0.5 && r.src === "final" ? 1 : r.p;          // a pushed leg drops out of a parlay
-    srcs.push(r);
+    srcs.push({ ...r, leg });
   }
   if (!legs.length || !known) { if (b.fairAtLog == null && b.fair == null) return null; p = b.fairAtLog ?? b.fair; srcs = [{ src: "when logged" }]; }
   const win = units ? (b.units || 0) * (b.dec - 1) : settleProfit(b, promo, "won");
@@ -126,6 +126,60 @@ export function summary(rows) {
   const up = v > 0 ? phi(ev / Math.sqrt(v)) : ev > 0 ? 1 : 0;
   return { ev, best, worst, up, live: rows.filter((r) => r.srcs.some((x) => /live|final/.test(x.src))).length };
 }
+
+// where a leg stands right now: score, what it still needs, where it's headed
+const fmtN = (x) => Number.isInteger(+x) ? `${+x}` : (+x).toFixed(1);
+export function progress(leg, r) {
+  if (r.src === "final") return { cls: r.p === 1 ? "pos" : r.p === 0 ? "neg" : "", icon: r.p === 1 ? "✓" : r.p === 0 ? "✗" : "=", text: r.p === 1 ? "Won" : r.p === 0 ? "Lost" : "Push" };
+  const d = S.liveGames.get(leg.gameId), st = d?.state || (S.live?.games || []).find((x) => x.id === leg.gameId)?.state;
+  const g = S.games.get(leg.gameId);
+  if (!st) return { cls: "muted", icon: "○", text: g ? `Starts ${fmtTime(g.commence)}` : "Not started" };
+  const base = (leg.market || "").replace("alternate_", ""), pt = leg.point, m = d?.model || {};
+  const over = leg.side === "Over" || leg.side === "Yes";
+  const bar = (cur, target, proj) => {      // how far along: filled to now, tick at the line, dot at the projected finish
+    const hi = Math.max(target, proj ?? 0, cur) * 1.12 || 1;
+    return { cur: cur / hi, line: target / hi, proj: proj != null ? Math.min(1, proj / hi) : null };
+  };
+  if (leg.player) {
+    if (r.cur == null) return { cls: "muted", icon: "●", text: "In play · live stat appears with the next live pull" };
+    const cur = r.cur, proj = r.proj;
+    if (over) {
+      if (cur > pt) return { cls: "pos", icon: "✓", text: `${fmtN(cur)} · already over ${pt}`, bar: bar(cur, pt, proj) };
+      const need = Math.floor(pt) + 1 - cur;
+      return { cls: proj != null && proj > pt ? "pos" : "neg", icon: "●", text: `${fmtN(cur)} of ${pt} · needs ${fmtN(need)} more${proj != null ? ` · on pace for ${fmtN(proj)}` : ""}`, bar: bar(cur, pt, proj) };
+    }
+    if (cur > pt) return { cls: "neg", icon: "✗", text: `${fmtN(cur)} · already over ${pt}`, bar: bar(cur, pt, proj) };
+    const room = Math.ceil(pt) - 1 - cur;
+    return { cls: proj != null && proj < pt ? "pos" : "neg", icon: "●", text: `${fmtN(cur)} of ${pt} · room for ${fmtN(Math.max(0, room))} more${proj != null ? ` · on pace for ${fmtN(proj)}` : ""}`, bar: bar(cur, pt, proj) };
+  }
+  const hs = st.home?.score, as_ = st.away?.score;
+  if (hs == null || as_ == null) return { cls: "muted", icon: "●", text: "In play" };
+  const home = d?.home || g?.home, isHome = N(leg.side) === N(home);
+  const ab = (h) => (h ? (d?.homeRef || g?.homeRef)?.abbr : (d?.awayRef || g?.awayRef)?.abbr) || (h ? "home" : "away");
+  const me = isHome ? hs : as_, them = isHome ? as_ : hs, diff = me - them, who = ab(isHome);
+  const lead = diff > 0 ? `${who} up ${fmtN(diff)}` : diff < 0 ? `${who} down ${fmtN(-diff)}` : "Tied";
+  const projM = m.margin != null ? (isHome ? m.margin : -m.margin) : null;
+  if (base === "h2h") return { cls: diff > 0 ? "pos" : diff < 0 ? "neg" : "", icon: "●", text: `${lead}${projM != null ? ` · model finish ${projM > 0 ? "+" : ""}${fmtN(Math.round(projM * 10) / 10)}` : ""}` };
+  if (base.startsWith("spreads") && pt != null) {
+    const cover = diff + pt;
+    return { cls: cover > 0 ? "pos" : "neg", icon: "●", text: `${lead} · ${cover > 0 ? `covering ${pt > 0 ? "+" : ""}${pt} by ${fmtN(cover)}` : `${fmtN(-cover)} short of ${pt > 0 ? "+" : ""}${pt}`}${projM != null ? ` · model finish ${projM > 0 ? "+" : ""}${fmtN(Math.round(projM * 10) / 10)}` : ""}` };
+  }
+  if ((base.startsWith("totals") || base.startsWith("team_totals")) && pt != null) {
+    const team = base.startsWith("team_totals");
+    const cur = team ? (N(leg.team) === N(home) ? hs : as_) : hs + as_;
+    const proj = team ? null : m.total ?? null;
+    const lab = team ? `${leg.team?.split(" ").pop()} have ${fmtN(cur)}` : `Total ${fmtN(cur)}`;
+    if (over) {
+      if (cur > pt) return { cls: "pos", icon: "✓", text: `${lab} · already over ${pt}`, bar: bar(cur, pt, proj) };
+      return { cls: proj != null && proj > pt ? "pos" : "neg", icon: "●", text: `${lab} · needs ${fmtN(Math.floor(pt) + 1 - cur)} more${proj != null ? ` · model finish ${fmtN(Math.round(proj * 10) / 10)}` : ""}`, bar: bar(cur, pt, proj) };
+    }
+    if (cur > pt) return { cls: "neg", icon: "✗", text: `${lab} · already over ${pt}`, bar: bar(cur, pt, proj) };
+    return { cls: proj != null && proj < pt ? "pos" : "neg", icon: "●", text: `${lab} · room for ${fmtN(Math.max(0, Math.ceil(pt) - 1 - cur))} more${proj != null ? ` · model finish ${fmtN(Math.round(proj * 10) / 10)}` : ""}`, bar: bar(cur, pt, proj) };
+  }
+  return { cls: "muted", icon: "●", text: lead };
+}
+const progressHtml = (pg) => `<div class="pj-pg ${pg.cls}"><span class="pj-ic">${pg.icon}</span><span class="pj-tx">${esc(pg.text)}</span>
+  ${pg.bar ? `<span class="pj-trk"><i style="width:${(Math.min(1, pg.bar.cur) * 100).toFixed(1)}%"></i><s style="left:${(pg.bar.line * 100).toFixed(1)}%"></s>${pg.bar.proj != null ? `<b style="left:${(pg.bar.proj * 100).toFixed(1)}%"></b>` : ""}</span>` : ""}</div>`;
 
 const SRC = { final: "final", live: "live", "live model": "live model", "live market": "live market", now: "pre-game", "last pre-game": "pre-game", "when logged": "when logged" };
 
@@ -152,7 +206,8 @@ export function projectedCard({ items, title, fmt = money, units = false, settle
           <span class="tiny muted ellip">${st ? `<b>${st.away?.score ?? ""}–${st.home?.score ?? ""}</b> ${esc(sitText(st, b.league))} · ` : b.commence ? `${fmtTime(b.commence)} · ` : ""}${esc(SRC[r.srcs[0]?.src] || "")}${r.srcs[0]?.cur != null ? ` · ${r.srcs[0].cur} so far` : ""}${!units && b.am != null ? ` · ${am(b.am)} · ${money(b.stake)}` : units ? ` · ${b.units}u` : ""}</span></div>
         <div class="pj-bar" title="chance now${was != null ? ` (was ${prob(was)})` : ""}"><i style="width:${((r.p ?? 0.5) * 100).toFixed(0)}%"></i>${was != null ? `<s style="left:${(was * 100).toFixed(0)}%"></s>` : ""}</div>
         <span class="num small">${r.push ? "push" : prob(r.p)}${d != null && Math.abs(d) >= 0.03 ? ` <span class="${d > 0 ? "pos" : "neg"}">${d > 0 ? "▲" : "▼"}</span>` : ""}</span>
-        <span class="num small ${r.ev >= 0 ? "pos" : "neg"}">${fmt(r.ev)}</span></div>`;
+        <span class="num small ${r.ev >= 0 ? "pos" : "neg"}">${fmt(r.ev)}</span>
+        <div class="pj-legs">${r.srcs.filter((x) => x.leg).map((x) => `${r.srcs.length > 1 ? `<div class="tiny muted ellip pj-ll">${esc(x.leg.label || "")}</div>` : ""}${progressHtml(progress(x.leg, x))}`).join("")}</div></div>`;
     }).join("")}</div>
     <div class="tiny muted">Chance now: final score, else the live market (our live model when the exact line isn't quoted), else the latest sharp fair, else your fair when logged. The tick on each bar is where it started. Parlays multiply their legs.</div>
   </div>`;
