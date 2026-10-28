@@ -1,6 +1,9 @@
 // Projected profit on open bets (and open picks): each bet's chance right now (final score, live market or live model,
 // else the latest sharp fair, else the fair when logged) turned into expected dollars, plus best/worst case and the
 // chance of finishing up. Updates with every live pull.
+// Bets on the same number are linked, not independent: both sides of a prop, a total, a team total, or the game margin
+// (spreads and moneylines). An arb can't win both legs; a middle can. Each linked group gets one consistent set of
+// outcomes, so the range, the chance to finish up and the hedge math are exact.
 import { S } from "./store.js";
 import { esc, money, prob, am, fmtTime, mktName, bookLogo, headshot, teamLogo } from "./util.js";
 import { settleProfit } from "./promo.js";
@@ -185,12 +188,96 @@ export function project(b, promo, units = false) {
   return { b, p, ev: p * win + (1 - p) * lose, win, lose, srcs };
 }
 
-export function summary(rows) {
-  const ev = rows.reduce((s, r) => s + r.ev, 0);
-  const best = rows.reduce((s, r) => s + Math.max(r.win, r.lose), 0), worst = rows.reduce((s, r) => s + Math.min(r.win, r.lose), 0);
-  const v = rows.reduce((s, r) => s + (r.p == null ? 0 : r.p * (1 - r.p) * (r.win - r.lose) ** 2), 0);
-  const up = v > 0 ? phi(ev / Math.sqrt(v)) : ev > 0 ? 1 : 0;
-  return { ev, best, worst, up, live: rows.filter((r) => r.srcs.some((x) => /live|final/.test(x.src))).length };
+// the number a single bet rides on, so bets on the same number can be linked: {key, t, up} means the bet wins when
+// that number ends above t (up) or below t. Game margin = home score minus away score.
+function specOf(r) {
+  if (r.push || r.p == null) return null;
+  // a parlay whose other legs already won (or pushed) rides on its last leg alone, so a hedge on that leg links to it
+  const done = (x) => (x.src === "final" && (x.p === 1 || x.p === 0.5)) || (x.cashed && x.p === 1);
+  const legs = r.srcs.filter((x) => x.leg), open = legs.length > 1 ? legs.filter((x) => !done(x)) : legs;
+  if (open.length !== 1) return null;                 // other parlays stay on their own
+  const leg = open[0].leg, gid = leg.gameId, side = leg.side;
+  if (!gid || !leg.market) return null;
+  const base = leg.market.replace("alternate_", "");
+  if (leg.player) {
+    const nm = `${leg.player} ${mktName(base)}`, key = `${gid}|${base}|${N(leg.player)}`;
+    if (["Over", "Under"].includes(side) && leg.point != null) return { key, t: +leg.point, up: side === "Over", name: nm };
+    if (["Yes", "No"].includes(side)) return { key, t: leg.point ?? 0.5, up: side === "Yes", name: nm };
+    return null;
+  }
+  const g = S.games.get(gid) || S.liveGames.get(gid);
+  if (/^(team_)?totals/.test(base) && ["Over", "Under"].includes(side) && leg.point != null)
+    return { key: `${gid}|${base}|${N(leg.team)}`, t: +leg.point, up: side === "Over", name: base.startsWith("team") ? `${leg.team} points` : `${g ? `${g.away} @ ${g.home} ` : ""}total` };
+  if (/^(spreads|h2h)(_[a-z0-9]+)?$/.test(base) && g) {
+    const per = base.replace(/^(spreads|h2h)/, "");
+    if (base.startsWith("h2h") && (g.lines || []).some((l) => (l.market || "").startsWith("h2h") && (l.outcomes || []).includes("Draw"))) return null;
+    const home = N(side) === N(g.home), away = N(side) === N(g.away);
+    const pt = base.startsWith("h2h") ? 0 : leg.point;
+    if ((!home && !away) || pt == null) return null;
+    const key = `${gid}|margin${per}`, name = `${g.home} margin${per ? ` (${per.slice(1)})` : ""}`;
+    return home ? { key, t: -pt, up: true, name } : { key, t: +pt, up: false, name };   // home covers when margin > -pt; away when margin < pt
+  }
+  return null;
+}
+
+// one linked group: the chance the number ends above each line (from every bet's own chance, made consistent: it can
+// only fall as the line rises), then what the group pays in each stretch between the lines
+function linked(rs) {
+  const T = [...new Set(rs.map((r) => r.spec.t))].sort((a, b) => a - b);
+  let blocks = T.map((t) => { const v = rs.filter((r) => r.spec.t === t).map((r) => (r.spec.up ? r.p : 1 - r.p)); return { v: v.reduce((a, b) => a + b, 0) / v.length, w: v.length, n: 1 }; });
+  for (let i = 0; i < blocks.length - 1;) {        // pool adjacent violators: survival must not rise
+    if (blocks[i + 1].v > blocks[i].v + 1e-12) {
+      const a = blocks[i], b = blocks[i + 1], w = a.w + b.w;
+      blocks.splice(i, 2, { v: (a.v * a.w + b.v * b.w) / w, w, n: a.n + b.n });
+      if (i > 0) i--;
+    } else i++;
+  }
+  const sv = blocks.flatMap((b) => Array(b.n).fill(Math.max(0, Math.min(1, b.v))));
+  const regions = [];
+  for (let i = 0; i <= T.length; i++) {
+    const p = (i === 0 ? 1 : sv[i - 1]) - (i === T.length ? 0 : sv[i]);
+    const x = i === 0 ? T[0] - 0.25 : i === T.length ? T.at(-1) + 0.25 : (T[i - 1] + T[i]) / 2;
+    const label = i === 0 ? `under ${T[0]}` : i === T.length ? `over ${T.at(-1)}` : `${T[i - 1]} to ${T[i]}`;
+    const pay = rs.reduce((s2, r) => s2 + ((r.spec.up ? x > r.spec.t : x < r.spec.t) ? r.win : r.lose), 0);
+    regions.push({ p: Math.max(0, p), x, label, pay });
+  }
+  for (const r of rs) {                            // each bet's chance, consistent with the group
+    r.p = regions.reduce((s2, g) => s2 + ((r.spec.up ? g.x > r.spec.t : g.x < r.spec.t) ? g.p : 0), 0);
+    r.ev = r.p * r.win + (1 - r.p) * r.lose;
+  }
+  return { name: rs[0].spec.name, rows: rs, regions };
+}
+
+const conv = (a, b) => {
+  const m = new Map();
+  for (const [x, p] of a) for (const [y, q] of b) { if (p * q < 1e-12) continue; const k = Math.round((x + y) * 100) / 100; m.set(k, (m.get(k) || 0) + p * q); }
+  if (m.size <= 4000) return m;
+  const ks = [...m.keys()], lo = Math.min(...ks), w = (Math.max(...ks) - lo) / 2000 || 1, out = new Map();     // coarser buckets, same mass
+  for (const [x, p] of m) { const k = Math.round((lo + Math.round((x - lo) / w) * w) * 100) / 100; out.set(k, (out.get(k) || 0) + p); }
+  return out;
+};
+
+// every open bet together: linked groups as one outcome each, everything else independent
+export function summary(rows, settled = 0) {
+  const groups = new Map(), comps = [];
+  for (const r of rows) { r.spec = specOf(r); r.link = null; if (r.spec) { if (!groups.has(r.spec.key)) groups.set(r.spec.key, []); groups.get(r.spec.key).push(r); } }
+  const links = [];
+  for (const [, rs] of groups) {
+    if (rs.length < 2) { rs.forEach((r) => (r.spec = null)); continue; }
+    const L = linked(rs);
+    rs.forEach((r) => (r.link = L));
+    links.push(L);
+    comps.push(L.regions.map((g) => [g.pay, g.p]));
+  }
+  for (const r of rows) if (!r.link) comps.push(r.push || r.p == null ? [[0, 1]] : [[r.win, r.p], [r.lose, 1 - r.p]]);
+  let dist = new Map([[0, 1]]);
+  for (const c of comps) dist = conv(dist, c);
+  const live = (c) => c.filter(([, p]) => p > 1e-9).map(([x]) => x);
+  const best = comps.reduce((s2, c) => s2 + Math.max(...live(c)), 0), worst = comps.reduce((s2, c) => s2 + Math.min(...live(c)), 0);
+  const ev = comps.reduce((s2, c) => s2 + c.reduce((a, [x, p]) => a + x * p, 0), 0);
+  let up = 0, upDay = 0;
+  for (const [x, p] of dist) { if (x > 0.005) up += p; if (x + settled > 0.005) upDay += p; }
+  return { ev, best, worst, up, upDay, links, live: rows.filter((r) => r.srcs.some((x) => /live|final/.test(x.src))).length };
 }
 
 // where a leg stands right now: score, what it still needs, where it's headed
@@ -315,11 +402,12 @@ function ring(p, was, cls) {
     <text x="24" y="28" text-anchor="middle">${p == null ? "–" : Math.round(v * 100)}</text></svg>`;
 }
 
+const pctUp = (x) => (x > 0.995 && x < 0.99995 ? ">99%" : x < 0.005 && x > 0.00005 ? "<1%" : `${Math.round(x * 100)}%`);
 export function projectedCard({ items, title, fmt = money, units = false, settledToday = 0 }) {
   const rows = items.map((b) => project(b, b.promoId ? S.promos.get(b.promoId) : null, units)).filter(Boolean);
   if (!rows.length) return "";
-  const s = summary(rows);
-  const day = settledToday + s.ev;
+  const s = summary(rows, units ? 0 : settledToday);
+  const day = settledToday + s.ev, locked = s.best - s.worst < 0.01;
   rows.sort((a, b) => (a.b.commence || "").localeCompare(b.b.commence || ""));
   // range bar: worst to best with the projection marked
   const span = (s.best - s.worst) || 1, at = (x) => Math.max(0, Math.min(100, (x - s.worst) / span * 100));
@@ -328,10 +416,14 @@ export function projectedCard({ items, title, fmt = money, units = false, settle
       <span class="tiny muted">${s.live ? `<span class="pill live">● ${s.live} in play</span> ` : ""}updates with every live pull</span></div>
     <div class="pj-top">
       <div class="pj-big"><div class="k">Projected</div><div class="v ${s.ev >= 0 ? "pos" : "neg"}">${fmt(s.ev)}</div><div class="s">on ${rows.length} open${!units ? ` · today ${fmt(day)} with ${fmt(settledToday)} settled` : ""}</div></div>
-      <div class="pj-big"><div class="k">Chance to finish up</div><div class="v">${Math.round(s.up * 100)}%</div><div class="pj-meter"><i style="width:${(s.up * 100).toFixed(0)}%"></i></div></div>
-      <div class="pj-big wide"><div class="k">Range</div><div class="pj-range"><span class="z" style="left:${at(0)}%"></span><b style="left:${at(s.ev)}%"></b></div>
-        <div class="row tiny" style="justify-content:space-between"><span class="neg">${fmt(s.worst)} all lose</span><span class="pos">${fmt(s.best)} all win</span></div></div>
+      <div class="pj-big"><div class="k">Chance to finish up</div><div class="v">${pctUp(s.up)}</div><div class="pj-meter"><i style="width:${(s.up * 100).toFixed(0)}%"></i></div>
+        ${!units && Math.abs(settledToday) > 0.005 ? `<div class="s">the day: ${pctUp(s.upDay)} to end up with ${fmt(settledToday)} settled</div>` : ""}</div>
+      <div class="pj-big wide"><div class="k">Range</div>${locked ? `<div class="v ${s.ev >= 0 ? "pos" : "neg"}" style="font-size:18px">${fmt(s.ev)} locked</div><div class="s">every open result pays the same</div>`
+        : `<div class="pj-range"><span class="z" style="left:${at(0)}%"></span><b style="left:${at(s.ev)}%"></b></div>
+        <div class="row tiny" style="justify-content:space-between"><span class="${s.worst >= 0 ? "pos" : "neg"}">${fmt(s.worst)} worst case</span><span class="pos">${fmt(s.best)} best case</span></div>`}</div>
     </div>
+    ${s.links.length ? `<div class="col" style="gap:6px">${s.links.map((L) => `<div class="pj-link"><b>${esc(L.name)}</b> <span class="tiny muted">· ${L.rows.length} bets on the same number, counted together · expected <b class="num ${L.regions.reduce((a2, g) => a2 + g.p * g.pay, 0) >= 0 ? "pos" : "neg"}">${fmt(L.regions.reduce((a2, g) => a2 + g.p * g.pay, 0))}</b> for the group</span>
+      <div class="pj-lr">${L.regions.filter((g) => g.p > 0.0005).map((g) => `<span class="pj-lc"><span class="tiny muted">${esc(g.label)} · ${prob(g.p)}</span><b class="num ${g.pay >= 0 ? "pos" : "neg"}">${fmt(g.pay)}</b></span>`).join("")}</div></div>`).join("")}</div>` : ""}
     <div class="col" style="gap:8px">${rows.map((r) => {
       const b = r.b, st = gameState(b.gameId), was = b.fairAtLog ?? b.fair, d = r.p != null && was != null ? r.p - was : null;
       const legs = r.srcs.filter((x) => x.leg), multi = legs.length > 1;
@@ -341,7 +433,7 @@ export function projectedCard({ items, title, fmt = money, units = false, settle
         <div class="pj-hd">
           <span class="pj-ven">${bookLogo(b.venue || "any", b.venueName || b.venue || "", 30)}</span>
           <div class="col" style="gap:2px;min-width:0"><b class="ellip">${multi ? `${legs.length}-leg parlay` : esc(b.label || b.selection)}</b>
-            <span class="tiny muted ellip">${b.am != null ? `<b class="num">${am(b.am)}</b> · ` : ""}${pay}${b.venueName ? ` · ${esc(b.venueName)}` : ""}${live ? ` · <span class="pill live">● live</span>` : st ? "" : b.commence ? ` · ${fmtTime(b.commence)}` : ""}</span></div>
+            <span class="tiny muted ellip">${r.link ? `<span class="pill s" title="counted together with the other bets on ${esc(r.link.name)}">linked</span> ` : ""}${b.am != null ? `<b class="num">${am(b.am)}</b> · ` : ""}${pay}${b.venueName ? ` · ${esc(b.venueName)}` : ""}${live ? ` · <span class="pill live">● live</span>` : st ? "" : b.commence ? ` · ${fmtTime(b.commence)}` : ""}</span></div>
           <div class="pj-rc" title="chance now${was != null ? ` (was ${prob(was)})` : ""}">${r.push ? `<span class="pill">push</span>` : ring(r.p, was, cls)}
             ${d != null && Math.abs(d) >= 0.03 ? `<span class="tiny ${d > 0 ? "pos" : "neg"}">${d > 0 ? "▲" : "▼"} ${Math.round(Math.abs(d) * 100)}</span>` : ""}</div>
           <div class="pj-ev"><span class="tiny muted">exp.</span><b class="num ${r.ev >= 0 ? "pos" : "neg"}">${fmt(r.ev)}</b></div>
