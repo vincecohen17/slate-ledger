@@ -2,10 +2,10 @@
 // {id, kind: "arb" | "middle", i, window?, pMiddle?}. Each leg still grades itself (the engine settles it like any bet),
 // but every stat treats the pair as ONE result: net profit, total staked, expected profit from the fairs. That keeps
 // a guaranteed loser leg out of the record, the venue tables, CLV, calibration and Kelly sizing.
-import { S, saveBet } from "./store.js";
+import { S, saveBet, savePromo } from "./store.js";
 import { esc, am, prob, money, sheet, toast, uid, decFromAm, todayPT, bookLogo, $, $$ } from "./util.js";
 import { VENUES } from "./lab.js";
-import { settleProfit, isBoost } from "./promo.js";
+import { settleProfit, isBoost, promoOpen, singleUse } from "./promo.js";
 
 const DONE = ["won", "lost", "push", "void"];
 const promoOf = (b) => (b.promoId ? S.promos.get(b.promoId) : null);
@@ -80,7 +80,7 @@ export function arbSheet(pre = {}) {
   const legs0 = fromBoard ? pre.legs : [{}, {}];
   const total = pre.total || 100;
   let kind = pre.kind || "arb", anchor = 0;
-  const promoOpts = (sel) => `<option value="">No promo</option>${[...S.promos.values()].map((p) => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}`;
+  const promoOpts = (sel) => `<option value="">No promo</option>${[...S.promos.values()].filter(promoOpen).map((p) => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}`;
   const legHtml = (l, i) => `<div class="card ab-leg" data-i="${i}">
       <div class="row" style="gap:8px;align-items:center">${l.book ? bookLogo(l.book, l.name, 22) : `<b class="tiny muted">Leg ${i + 1}</b>`}<input class="ab-label grow" value="${esc(l.label || "")}" placeholder="${i ? "e.g. Under 224.5" : "e.g. Over 224.5"}"></div>
       <div class="fgrid" style="margin-top:8px">
@@ -149,7 +149,12 @@ export function arbSheet(pre = {}) {
           market: src.market || null, side: src.side ?? null, point: src.point ?? null, player: pre.player || null, team: src.team || null,
           fairAtLog: src.fair ?? null, legs: null, source: "arb", pickId: null, group: { ...group, i } };
       });
-      try { await Promise.all(bets.map(saveBet)); toast(`${kind === "arb" ? "Arb" : "Middle"} logged: both legs`); close(); }
+      const used = [...new Set(L2.map((x) => x.promoId).filter(Boolean))].map((id) => S.promos.get(id)).filter((p) => singleUse(p) && !p.used);
+      try {
+        await Promise.all(bets.map(saveBet));
+        await Promise.all(used.map((p) => savePromo({ ...p, used: true, usedAt: now, usedBy: bets.find((b) => b.promoId === p.id)?.id })));
+        toast(`${kind === "arb" ? "Arb" : "Middle"} logged: both legs${used.length ? " · promo marked used" : ""}`); close();
+      }
       catch (e) { toast("Could not save: " + e.message); }
     };
   });

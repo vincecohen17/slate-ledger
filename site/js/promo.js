@@ -539,6 +539,11 @@ function depositPlan(p) {
 // ---------- settling a logged bet that used a promo
 export const isBoost = (promo) => { const k = promo ? kindOf(normalize(promo).kind).key : null; return ["profit_boost", "parlay_boost", "pickem_boost", "custom"].includes(k) && (k !== "custom" || !!normalize(promo).winBoost); };
 
+// a promo still to use: not marked used and not past its end date
+export const promoOpen = (p) => !!p && !p.used && !(p.expires && p.expires < new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }));
+// promos that last for many bets (fee holidays, a deposit match wagered through) aren't used up by one bet
+export const singleUse = (p) => !!p && !["fee_free", "deposit_match"].includes(kindOf(normalize(p).kind).key);
+
 export function settleProfit(b, promo, status) {
   if (status === "push" || status === "void") return 0;
   const p = promo ? normalize(promo) : null, k = p ? kindOf(p.kind).key : null;

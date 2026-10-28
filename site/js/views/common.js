@@ -1,7 +1,7 @@
-import { S, saveBet } from "../store.js";
+import { S, saveBet, savePromo } from "../store.js";
 import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, $ } from "../util.js";
 import { VENUES } from "../lab.js";
-import { settleProfit, isBoost } from "../promo.js";
+import { settleProfit, isBoost, promoOpen, singleUse } from "../promo.js";
 import { money } from "../util.js";
 
 // image for a bet: player headshot for props, team logo for team sides, league logo otherwise
@@ -82,7 +82,7 @@ export function logSheet(pre = {}) {
         <label class="f">Venue<select id="lb-venue">${venues.map((v) => `<option value="${v.key}" ${v.key === pre.venue ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></label>
         <label class="f">Odds (American)<input id="lb-odds" inputmode="numeric" value="${pre.am ?? ""}" placeholder="-110"></label>
         <label class="f">Stake $<input id="lb-stake" inputmode="decimal" value="${pre.stake ?? (!edit && pre.fair != null && pre.am != null ? kellyStake(pre.fair, decFromAm(pre.am), S.settings) || "" : "")}" placeholder="10"></label>
-        <label class="f">Promo<select id="lb-promo"><option value="">None</option>${[...S.promos.values()].map((p) => `<option value="${p.id}" ${p.id === pre.promoId ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}</select></label>
+        <label class="f">Promo<select id="lb-promo"><option value="">None</option>${[...S.promos.values()].filter((p) => promoOpen(p) || p.id === pre.promoId).map((p) => `<option value="${p.id}" ${p.id === pre.promoId ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}</select></label>
         ${settled ? `<label class="f">Result<select id="lb-status">${["won", "lost", "push", "void"].map((s) => `<option ${s === pre.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
       </div>
       <label class="row lb-boost" style="gap:8px;align-items:center"><input type="checkbox" id="lb-live" ${isLive ? "checked" : ""}>
@@ -93,6 +93,7 @@ export function logSheet(pre = {}) {
         const cands = [...S.bets.values()].filter((b) => b.id !== pre.id && !b.group && ((pre.gameId && b.gameId === pre.gameId) || (b.date && b.date === pre.date)));
         return cands.length ? `<div class="fgrid"><label class="f" style="grid-column:span 2">Other leg of an arb or middle<select id="lb-pair"><option value="">Not paired</option>${cands.map((b) => `<option value="${b.id}">${esc(b.label)} · ${esc(b.venueName || b.venue || "")} ${am(b.am)}</option>`).join("")}</select></label>
           <label class="f">Kind<select id="lb-pairk"><option value="arb">Arb</option><option value="middle">Middle</option></select></label></div>` : ""; })() : ""}
+      ${edit ? "" : `<label class="row lb-boost lb-usedrow" style="gap:8px;align-items:center" hidden><input type="checkbox" id="lb-used"><span class="small">Mark this promo used (it leaves the Promos page)</span></label>`}
       <div class="lb-pay card" style="padding:10px 12px"></div>
       <p class="note">Our fair at logging: ${(pre.fairAtLog ?? pre.fair) != null ? prob(pre.fairAtLog ?? pre.fair, 1) : "none"}. Closing line value fills in automatically once grading runs.</p>
       <div class="row"><button class="btn" id="lb-save">${edit ? "Save changes" : "Save bet"}</button><button class="btn ghost" id="lb-cancel">Cancel</button></div>
@@ -105,6 +106,8 @@ export function logSheet(pre = {}) {
     const preview = () => {          // what it pays, so a double-counted boost is easy to spot
       const { odds, stake, promo, boostIn } = read(), boost = isBoost(promo);
       $(".lb-bst", el).hidden = !boost;
+      const ur = $(".lb-usedrow", el);
+      if (ur) { ur.hidden = !promo || promo.used; if (promo && ur.dataset.for !== promo.id) { ur.dataset.for = promo.id; $("#lb-used", el).checked = singleUse(promo); } }
       if (isNaN(odds) || isNaN(stake)) { $(".lb-pay", el).innerHTML = `<span class="tiny muted">Enter odds and stake to see the payout.</span>`; return; }
       const b = { stake, dec: decFromAm(odds), boostIn };
       const base = stake * (b.dec - 1), w = settleProfit(b, promo, "won"), l = settleProfit(b, promo, "lost");
@@ -141,7 +144,12 @@ export function logSheet(pre = {}) {
         bet.group = { ...group, i: 0 };
         try { await saveBet({ ...partner, group: { ...group, i: 1 } }); } catch (e) { toast("Could not pair: " + e.message); return; }
       }
-      try { await saveBet(bet); toast(partner ? "Paired: they count as one result now" : edit ? "Bet updated" : "Bet logged"); close(); } catch (e) { toast("Could not save: " + e.message); }
+      const usedP = !edit && promoId && $("#lb-used", el)?.checked ? S.promos.get(promoId) : null;
+      try {
+        await saveBet(bet);
+        if (usedP && !usedP.used) await savePromo({ ...usedP, used: true, usedAt: new Date().toISOString(), usedBy: bet.id });
+        toast(partner ? "Paired: they count as one result now" : edit ? "Bet updated" : usedP ? "Bet logged · promo marked used" : "Bet logged"); close();
+      } catch (e) { toast("Could not save: " + e.message); }
     };
   });
 }

@@ -19,6 +19,7 @@ function best(p) {
   return opts;
 }
 const worth = (p, opts) => Math.max(0, opts[0]?.ev || 0) * (kindOf(p.kind).key === "bonus_bet" ? (p.count || 1) : 1);
+let showOld = false;
 const status = (p) => p.used ? "used" : p.expires && p.expires < todayPT() ? "expired" : p.expires === todayPT() ? "today" : "active";
 
 // ---------- search the board (for odds boosts, discounted lines and the bet checker)
@@ -199,6 +200,7 @@ export function renderPromos(el) {
   const rank = { today: 0, active: 1, used: 2, expired: 3 };
   list.sort((a, b) => rank[status(a)] - rank[status(b)] || worth(b, best(b)) - worth(a, best(a)));
   const live = list.filter((p) => ["active", "today"].includes(status(p)));
+  const old = list.filter((p) => !["active", "today"].includes(status(p))).sort((a, b) => (b.usedAt || b.expires || b.createdAt || "").localeCompare(a.usedAt || a.expires || a.createdAt || ""));
   const total = live.reduce((s, p) => s + worth(p, best(p)), 0);
   const settled = [...S.bets.values()].filter((b) => b.promoId && b.profit != null);
   const plv = settled.reduce((s, b) => s + b.profit, 0);
@@ -216,7 +218,9 @@ export function renderPromos(el) {
     </div>
     ${draft ? form(draft) : ""}
     <div class="sec-title">Your promos<span class="line"></span></div>
-    ${list.length ? `<div class="grid pr-grid">${list.map(promoCard).join("")}</div>` : `<div class="empty"><h3>No promos saved</h3>Paste one above and I'll value it and find the best bet for it on the live board.</div>`}
+    ${live.length ? `<div class="grid pr-grid">${live.map(promoCard).join("")}</div>` : `<div class="empty"><h3>${old.length ? "No promos to use right now" : "No promos saved"}</h3>Paste one above and I'll value it and find the best bet for it on the live board.</div>`}
+    ${old.length ? `<div class="row" style="justify-content:space-between;margin-top:14px;gap:8px;flex-wrap:wrap"><button class="chip ${showOld ? "on" : ""}" id="pr-old">${showOld ? "Hide" : "Show"} used and expired (${old.length})</button><span class="tiny muted">kept so bets that used them still settle with the promo</span></div>
+      ${showOld ? `<div class="grid pr-grid" style="margin-top:10px">${old.map(promoCard).join("")}</div>` : ""}` : ""}
     <div class="sec-title">Check any bet<span class="line"></span></div>
     ${checkerCard()}`;
   bind(el);
@@ -275,7 +279,9 @@ function bind(el) {
       legs: o.legs.map((c) => ({ ...legSpec(c.leg), point: c.promo ? draftLine(p, c) : legSpec(c.leg).point, fair: c.P })), source: "promo" });
   });
   $$("[data-edit]", el).forEach((b) => b.onclick = () => { draft = normalize(S.promos.get(b.dataset.edit)); draft.titleSet = false; rerender(); scrollTo(0, 0); });
-  $$("[data-used]", el).forEach((b) => b.onclick = () => { const p = S.promos.get(b.dataset.used); savePromo({ ...p, used: !p.used }); });
+  $$("[data-used]", el).forEach((b) => b.onclick = () => { const p = S.promos.get(b.dataset.used); savePromo({ ...p, used: !p.used, usedAt: !p.used ? new Date().toISOString() : null }).then(() => toast(p.used ? "Back in your promos" : "Marked used: moved to Used and expired")); });
+  const po = $("#pr-old", el); if (po) po.onclick = () => { showOld = !showOld; rerender(); };
+
   $$("[data-del]", el).forEach((b) => b.onclick = () => { if (b.dataset.confirm) { deletePromo(b.dataset.del); open.delete(b.dataset.del); } else { b.dataset.confirm = 1; b.textContent = "Tap again to delete"; } });
   // bet checker
   const cq = $("#ck-q", el);
