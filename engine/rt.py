@@ -102,3 +102,17 @@ def presence(data_dir):
         return ref("presence", data_dir).get() or {}
     except Exception:
         return {}
+
+
+def ensure_rules(data_dir, repo_root):
+    """put the owner-only rules on the database (the same file the deploy uses), so creating the database in the
+    console is the only manual step. The owner's email comes from the private data repo and is never logged."""
+    import google.auth.transport.requests
+    from google.oauth2 import service_account
+    email = json.load(open(os.path.join(data_dir, "config", "access.json")))["email"]
+    rules = open(os.path.join(repo_root, "database.rules.template.json")).read().replace("__ALLOWED_EMAIL__", email)
+    cred = service_account.Credentials.from_service_account_info(json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT"]),
+        scopes=["https://www.googleapis.com/auth/firebase.database", "https://www.googleapis.com/auth/userinfo.email"])
+    s = google.auth.transport.requests.AuthorizedSession(cred)
+    r = s.put(f"{url(data_dir)}/.settings/rules.json", data=rules.encode())
+    return r.status_code

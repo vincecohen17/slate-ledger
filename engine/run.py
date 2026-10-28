@@ -358,6 +358,13 @@ def live():
             ls["rtOk"] = False
         else:
             ls["rtOk"] = True
+            if not ls.get("rtRules"):
+                try:
+                    code = rt.ensure_rules(DATA_DIR, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    ls["rtRules"] = code == 200
+                    log(f"live: realtime database rules {'set' if code == 200 else f'not set ({code})'}")
+                except Exception as e:
+                    log(f"live: realtime database rules not set ({type(e).__name__})")
         if ls.get("rtOk") and not ls.get("fsLiveCleared"):       # the old Firestore copies, once
             try:
                 db = firestore_db()
