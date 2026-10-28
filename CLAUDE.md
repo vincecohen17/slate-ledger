@@ -57,6 +57,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - Site sizing: Firestore `settings/owner` {bankroll, kelly, maxPct, unit} (Ledger > Analysis) drives the suggested stake on
   edges (half for model/estimated fairs), the log sheet's default stake and units in dollars; parlays down to one leg show a
   hedge to lock a result and its expected cost.
+- `engine/picklive.py` every run re-checks each open pick's playTo venues (current price, pick'em line still listed, in range vs
+  goodAt) -> RTDB pre/pickslive and latest/pickslive.json; the Picks screen shows it. Pick'em payouts: Underdog/Dabble real,
+  PrizePicks standard = fixed 1.732/leg, DK Pick6 multiplier estimated from DraftKings' no-vig price (dfs estMult in props).
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,
@@ -70,7 +73,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   case (1-2 paragraphs, blank line between), pillars{model,advanced,matchup,role,context,market: support|neutral|against},
   risk (a paragraph on what could go wrong), marketFair, modelP, keyStats[{label,value,note?,tone}], confirm[],
   market (Odds API key), side, point (the side's own line), player?, team?, early? (posted the night before by the early look,
-  earlyAt); graded by the engine: status, profit, clv, closeFair
+  earlyAt), checks {logic, model, price} and logicCase (bet tier needs all three; price-only edges are never picks); graded by the engine: status, profit, clv, closeFair
 - `.github/workflows/pull.yml` engine run (manual or push to `engine/run-request`; live cron after the 5M upgrade).
   `deploy.yml` deploys site + rules on changes to `site/`, `firebase.json` or the rules template.
 - Private data repo `vincecohen17/slate-ledger-data`: `latest/` (board.json, props.json, edges.json, log_<mode>.txt: the

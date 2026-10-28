@@ -1005,6 +1005,13 @@ def publish(game_docs, prop_docs, status, stamp):
             rep["edgecard"] = ecard
     picks = load_picks()
     previews = load_previews()
+    try:            # where each open pick can be played right now (prices drift, pick'em lines get pulled)
+        import picklive
+        pl = picklive.check(picks, game_docs, prop_docs, NOW)
+        json.dump(pl, open(os.path.join(DATA_DIR, "latest", "pickslive.json"), "w"), indent=0)
+    except Exception as e:
+        pl = None
+        log(f"pick check failed: {type(e).__name__}: {str(e)[:100]}")
     write_data_repo(game_docs, prop_docs, edge_list, status)
     with open(os.path.join(DATA_DIR, "latest", "matchups.json"), "w") as f:
         json.dump(mups, f, separators=(",", ":"))
@@ -1017,7 +1024,7 @@ def publish(game_docs, prop_docs, status, stamp):
             rc = rt.ensure_rules(DATA_DIR, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             if rc != 200:
                 raise RuntimeError(f"rules {rc}")
-            kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log, mups=mups, rep=rep, fin=fin, opps=opp_list)
+            kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log, mups=mups, rep=rep, fin=fin, opps=opp_list, pickslive=pl)
             pre_ok = True
             log(f"realtime database: {npcs} pieces, {kb} KB")
         except Exception as e:

@@ -30,16 +30,22 @@ export function pickCard(p) {
     const v = p.pillars?.[k]; if (!v) return "";
     return `<span class="pillar ${v === "support" ? "sup" : v === "against" ? "ag" : ""}">${ICON[v] || ""} ${t}</span>`;
   }).join("");
-  const venues = (p.playTo || []).map((v) => `<div class="lrow" style="grid-template-columns:1fr auto auto">
-      <span>${bookTag(v.venue, v.name || v.venue, 15)}${v.line ? ` <span class="tiny muted">${esc(v.line)}</span>` : ""}</span>
-      <span class="px">${esc(typeof v.price === "number" ? am(v.price) : v.price || "–")}</span>
-      <span class="${v.inRange ? "pos" : "faint"}">${v.inRange ? "✓ in range" : "wait"}</span></div>`).join("");
+  // live check from the engine (every run): current price, still listed, still worth taking; else what the run posted
+  const lv = S.picksLive?.[p.id];
+  const vrows = lv ? lv.venues : (p.playTo || []).map((v) => ({ ...v, now: typeof v.price === "number" ? v.price : null, listed: true }));
+  const venues = vrows.map((v) => `<div class="lrow" style="grid-template-columns:1fr auto auto">
+      <span>${bookTag(v.venue, v.name || v.venue, 15)}${v.line != null ? ` <span class="tiny muted">${esc(v.line)}</span>` : ""}${v.note ? ` <span class="tiny muted">· ${esc(v.note)}</span>` : ""}</span>
+      <span class="px">${v.listed === false ? `<span class="faint">not listed</span>` : esc(v.now != null ? am(v.now) : "–")}</span>
+      <span class="${v.inRange ? "pos" : "faint"}">${v.inRange ? "✓ in range" : v.listed === false ? "–" : "wait"}</span></div>`).join("")
+    + (lv ? `<div class="tiny muted" style="margin-top:4px">Checked ${fmtTime(lv.at)}${lv.fairNow != null ? ` · sharp fair now ${prob(lv.fairNow, 1)}` : ""}${lv.anyInRange ? "" : ` · <span class="neg">no venue in range right now</span>`}</div>` : "");
   return `<div class="card col ${st === "void" ? "pk-void" : ""}" style="gap:10px">
     ${st === "void" && p.voidReason ? `<div class="pk-vbar">Withdrawn: ${esc(p.voidReason)}</div>` : ""}
     <div class="bet">${betImage({ gameId: p.gameId, label: p.selection, player: p.player, headshot: p.headshot, league: p.league })}
       <div class="col"><span class="what">${esc(p.selection)}</span><span class="sub">${esc(p.matchup || "")}${p.commence ? ` · ${fmtTime(p.commence)}` : ""}</span></div>
       <div class="col" style="align-items:flex-end">${units(p.units)}<span class="tiny muted">${p.units ?? "–"}u${S.settings?.unit && p.units ? ` · $${Math.round(p.units * S.settings.unit)}` : ""}</span></div></div>
-    <div class="row" style="gap:6px">${tier}${stPill}${p.clv != null ? `<span class="pill ${p.clv > 0 ? "pos" : "neg"}">CLV ${pct(p.clv)}</span>` : ""}</div>
+    <div class="row" style="gap:6px;flex-wrap:wrap">${tier}${stPill}${p.clv != null ? `<span class="pill ${p.clv > 0 ? "pos" : "neg"}">CLV ${pct(p.clv)}</span>` : ""}
+      ${p.checks ? `<span class="pk-checks" title="a pick needs the sports case, our model and the price to agree">${[["logic", "Sports logic"], ["model", "Model"], ["price", "Price"]].map(([k, t]) => `<span class="pillar ${p.checks[k] ? "sup" : "ag"}">${p.checks[k] ? "✓" : "✗"} ${t}</span>`).join("")}</span>` : ""}</div>
+    ${p.logicCase ? `<div class="small" style="line-height:1.45"><b>The sports case:</b> ${esc(p.logicCase)}</div>` : ""}
     <div class="playto">
       <div class="fc"><div class="k">Fair</div><div class="v">${am(p.fairAm)}</div><div class="s">${prob(p.fair, 1)}</div></div>
       <div class="fc"><div class="k">Good at</div><div class="v">${am(p.goodAt)}</div><div class="s">or better</div></div>

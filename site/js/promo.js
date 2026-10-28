@@ -490,9 +490,11 @@ function pickemPlan(p, top, ctx) {
   let pool = all.filter((l) => legOK(p, l) && (fed ? l.pickem === p.venue : (!l.pickem && l.kind === "prop" && l.main)))
     .map((l) => {
       const real = fed && !l.varPay && l.pickDec > 1;
-      return { leg: l, price: { am: null }, D: 1, P: l.fair, mult: real ? l.pickDec / STD : 1, needs: l.varPay ? l.minMult ?? (1 / l.fair) / STD : null, varPay: !!l.varPay || !fed };
+      // Pick6: the multiplier is estimated from DraftKings' price (engine), so the pick is judged at that estimate
+      const est = fed && l.varPay && l.estMult ? l.estMult : null;
+      return { leg: l, price: { am: null }, D: 1, P: l.fair, mult: real ? l.pickDec / STD : est || 1, est: !!est, needs: l.varPay ? l.minMult ?? (1 / l.fair) / STD : null, varPay: (!!l.varPay && !est) || !fed };
     })
-    // varPay apps: near-even picks only (likely paid 1x); real per-pick payouts (Underdog, Dabble): any side the payout justifies
+    // unknown multipliers: near-even picks only (likely paid 1x); known or estimated payouts: any side the payout justifies
     .filter((c) => c.varPay ? c.P >= 0.5 && c.P <= 0.59 : c.P >= 0.3 && c.P * c.mult * STD > 0.9)
     .sort((a, b) => b.P * b.mult - a.P * a.mult);
   let fixed = null;

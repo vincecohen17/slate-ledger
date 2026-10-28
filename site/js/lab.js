@@ -71,7 +71,8 @@ export function catalog() {
         legs.push(leg);
         for (const d of r.dfs || []) {
           if (d.side === o && d.p != null) legs.push({ ...leg, key: leg.key + "|" + d.book, pickem: d.book, pickemName: d.name, label: `${label} (${d.name})`, fair: d.p, pickemLine: d.point ?? r.point,
-            pickDec: d.dec?.[o] ?? null, varPay: !!d.flex, minMult: d.minMult?.[o] ?? null });   // varPay: the app sets each pick's multiplier (feed price is a placeholder)
+            pickDec: d.book === "pick6" ? (d.estMult?.[o] ? 1.732 * d.estMult[o] : null) : d.dec?.[o] ?? null, varPay: !!d.flex, minMult: d.minMult?.[o] ?? null,
+            estMult: d.estMult?.[o] ?? null });   // varPay: the app sets each pick's multiplier (feed price is a placeholder)
         }
       }
     }

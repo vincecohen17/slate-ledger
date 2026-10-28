@@ -190,7 +190,7 @@ def pre_pieces(game_docs, prop_docs, edges, status, mups=None, rep=None, fin=Non
     return out
 
 
-def publish_pre(game_docs, prop_docs, edges, status, data_dir, log=print, mups=None, rep=None, fin=None, opps=None):
+def publish_pre(game_docs, prop_docs, edges, status, data_dir, log=print, mups=None, rep=None, fin=None, opps=None, pickslive=None):
     """write the changed pieces of the pre-game board; hashes in latest/rt_pre.json. Returns (KB sent, pieces)."""
     fn = os.path.join(data_dir, "latest", "rt_pre.json")
     try:
@@ -200,10 +200,12 @@ def publish_pre(game_docs, prop_docs, edges, status, data_dir, log=print, mups=N
     now = pre_pieces(game_docs, prop_docs, edges, status, mups, rep, fin)
     if opps is not None:
         now["opps"] = z({"items": opps})
+    if pickslive is not None:
+        now["pickslive"] = z(pickslive)
     newh = {p: _h(s) for p, s in now.items()}
     # parts this run didn't build (no matchups, reports or finals this time) stay as they are
     for p, h in old.items():
-        if p not in newh and ((p == "opps" and opps is None) or (p.startswith("mu/") and mups is None) or (p == "reports" and not rep) or (p.startswith("fin/") and fin is None)):
+        if p not in newh and ((p == "opps" and opps is None) or (p == "pickslive" and pickslive is None) or (p.startswith("mu/") and mups is None) or (p == "reports" and not rep) or (p.startswith("fin/") and fin is None)):
             newh[p] = h
     upd = {p: now[p] for p, h in newh.items() if p in now and old.get(p) != h}
     for p in old:

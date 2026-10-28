@@ -169,6 +169,7 @@ export function start() {
   watchCol("promos", S.promos, (d) => d.data());
   subs.push(onSnapshot(doc(db, "settings", "owner"), (d) => { S.settings = { ...SETTINGS0, ...(d.exists() ? d.data() : {}) }; changed(); }, onErr));
   listen("pre/opps", async (v) => { S.opps = v ? (await dec("pre/opps", v)).items || [] : []; });
+  listen("pre/pickslive", async (v) => { S.picksLive = v ? await dec("pre/pickslive", v) : null; });
 }
 
 export function stop() {

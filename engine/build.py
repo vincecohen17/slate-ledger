@@ -608,24 +608,39 @@ def build_props(ev, label):
                             d["pOver"] = _r(po)
                             d["minMult"] = {"Over": _r(min_mult(po))}
                             continue
-                        flex = d["book"] in FLEX_PAYOUT
+                        # PrizePicks standard (two-sided) lines pay the fixed power/flex table: a known price.
+                        # DK Pick6 sets a multiplier per pick (0.6x on a heavy favorite) that the feed doesn't carry;
+                        # it follows DraftKings' own price, so the multiplier is estimated from DraftKings' no-vig
+                        # chance of that side (standard 1x up to the 2-pick break-even, scaled down past it, with a
+                        # little margin) and the edge is judged at that estimate. No DraftKings price: not judged.
+                        flex = d["book"] in FLEX_PAYOUT and d["book"] != "prizepicks"
+                        est = {}
+                        if d["book"] == "pick6":
+                            dk = next((q for q in l.get("quotes") or [] if q["book"] == "draftkings"), None)
+                            if dk and {"Over", "Under"} <= set(dk.get("prices") or {}):
+                                io, iu = 1 / dk["prices"]["Over"]["dec"], 1 / dk["prices"]["Under"]["dec"]
+                                pd = io / (io + iu)
+                                for s_, ps_ in (("Over", pd), ("Under", 1 - pd)):
+                                    est[s_] = 1.0 if ps_ <= C.DFS_BREAKEVEN else _r(max(0.35, 0.97 * C.DFS_BREAKEVEN / ps_))
+                            d["estMult"] = est or None
                         if flex:
-                            # payouts move pick by pick (e.g. Pick6 "0.6x") and the feed only sends a placeholder:
-                            # show the smallest multiplier worth taking for each side
+                            # the smallest multiplier worth taking for each side, to check against what the app shows
                             d["minMult"] = {s_: _r(min_mult(ps_)) for s_, ps_ in (("Over", po), ("Under", 1 - po)) if s_ in d["dec"]}
                         for side, ps in (("Over", po), ("Under", 1 - po)):
                             if side not in d["dec"] or not (0.15 <= ps <= 0.85):
                                 continue
-                            if flex and ps > FLEX_STANDARD_MAX:
-                                continue        # a side this likely is almost always paid below 1x on these apps
+                            if flex and side not in est:
+                                continue        # no way to know this pick's multiplier
                             px = d["dec"][side]
-                            be = C.DFS_BREAKEVEN if flex else (1 / px if px and px > 1 else C.DFS_BREAKEVEN)
+                            be = C.DFS_BREAKEVEN / est[side] if flex else (C.DFS_BREAKEVEN if d["book"] == "prizepicks" else (1 / px if px and px > 1 else C.DFS_BREAKEVEN))
                             e = ps - be
                             if best is None or e > best[2]:
                                 best = (side, ps, e, be)
                         if best:
                             d["side"], d["p"], d["edge"], d["be"] = best[0], _r(best[1]), _r(best[2]), _r(best[3])
                             d["flex"] = flex
+                            if flex:
+                                d["mult"] = est.get(best[0])      # the estimated multiplier the edge was judged at
                 rows.append(l)
             if mean is not None:
                 for l in plines:
@@ -723,7 +738,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "book": d["book"], "bookName": d["name"], "am": None, "pickem": True,
                         "player": l["player"], "headshot": l.get("headshot"), "last10": l.get("last10"), "point": d["point"],
                         "fair": d["p"], "edge": d["edge"], "fairWeight": l.get("fairWeight"), "be": d.get("be"),
-                        "minMult": (d.get("minMult") or {}).get(d["side"]), "flex": d.get("flex"),
+                        "minMult": (d.get("minMult") or {}).get(d["side"]), "flex": d.get("flex"), "estMult": d.get("mult"),
                     })
     # rank: model-derived fairs (alt lines, pick'em lines) count half until backtests earn them more trust
     for x in out:
