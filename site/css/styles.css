@@ -466,7 +466,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .lg-line.dash { background: repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 9px); }
 
 /* projected profit */
-.pj-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 54px 64px; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); }
 .pj-bar { position: relative; height: 8px; background: var(--panel-3); border-radius: 4px; }
 .pj-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; }
 .pj-bar s { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--fg); opacity: .6; }
@@ -485,3 +484,57 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 @media (max-width: 520px) { .pj-pg { grid-template-columns: 14px minmax(0, 1fr); } .pj-trk { grid-column: 2; } }
 .pj-trk.div i { border-radius: 0; }
 .pj-trk.div s { background: var(--muted); }
+
+/* open-bet tickets */
+.pj-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.pj-big { background: var(--panel-2); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pj-big .k { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.pj-big .v { font: 600 24px var(--mono); line-height: 1.1; }
+.pj-big .s { font-size: 12px; color: var(--muted); }
+.pj-meter { height: 6px; border-radius: 3px; background: var(--panel-3); overflow: hidden; } .pj-meter i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.pj-range { position: relative; height: 10px; border-radius: 5px; margin: 8px 0 2px; background: linear-gradient(90deg, var(--neg-bg), var(--panel-3) 50%, var(--pos-bg)); }
+.pj-range .z { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+.pj-range b { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--accent); border: 2px solid var(--panel); }
+.pj-tk { border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 10px; padding: 10px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+.pj-tk.tk-pos { border-left-color: var(--pos); } .pj-tk.tk-neg { border-left-color: var(--neg); } .pj-tk.tk-mid { border-left-color: var(--accent); }
+.pj-hd { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+.pj-ven .bk { border-radius: 8px; }
+.pj-rc { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.pj-ring { width: 46px; height: 46px; }
+.pj-ring .pj-rb { fill: none; stroke: var(--panel-3); stroke-width: 5; }
+.pj-ring .pj-rf { fill: none; stroke: var(--accent); stroke-width: 5; stroke-linecap: round; }
+.pj-ring.pos .pj-rf { stroke: var(--pos); } .pj-ring.neg .pj-rf { stroke: var(--neg); }
+.pj-ring text { font: 700 13px var(--mono); fill: var(--fg); }
+.pj-ring .pj-rt { stroke: var(--fg); stroke-width: 2; opacity: .55; }
+.pj-ev { display: flex; flex-direction: column; align-items: flex-end; min-width: 58px; }
+.pj-ev b { font-size: 15px; }
+.pj-legs { display: flex; flex-direction: column; gap: 8px; }
+.pj-legs:empty { display: none; }
+.pj-leg { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; align-items: start; padding-top: 8px; border-top: 1px dashed var(--line); }
+@media (min-width: 521px) { .pj-pg { grid-template-columns: 14px minmax(0, 1fr) minmax(90px, 180px); } }
+.pj-trk { height: 10px; border-radius: 5px; }
+@media (max-width: 520px) { .pj-pg .pj-trk { grid-column: 1 / -1; } .pj-hd { grid-template-columns: auto minmax(0, 1fr) auto; } .pj-ev { grid-column: 2; flex-direction: row; gap: 6px; align-items: baseline; justify-content: flex-start; } }
+
+/* ledger bet tickets */
+.lt-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.lt-day { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 8px 0 0; }
+.lt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.lt.won { border-left-color: var(--pos); } .lt.lost { border-left-color: var(--neg); } .lt.pending { border-left-color: var(--accent); } .lt.push, .lt.void { border-left-color: var(--muted); }
+.lt .bk { border-radius: 8px; }
+.lt-t { font-weight: 600; font-size: 14px; line-height: 1.3; }
+.lt-m { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); align-items: center; }
+.lt-m .num { color: var(--fg); }
+.lt-r { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.lt-res { font: 700 16px var(--mono); }
+.lt-chip { display: inline-flex; align-items: center; gap: 3px; font: 600 11px var(--mono); padding: 1px 6px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+.lt-chip.pos { background: var(--pos-bg); color: var(--pos); } .lt-chip.neg { background: var(--neg-bg); color: var(--neg); }
+.lt-legs { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
+.lt-leg { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; background: var(--panel-2); border-radius: 999px; padding: 2px 8px 2px 2px; max-width: 100%; }
+.lt-leg span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-act { display: flex; gap: 4px; }
+.lt-act .btn { padding: 3px 8px; }
+@media (max-width: 520px) { .lt { grid-template-columns: auto minmax(0, 1fr); } .lt-r { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; } .lt-legs { grid-column: 1 / -1; } }
+.lg-name { display: inline-flex; align-items: center; gap: 6px; }
+.lg-wl { display: inline-flex; height: 8px; width: 70px; border-radius: 4px; overflow: hidden; background: var(--panel-3); vertical-align: middle; margin-right: 6px; }
+.lg-wl i { display: block; height: 100%; } .lg-wl i.w { background: var(--pos); } .lg-wl i.l { background: var(--neg); }
+@media (max-width: 520px) { .pj-big.wide { grid-column: 1 / -1; } }

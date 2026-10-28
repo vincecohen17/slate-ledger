@@ -226,18 +226,24 @@ def live():
         mups = {}
     api = OddsAPI(key, max_credits=min(2000, room))
     docs, edges_all = [], []
-    # games where Vince has an open prop bet also get live props (his projected profit on the Ledger uses them)
-    bet_games = set()
+    # every leg of Vince's open bets, by game: live stat + chance from the ESPN box score each run (betLegs), and games
+    # with an open prop bet also get live prop prices
+    import livebets as LB
+    bet_legs, bet_games = {}, set()
     try:
         _db = firestore_db()
         if _db:
             for snap in _db.collection("bets").where("status", "==", "pending").stream():
                 b = snap.to_dict() or {}
-                for leg in (b.get("legs") or []) + [b]:
-                    if leg.get("player") and leg.get("gameId"):
+                for i, leg in enumerate(b.get("legs") or [b]):
+                    if not leg.get("gameId"):
+                        continue
+                    r = LB.resolve(leg, DATA_DIR)
+                    if r and r.get("player"):
+                        bet_legs.setdefault(leg["gameId"], {})[f"{snap.id}#{i}"] = r
                         bet_games.add(leg["gameId"])
-    except Exception:
-        pass
+    except Exception as e:
+        log(f"open bets read failed: {type(e).__name__}")
     bet_games = set(sorted(bet_games)[:4])
     for s in sports:
         try:
@@ -298,6 +304,12 @@ def live():
                         LV.live_props(s, props, bx, mu, pj or {})
                 except Exception as e:
                     log(f"live props failed: {type(e).__name__}")
+            bl = {}
+            if st and bet_legs.get(g["id"]):
+                try:
+                    bl = LB.compute(DATA_DIR, s, g["id"], st, bet_legs[g["id"]], log)
+                except Exception as e:
+                    log(f"bet legs failed: {type(e).__name__}")
             E = build.edges([g], props if fresh_props else [], min_edge=0.015)      # kept lines are for stats, not edges
             for e in E:
                 e["live"] = True
@@ -305,13 +317,13 @@ def live():
             docs.append({"id": g["id"], "league": g["league"], "sport": s, "home": g["home"], "away": g["away"], "commence": g["commence"],
                          "homeRef": g.get("homeRef"), "awayRef": g.get("awayRef"), "state": st,
                          "model": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in (pj or {}).items()},
-                         "lines": g["lines"], "props": props, "edges": E[:40], "updated": iso(NOW)})
+                         "lines": g["lines"], "props": props, "edges": E[:40], "betLegs": bl, "updated": iso(NOW)})
     ls["used"] = ls.get("used", 0) + api.used_run
     os.makedirs(os.path.dirname(fn), exist_ok=True)
     json.dump(ls, open(fn, "w"))
     # small summary in the private data repo (what the Live screen shows), for checking without the site
     json.dump([{"id": d["id"], "league": d["league"], "game": f"{d['away']} @ {d['home']}", "state": d["state"], "model": d["model"],
-                "edges": len(d["edges"]), "props": len(d["props"])} for d in docs],
+                "edges": len(d["edges"]), "props": len(d["props"]), "betLegs": len(d["betLegs"])} for d in docs],
               open(os.path.join(DATA_DIR, "latest", "live.json"), "w"), indent=0)
     json.dump(sorted("|".join(k) for k in states), open(os.path.join(DATA_DIR, "latest", "live_keys.json"), "w"), indent=0)
     db = firestore_db()

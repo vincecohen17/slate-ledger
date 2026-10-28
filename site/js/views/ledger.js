@@ -1,11 +1,12 @@
 // Ledger: Vince's bets and our picks, graded automatically after the games (result + closing line value), with the
 // breakdowns and plain-words takeaways that say what to keep betting and what to stop.
-import { S, saveBet, deleteBet } from "../store.js";
-import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, todayPT, $, $$ } from "../util.js";
+import { S, saveBet, deleteBet, loadProps } from "../store.js";
+import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, bookLogo, teamLogo, todayPT, $, $$ } from "../util.js";
 import { logSheet } from "./common.js";
 import { settleProfit } from "../promo.js";
 import { VENUES } from "../lab.js";
-import { projectedCard } from "../projected.js";
+import { projectedCard, betLegs } from "../projected.js";
+import { betImage } from "./common.js";
 
 let tab = "mine", filter = "pending", groupBy = "type";
 const inflight = new Set();
@@ -81,6 +82,14 @@ function plChart(settled, expectedToo = true, fmt = money) {
   <div class="row tiny muted" style="gap:14px"><span><i class="lg-line" style="background:var(--accent)"></i>${expectedToo ? "actual profit" : "units won"}</span>${expectedToo ? `<span><i class="lg-line dash"></i>expected from the prices you got (fair when logged)</span>` : ""}</div>`;
 }
 
+// a logo next to a breakdown row: the venue's, else the league's
+function nameCell(key, k, list) {
+  if (key === "venue") { const b = list.find((x) => (x.venueName || x.venue) === k); return `<span class="lg-name">${bookLogo(b?.venue || k, k, 18)}${esc(k)}</span>`; }
+  if (key === "sport") { const g = [...S.games.values()].find((x) => x.league === k); return `<span class="lg-name">${g?.leagueLogo ? teamLogo({ logo: g.leagueLogo, abbr: k }, k, 18) : ""}${esc(k)}</span>`; }
+  return esc(k);
+}
+const wl = (r) => r.w + r.l ? `<span class="lg-wl"><i class="w" style="width:${(r.w / (r.w + r.l) * 100).toFixed(0)}%"></i><i class="l" style="width:${(r.l / (r.w + r.l) * 100).toFixed(0)}%"></i></span>` : "";
+
 function groupTable(list, key) {
   const [, fn] = GROUPS[key];
   const by = new Map();
@@ -89,7 +98,7 @@ function groupTable(list, key) {
   if (!rows.length) return `<div class="note">Nothing settled yet.</div>`;
   const maxRoi = Math.max(0.05, ...rows.map((r) => Math.abs(r.roi || 0)));
   return `<div style="overflow-x:auto"><table class="l10t lg-t"><thead><tr><th></th><th>Bets</th><th>Record</th><th>P/L</th><th style="min-width:120px">ROI</th><th>Avg CLV</th><th>Beat close</th></tr></thead><tbody>
-    ${rows.map((r) => `<tr><td>${esc(r.k)}</td><td class="num">${r.n}</td><td class="num">${r.w}-${r.l}${r.p ? "-" + r.p : ""}</td>
+    ${rows.map((r) => `<tr><td>${nameCell(key, r.k, list)}</td><td class="num">${r.n}</td><td class="num">${wl(r)}${r.w}-${r.l}${r.p ? "-" + r.p : ""}</td>
       <td class="num ${r.pl >= 0 ? "pos" : "neg"}">${money(r.pl)}</td>
       <td><div class="lg-roi"><span class="lg-mid"></span><i class="${r.roi >= 0 ? "pos" : "neg"}" style="${r.roi >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(r.roi || 0) / maxRoi * 50).toFixed(0)}%"></i></div><span class="num tiny ${r.roi >= 0 ? "pos" : "neg"}">${r.roi != null ? pct(r.roi) : "–"}</span></td>
       <td class="num ${r.clv > 0 ? "pos" : r.clv < 0 ? "neg" : ""}">${r.clv != null ? pct(r.clv) : "–"}</td><td class="num">${r.beat != null ? Math.round(r.beat * 100) + "%" : "–"}</td></tr>`).join("")}
@@ -136,14 +145,32 @@ function insights(list) {
 }
 
 function betRow(b) {
-  const ev = evAtLog(b);
-  return `<tr><td style="white-space:normal;min-width:210px"><div>${esc(b.label)}</div><div class="tiny muted">${esc(b.league || "")}${b.matchup ? " · " + esc(b.matchup) : ""}${b.date ? " · " + esc(b.date) : ""}${b.promoId ? " · promo" : ""}${b.source ? " · " + esc(SOURCES[b.source] || b.source) : ""}</div></td>
-    <td>${bookTag(b.venue, b.venueName || b.venue, 15)}</td><td class="num">${am(b.am)}</td><td class="num">${money(b.stake)}</td>
-    <td class="num ${ev > 0 ? "pos" : ev < 0 ? "neg" : ""}" title="our fair when logged">${b.fairAtLog != null ? `${prob(b.fairAtLog)}<br><span class="tiny">${pct(ev)}</span>` : "–"}</td>
-    <td class="num ${b.clv > 0 ? "pos" : b.clv < 0 ? "neg" : ""}" title="value of your price at the closing fair">${b.clv != null ? pct(b.clv) : "–"}</td>
-    <td>${b.status === "pending" ? `<span class="row" style="gap:4px;justify-content:flex-end">${["won", "lost", "push", "void"].map((s) => `<button class="btn sm ghost" data-set="${b.id}|${s}">${s[0].toUpperCase()}</button>`).join("")}</span>`
-      : `<span class="pill ${b.status === "won" ? "pos" : b.status === "lost" ? "neg" : ""}">${b.status}${b.autoSettled ? " · auto" : ""}</span> <span class="num ${b.profit >= 0 ? "pos" : "neg"}">${money(b.profit)}</span>`}</td>
-    <td><button class="x" data-del="${b.id}" title="delete">×</button></td></tr>`;
+  const ev = evAtLog(b), legs = betLegs(b), multi = legs.length > 1;
+  const done = ["won", "lost", "push", "void"].includes(b.status);
+  const win = b.dec && b.stake ? b.stake * (b.dec - 1) : null;
+  return `<div class="lt ${esc(b.status || "pending")}">
+    ${bookLogo(b.venue || "any", b.venueName || b.venue || "", 34)}
+    <div class="col" style="gap:3px;min-width:0">
+      <div class="row" style="gap:8px;min-width:0">${!multi ? betImage({ gameId: b.gameId || legs[0]?.gameId, label: legs[0]?.label || b.label, player: legs[0]?.player, league: b.league }, 22) : ""}<span class="lt-t ellip">${multi ? `${legs.length}-leg parlay` : esc(b.label)}</span></div>
+      <div class="lt-m"><span><b class="num">${am(b.am)}</b></span><span>${money(b.stake)}${win != null && !done ? ` to win <b class="num">${money(win)}</b>` : ""}</span>
+        <span>${esc(b.venueName || b.venue || "")}</span>${b.league ? `<span>${esc(b.league)}</span>` : ""}${b.promoId ? `<span class="pill s">promo</span>` : ""}
+        ${b.fairAtLog != null ? `<span class="lt-chip ${ev > 0 ? "pos" : ev < 0 ? "neg" : ""}" title="our fair when you logged it">fair ${prob(b.fairAtLog)} · ${pct(ev)}</span>` : ""}
+        ${b.clv != null ? `<span class="lt-chip ${b.clv > 0 ? "pos" : b.clv < 0 ? "neg" : ""}" title="value of your price at the closing fair">CLV ${pct(b.clv)}</span>` : ""}</div>
+    </div>
+    <div class="lt-r">${done ? `<span class="pill ${b.status === "won" ? "pos" : b.status === "lost" ? "neg" : ""}">${b.status}${b.autoSettled ? " · auto" : ""}</span><span class="lt-res ${b.profit >= 0 ? "pos" : "neg"}">${money(b.profit)}</span>`
+      : `<span class="lt-act">${["won", "lost", "push", "void"].map((s) => `<button class="btn sm ghost" data-set="${b.id}|${s}" title="mark ${s}">${s[0].toUpperCase()}</button>`).join("")}</span>`}
+      <button class="x" data-del="${b.id}" title="delete">×</button></div>
+    ${multi ? `<div class="lt-legs">${legs.map((l) => `<span class="lt-leg">${betImage({ gameId: l.gameId, label: l.label, player: l.player, league: b.league }, 18)}<span>${esc(l.label || "")}</span></span>`).join("")}</div>` : ""}
+  </div>`;
+}
+function betList(list) {
+  const by = new Map();
+  list.forEach((b) => { const d = b.date || (b.createdAt || "").slice(0, 10); if (!by.has(d)) by.set(d, []); by.get(d).push(b); });
+  return `<div class="lt-list">${[...by.entries()].map(([d, bs]) => {
+    const pl = bs.filter((b) => ["won", "lost", "push"].includes(b.status)).reduce((x, b) => x + (b.profit || 0), 0);
+    const any = bs.some((b) => ["won", "lost", "push"].includes(b.status));
+    return `<div class="lt-day row" style="justify-content:space-between"><span>${d ? esc(fmtShortDay(d + "T12:00:00")) : "Undated"}</span>${any ? `<span class="num ${pl >= 0 ? "pos" : "neg"}">${money(pl)}</span>` : ""}</div>${bs.map(betRow).join("")}`;
+  }).join("")}</div>`;
 }
 
 function mine(el) {
@@ -169,8 +196,7 @@ function mine(el) {
     <div class="card">${groupTable(bets, groupBy)}<p class="note">CLV is what your price was worth at the closing sharp fair: positive means you got a better number than the market settled on. Over a few hundred bets it predicts profit far better than wins and losses do.</p></div>
     <div class="row" style="justify-content:space-between;margin-top:14px;flex-wrap:wrap;gap:8px"><div class="bar" style="margin:0">${["pending", "settled", "all"].map((f) => `<button class="chip ${f === filter ? "on" : ""}" data-flt="${f}">${f[0].toUpperCase() + f.slice(1)}</button>`).join("")}</div>
       <button class="btn" id="add-bet">Log a bet</button></div>
-    ${shown.length ? `<div class="panel scroll" style="margin-top:8px"><table><thead><tr><th>Bet</th><th>Venue</th><th>Odds</th><th>Stake</th><th>Fair</th><th>CLV</th><th>Result</th><th></th></tr></thead><tbody>
-      ${shown.map(betRow).join("")}</tbody></table></div>`
+    ${shown.length ? betList(shown)
       : `<div class="empty"><h3>No ${filter === "all" ? "" : filter} bets</h3>Log bets from Edges, the Lab, Picks or Promos, or add one here.</div>`}`;
 }
 
@@ -188,9 +214,10 @@ function ours() {
   const recent = [...all].filter((p) => p.tier !== "likely").sort((a, b) => (b.commence || "").localeCompare(a.commence || "")).slice(0, 30);
   const u = (x) => `${x >= 0 ? "+" : ""}${(x || 0).toFixed(2)}u`;
   const openPicks = all.filter((p) => ["open", "pending", undefined, null].includes(p.status) && p.tier !== "likely").map((p) => {
-    const prices = (p.playTo || []).filter((v) => v.inRange && typeof v.price === "number").map((v) => v.price);
-    const a = prices.length ? prices.reduce((x, y) => (decA(y) > decA(x) ? y : x)) : p.goodAt;
-    return a == null ? null : { ...p, label: p.selection, dec: decA(a), am: a };
+    const ins = (p.playTo || []).filter((v) => v.inRange && typeof v.price === "number");
+    const best = ins.length ? ins.reduce((x, y) => (decA(y.price) > decA(x.price) ? y : x)) : null;
+    const a = best ? best.price : p.goodAt;
+    return a == null ? null : { ...p, label: p.selection, dec: decA(a), am: a, venue: best?.venue, venueName: best?.name || best?.venue };
   }).filter(Boolean);
   return `<div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="k">Units</div><div class="v ${s.pl >= 0 ? "pos" : "neg"}">${u(s.pl)}</div><div class="s">${s.n} graded · ${s.w}-${s.l}${s.p ? "-" + s.p : ""}</div></div>
@@ -209,17 +236,26 @@ function ours() {
       <div class="kpi"><div class="k">Bets tailing our picks</div><div class="v ${ts.pl >= 0 ? "pos" : "neg"}">${money(ts.pl)}</div><div class="s">${ts.n} settled · ROI ${ts.roi != null ? pct(ts.roi) : "–"} · CLV ${ts.clv != null ? pct(ts.clv) : "–"}</div></div>
       <div class="kpi"><div class="k">Your own bets</div><div class="v ${own.pl >= 0 ? "pos" : "neg"}">${money(own.pl)}</div><div class="s">${own.n} settled · ROI ${own.roi != null ? pct(own.roi) : "–"} · CLV ${own.clv != null ? pct(own.clv) : "–"}</div></div></div>` : ""}
     <div class="sec-title">Recent picks<span class="line"></span></div>
-    <div class="panel scroll"><table><thead><tr><th>Pick</th><th>Tier</th><th>Graded at</th><th>Close</th><th>CLV</th><th>Result</th></tr></thead><tbody>
-      ${recent.map((p) => `<tr><td style="white-space:normal;min-width:200px"><div>${esc(p.selection)}</div><div class="tiny muted">${esc(p.league || "")} · ${esc(p.date || "")}${p.finalStat != null ? ` · finished with ${p.finalStat}` : ""}</div></td>
-        <td><span class="pill">${esc(p.tier)}</span> <span class="tiny">${p.units ?? 0}u</span></td><td class="num">${p.gradedAt != null ? am(p.gradedAt) : "–"}</td>
-        <td class="num">${p.closeFair != null ? prob(p.closeFair) : "–"}</td><td class="num ${p.clv > 0 ? "pos" : p.clv < 0 ? "neg" : ""}">${p.clv != null ? pct(p.clv) : "–"}</td>
-        <td>${["won", "lost", "push"].includes(p.status) ? `<span class="pill ${p.status === "won" ? "pos" : p.status === "lost" ? "neg" : ""}">${p.status}</span> <span class="num ${(p.profit || 0) >= 0 ? "pos" : "neg"}">${u(p.profit)}</span>` : `<span class="pill">${p.status === "void" ? "withdrawn" : esc(p.status || "open")}</span>`}</td></tr>`).join("")}
-    </tbody></table></div>
+    <div class="lt-list">${recent.map((p) => {
+      const st = ["won", "lost", "push"].includes(p.status) ? p.status : p.status === "void" ? "void" : "pending";
+      const v = (p.playTo || []).find((x) => x.inRange) || (p.playTo || [])[0];
+      return `<div class="lt ${st}">${betImage({ gameId: p.gameId, label: p.selection, player: p.player, headshot: p.headshot, league: p.league }, 34)}
+        <div class="col" style="gap:3px;min-width:0"><span class="lt-t">${esc(p.selection)}</span>
+          <div class="lt-m"><span class="pill ${p.tier === "bet" ? "s" : ""}">${esc(p.tier)} · ${p.units ?? 0}u</span><span>${esc(p.league || "")}</span><span>${esc(p.date || "")}</span>
+            ${v ? `<span class="lg-name">${bookLogo(v.venue, v.name || v.venue, 14)}${esc(v.name || v.venue)}</span>` : ""}
+            ${p.gradedAt != null ? `<span>graded at <b class="num">${am(p.gradedAt)}</b></span>` : ""}
+            ${p.clv != null ? `<span class="lt-chip ${p.clv > 0 ? "pos" : p.clv < 0 ? "neg" : ""}">CLV ${pct(p.clv)}</span>` : ""}
+            ${p.finalStat != null ? `<span>finished with <b class="num">${p.finalStat}</b></span>` : ""}</div></div>
+        <div class="lt-r">${["won", "lost", "push"].includes(p.status) ? `<span class="pill ${p.status === "won" ? "pos" : p.status === "lost" ? "neg" : ""}">${p.status}</span><span class="lt-res ${(p.profit || 0) >= 0 ? "pos" : "neg"}">${u(p.profit)}</span>`
+          : `<span class="pill">${p.status === "void" ? "withdrawn" : esc(p.status || "open")}</span>`}</div></div>`;
+    }).join("")}</div>
     <p class="note">Picks grade at the best in-range price when posted (else the good-at price). Likely-list picks aren't graded: they were never bets.</p>`;
 }
 
 export function renderLedger(el) {
   autoSettle();
+  for (const b of S.bets.values()) if (b.status === "pending") for (const l of betLegs(b)) if (l.player && l.gameId) loadProps(l.gameId);
+  for (const p of S.picks.values()) if (p.player && p.gameId && !["won", "lost", "push", "void"].includes(p.status)) loadProps(p.gameId);
   el.innerHTML = `<div class="row" style="justify-content:space-between;margin-top:18px;flex-wrap:wrap;gap:8px"><h2 style="margin:0;font-size:18px">Ledger</h2>
       <div class="bar" style="margin:0"><button class="chip ${tab === "mine" ? "on" : ""}" data-tab="mine">My bets</button><button class="chip ${tab === "ours" ? "on" : ""}" data-tab="ours">Our picks</button></div></div>
     ${tab === "mine" ? mine(el) : ours()}`;

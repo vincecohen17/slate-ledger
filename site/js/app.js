@@ -64,8 +64,9 @@ function route() {
   const gm = base === "game" ? S.games.get(a) : null;
   const inPlay = gm && new Date(gm.commence) < new Date() && Date.now() - new Date(gm.commence) < 5 * 3600000;
   // the Ledger and Picks screens stay live while an open bet or pick is in play (projected profit updates)
-  const inPlayBet = (base === "ledger" || base === "picks") && [...S.bets.values(), ...S.picks.values()].some((x) => ["pending", "open"].includes(x.status)
-    && x.commence && new Date(x.commence) < new Date() && Date.now() - new Date(x.commence) < 5 * 3600000);
+  const started = (t) => t && new Date(t) < new Date() && Date.now() - new Date(t) < 5 * 3600000;
+  const inPlayBet = (base === "ledger" || base === "picks") && [...S.bets.values(), ...S.picks.values()].some((x) => ["pending", "open", undefined].includes(x.status)
+    && (started(x.commence) || (x.legs || []).some((l) => started(l.commence || S.games.get(l.gameId)?.commence) || S.liveGames.has(l.gameId) || (S.live?.games || []).some((g) => g.id === l.gameId))));
   setView(base || "board", a || null, base === "live" || !!inPlay || inPlayBet);
   const nLive = S.live?.games?.length || 0;
   const ln = $("#nav a[data-r=live]"); if (ln) ln.innerHTML = nLive ? `Live <span class="pill live">${nLive}</span>` : "Live";

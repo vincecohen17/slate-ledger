@@ -2,7 +2,7 @@
 // else the latest sharp fair, else the fair when logged) turned into expected dollars, plus best/worst case and the
 // chance of finishing up. Updates with every live pull.
 import { S } from "./store.js";
-import { esc, money, prob, am, fmtTime } from "./util.js";
+import { esc, money, prob, am, fmtTime, mktName, bookLogo, headshot, teamLogo } from "./util.js";
 import { settleProfit } from "./promo.js";
 import { sitText } from "./views/live.js";
 
@@ -69,6 +69,29 @@ function fromLiveModel(d, leg) {
   return null;
 }
 
+// bets logged before legs carried market/side/point: read them from the label the Bet Lab wrote
+const PROPW = { walks: "batter_walks", hits: "batter_hits", "hits runs rbis": "batter_hits_runs_rbis", "total bases": "batter_total_bases",
+  strikeouts: "pitcher_strikeouts", "earned runs": "pitcher_earned_runs", "total saves": "player_total_saves", rbis: "batter_rbis",
+  "runs scored": "batter_runs_scored", "home runs": "batter_home_runs", outs: "pitcher_outs", "hits allowed": "pitcher_hits_allowed" };
+export function resolveLeg(leg) {
+  if (!leg || (leg.market && leg.side)) return leg;
+  const text = String(leg.label || "").trim().replace(/\s*\([^)]*\)\s*$/, "");
+  const g = S.games.get(leg.gameId) || S.liveGames.get(leg.gameId);
+  const team = (x) => g && [g.home, g.away].find((t) => N(t) === N(x));
+  let m;
+  if ((m = text.match(/^(Over|Under) (\d+(?:\.\d+)?)$/))) return { ...leg, market: "totals", side: m[1], point: +m[2] };
+  if ((m = text.match(/^(.+) ML$/)) && team(m[1])) return { ...leg, market: "h2h", side: team(m[1]), point: null };
+  if ((m = text.match(/^(.+) ([+-]\d+(?:\.\d+)?)$/)) && team(m[1])) return { ...leg, market: "spreads", side: team(m[1]), point: +m[2] };
+  if ((m = text.match(/^(.+) (Over|Under) (\d+(?:\.\d+)?)$/)) && team(m[1])) return { ...leg, market: "team_totals", side: m[2], point: +m[3], team: team(m[1]) };
+  if ((m = text.match(/^(.+?) (Over|Under|More|Less) (\d+(?:\.\d+)?) ([a-z0-9 ]+)$/i))) {
+    const words = m[4].toLowerCase().trim(), sd = m[2].toLowerCase();
+    const doc = [...S.props.values()].find((d) => d.id === leg.gameId && mktName(d.market) === words);
+    return { ...leg, market: doc?.market || PROPW[words] || `player_${words.replace(/ /g, "_")}`, side: sd === "more" || sd === "over" ? "Over" : "Under", point: +m[3], player: m[1] };
+  }
+  return leg;
+}
+export const betLegs = (b) => (b.legs && b.legs.length ? b.legs : [b]).map((x, i) => ({ ...resolveLeg(x), _k: `${b.id}#${i}` }));
+
 // Last known numbers per leg and per game: a live pull that comes back without a game or its props must not wipe
 // what we already knew. Running stats and scores never go backwards, a cleared line stays cleared, and the last live
 // reading is kept (up to 3 hours) until a newer live number or the final arrives.
@@ -109,8 +132,14 @@ function legRaw(leg) {
   if (fr != null) return { p: fr, src: "final" };
   const d = S.liveGames.get(leg.gameId);
   if (d) {
+    const bl = leg._k && d.betLegs?.[leg._k];       // the engine's numbers for this exact leg: box-score stat every live run
+    if (bl && bl.p != null) return { p: bl.p, src: "live", cur: bl.cur, proj: bl.proj, dnp: bl.dnp };
     if (leg.player) {
       const r = findProp(d.props, leg);
+      if (bl && bl.cur != null && !(r?.live)) {
+        const k0 = r && sideKey(r.fair, leg.side);
+        if (k0 && r.fair[k0] != null) return { p: r.fair[k0], src: "live market", cur: bl.cur, proj: bl.proj };
+      }
       const k = r && (sideKey(r.live, leg.side) || sideKey(r.fair, leg.side));
       if (r?.live && sideKey(r.live, leg.side)) return { p: r.live[sideKey(r.live, leg.side)], src: "live", cur: r.live.cur, proj: r.live.proj };
       if (k && r.fair?.[k] != null) return { p: r.fair[k], src: "live market" };
@@ -140,7 +169,7 @@ function legRaw(leg) {
 
 // one open bet: chance now, what it pays, expected value
 export function project(b, promo, units = false) {
-  const legs = (b.legs && b.legs.length ? b.legs : [b]).filter((x) => x.gameId);
+  const legs = betLegs(b).filter((x) => x.gameId);
   let p = 1, srcs = [], known = true;
   for (const leg of legs) {
     const r = legNow({ ...leg, fair: leg.fair ?? (legs.length === 1 ? b.fairAtLog ?? b.fair : null) });
@@ -233,34 +262,67 @@ function barHtml(b) {
 }
 const progressHtml = (pg) => `<div class="pj-pg ${pg.cls}"><span class="pj-ic">${pg.icon}</span><span class="pj-tx">${esc(pg.text)}${pg.held ? ` <span class="tiny muted">(last live reading)</span>` : ""}</span>${barHtml(pg.bar)}</div>`;
 
-const SRC = { final: "final", live: "live", "live model": "live model", "live market": "live market", now: "pre-game", "last pre-game": "pre-game", "when logged": "when logged" };
+// the picture for a leg: player headshot, else the team's logo, else the league's
+function legImg(leg, size = 26) {
+  const g = S.games.get(leg.gameId) || S.liveGames.get(leg.gameId);
+  if (leg.player) {
+    const r = findProp([...S.props.values()].filter((x) => x.id === leg.gameId), { ...leg, point: null }) || findProp(S.liveGames.get(leg.gameId)?.props, { ...leg, point: null });
+    return headshot({ player: leg.player, headshot: r?.headshot }, size);
+  }
+  const t = leg.team || leg.side;
+  if (g && t && N(t) === N(g.home)) return teamLogo(g.homeRef, g.home, size);
+  if (g && t && N(t) === N(g.away)) return teamLogo(g.awayRef, g.away, size);
+  return teamLogo(g?.leagueLogo ? { logo: g.leagueLogo, abbr: leg.league } : null, leg.league || g?.league || "", size);
+}
+// a ring for the chance right now (the faint tick on the ring is where it started)
+function ring(p, was, cls) {
+  const R = 19, C = 2 * Math.PI * R, v = Math.max(0, Math.min(1, p ?? 0));
+  const tick = was != null ? (() => { const a = was * 2 * Math.PI - Math.PI / 2; return `<line x1="${24 + Math.cos(a) * 15}" y1="${24 + Math.sin(a) * 15}" x2="${24 + Math.cos(a) * 23}" y2="${24 + Math.sin(a) * 23}" class="pj-rt"/>`; })() : "";
+  return `<svg class="pj-ring ${cls}" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="${R}" class="pj-rb"/>
+    <circle cx="24" cy="24" r="${R}" class="pj-rf" stroke-dasharray="${(v * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 24 24)"/>${tick}
+    <text x="24" y="28" text-anchor="middle">${p == null ? "–" : Math.round(v * 100)}</text></svg>`;
+}
 
 export function projectedCard({ items, title, fmt = money, units = false, settledToday = 0 }) {
   const rows = items.map((b) => project(b, b.promoId ? S.promos.get(b.promoId) : null, units)).filter(Boolean);
   if (!rows.length) return "";
   const s = summary(rows);
   const day = settledToday + s.ev;
-  const state = (gid) => (S.live?.games || []).find((x) => x.id === gid)?.state;
   rows.sort((a, b) => (a.b.commence || "").localeCompare(b.b.commence || ""));
-  return `<div class="card col pj" style="gap:10px">
+  // range bar: worst to best with the projection marked
+  const span = (s.best - s.worst) || 1, at = (x) => Math.max(0, Math.min(100, (x - s.worst) / span * 100));
+  return `<div class="card col pj" style="gap:12px">
     <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px"><b>${esc(title)}</b>
       <span class="tiny muted">${s.live ? `<span class="pill live">● ${s.live} in play</span> ` : ""}updates with every live pull</span></div>
-    <div class="pr-ck">
-      <div class="kpi"><div class="k">Projected</div><div class="v ${s.ev >= 0 ? "pos" : "neg"}">${fmt(s.ev)}</div><div class="s">on ${rows.length} open</div></div>
-      ${!units ? `<div class="kpi"><div class="k">Today so far + projected</div><div class="v ${day >= 0 ? "pos" : "neg"}">${fmt(day)}</div><div class="s">${fmt(settledToday)} settled today</div></div>` : ""}
-      <div class="kpi"><div class="k">Chance to finish up</div><div class="v">${Math.round(s.up * 100)}%</div><div class="s">on these bets</div></div>
-      <div class="kpi"><div class="k">Range</div><div class="v small">${fmt(s.worst)} to ${fmt(s.best)}</div><div class="s">all lose · all win</div></div>
+    <div class="pj-top">
+      <div class="pj-big"><div class="k">Projected</div><div class="v ${s.ev >= 0 ? "pos" : "neg"}">${fmt(s.ev)}</div><div class="s">on ${rows.length} open${!units ? ` · today ${fmt(day)} with ${fmt(settledToday)} settled` : ""}</div></div>
+      <div class="pj-big"><div class="k">Chance to finish up</div><div class="v">${Math.round(s.up * 100)}%</div><div class="pj-meter"><i style="width:${(s.up * 100).toFixed(0)}%"></i></div></div>
+      <div class="pj-big wide"><div class="k">Range</div><div class="pj-range"><span class="z" style="left:${at(0)}%"></span><b style="left:${at(s.ev)}%"></b></div>
+        <div class="row tiny" style="justify-content:space-between"><span class="neg">${fmt(s.worst)} all lose</span><span class="pos">${fmt(s.best)} all win</span></div></div>
     </div>
-    <div class="col" style="gap:4px">${rows.map((r) => {
+    <div class="col" style="gap:8px">${rows.map((r) => {
       const b = r.b, st = gameState(b.gameId), was = b.fairAtLog ?? b.fair, d = r.p != null && was != null ? r.p - was : null;
-      return `<div class="pj-row">
-        <div class="col" style="gap:1px;min-width:0"><span class="ellip small">${esc(b.label || b.selection)}</span>
-          <span class="tiny muted ellip">${st ? `<b>${st.away?.score ?? ""}–${st.home?.score ?? ""}</b> ${esc(sitText(st, b.league))} · ` : b.commence ? `${fmtTime(b.commence)} · ` : ""}${esc(SRC[r.srcs[0]?.src] || "")}${r.srcs[0]?.cur != null ? ` · ${r.srcs[0].cur} so far` : ""}${!units && b.am != null ? ` · ${am(b.am)} · ${money(b.stake)}` : units ? ` · ${b.units}u` : ""}</span></div>
-        <div class="pj-bar" title="chance now${was != null ? ` (was ${prob(was)})` : ""}"><i style="width:${((r.p ?? 0.5) * 100).toFixed(0)}%"></i>${was != null ? `<s style="left:${(was * 100).toFixed(0)}%"></s>` : ""}</div>
-        <span class="num small">${r.push ? "push" : prob(r.p)}${d != null && Math.abs(d) >= 0.03 ? ` <span class="${d > 0 ? "pos" : "neg"}">${d > 0 ? "▲" : "▼"}</span>` : ""}</span>
-        <span class="num small ${r.ev >= 0 ? "pos" : "neg"}">${fmt(r.ev)}</span>
-        <div class="pj-legs">${r.srcs.filter((x) => x.leg).map((x) => `${r.srcs.length > 1 ? `<div class="tiny muted ellip pj-ll">${esc(x.leg.label || "")}</div>` : ""}${progressHtml(progress(x.leg, x))}`).join("")}</div></div>`;
+      const legs = r.srcs.filter((x) => x.leg), multi = legs.length > 1;
+      const live = r.srcs.some((x) => /live/.test(x.src)), cls = r.p == null ? "" : r.p >= 0.6 ? "pos" : r.p <= 0.35 ? "neg" : "mid", tk = cls ? `tk-${cls}` : "";
+      const pay = units ? `${b.units}u to win ${fmt(r.win)}` : `${money(b.stake)} to win ${money(r.win)}`;
+      return `<div class="pj-tk ${tk}">
+        <div class="pj-hd">
+          <span class="pj-ven">${bookLogo(b.venue || "any", b.venueName || b.venue || "", 30)}</span>
+          <div class="col" style="gap:2px;min-width:0"><b class="ellip">${multi ? `${legs.length}-leg parlay` : esc(b.label || b.selection)}</b>
+            <span class="tiny muted ellip">${b.am != null ? `<b class="num">${am(b.am)}</b> · ` : ""}${pay}${b.venueName ? ` · ${esc(b.venueName)}` : ""}${live ? ` · <span class="pill live">● live</span>` : st ? "" : b.commence ? ` · ${fmtTime(b.commence)}` : ""}</span></div>
+          <div class="pj-rc" title="chance now${was != null ? ` (was ${prob(was)})` : ""}">${r.push ? `<span class="pill">push</span>` : ring(r.p, was, cls)}
+            ${d != null && Math.abs(d) >= 0.03 ? `<span class="tiny ${d > 0 ? "pos" : "neg"}">${d > 0 ? "▲" : "▼"} ${Math.round(Math.abs(d) * 100)}</span>` : ""}</div>
+          <div class="pj-ev"><span class="tiny muted">exp.</span><b class="num ${r.ev >= 0 ? "pos" : "neg"}">${fmt(r.ev)}</b></div>
+        </div>
+        <div class="pj-legs">${legs.map((x) => {
+          const lst = gameState(x.leg.gameId);
+          return `<div class="pj-leg">${legImg(x.leg, 26)}<div class="col" style="gap:3px;min-width:0">
+            ${multi ? `<span class="small ellip">${esc(x.leg.label || "")}${lst ? ` <span class="tiny muted">· ${lst.away?.score ?? ""}–${lst.home?.score ?? ""} ${esc(sitText(lst, x.leg.league || b.league))}</span>` : ""}</span>`
+              : lst ? `<span class="tiny muted">${lst.away?.score ?? ""}–${lst.home?.score ?? ""} ${esc(sitText(lst, b.league))}</span>` : ""}
+            ${progressHtml(progress(x.leg, x))}</div></div>`;
+        }).join("")}</div>
+      </div>`;
     }).join("")}</div>
-    <div class="tiny muted">Chance now: final score, else the live market (our live model when the exact line isn't quoted), else the latest sharp fair, else your fair when logged. The tick on each bar is where it started. Parlays multiply their legs.</div>
+    <div class="tiny muted">The ring is the chance right now (its tick is where it started). Player stats come from the live box score every minute; the dot on each bar is the projected finish, the line is what the bet needs.</div>
   </div>`;
 }

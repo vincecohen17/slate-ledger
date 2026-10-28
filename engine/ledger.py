@@ -14,6 +14,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 
+import livebets as LB
 import tracker as T
 
 PROP_WORDS = [("points rebounds assists", "player_points_rebounds_assists"), ("pra", "player_points_rebounds_assists"),
@@ -257,10 +258,15 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
         b = snap.to_dict() or {}
         if (b.get("auto") or {}).get("result"):
             continue
-        legs = b.get("legs") or []
-        legs = [x for x in legs if x.get("gameId") and x.get("market") and x.get("side")]
+        legs = [x for x in (b.get("legs") or []) if x.get("gameId")]
+        legs = [LB.resolve(x, data_dir) for x in legs]
+        if any(x is None for x in legs):            # a leg we can't identify: leave the bet for Vince to settle
+            continue
         if not legs and b.get("gameId") and b.get("market") and b.get("side"):
             legs = [{k: b.get(k) for k in ("gameId", "market", "side", "point", "player", "team")}]
+        if not legs and b.get("gameId") and not b.get("pickId"):     # logged before bets carried the fields: read the label
+            leg = LB.resolve({"gameId": b["gameId"], "label": b.get("label")}, data_dir)
+            legs = [leg] if leg else []
         if not legs and b.get("pickId"):          # tailed one of our picks: grade it the way the pick is graded
             pk = _find_pick(data_dir, b["pickId"])
             snap_ = _snap(data_dir, (pk or {}).get("gameId")) if pk else None
