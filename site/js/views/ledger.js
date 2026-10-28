@@ -226,6 +226,14 @@ function mine(el) {
   const plain = bets.filter((b) => !b.isGroup), arbsL = bets.filter((b) => b.isGroup);
   const s = summarize(plain), sa = summarize(arbsL), pend = raw.filter((b) => b.status === "pending");
   const sugg = findPairs(raw).filter((p) => !p.auto);
+  // money truly at risk: what each open bet loses if it loses (a bonus-funded stake was never yours), plus an open
+  // middle's worst case if that's a loss. Open arbs and middles are shown apart: what's in them and what they lock.
+  const openB = plain.filter((b) => b.status === "pending"), openG = arbsL.filter((g) => g.status === "pending");
+  const lose = (b) => Math.max(0, -profitFor(b, "lost"));
+  const gO = openG.map((g) => ({ g, o: outcomes(g.legsB) }));
+  const atRisk = openB.reduce((x, b) => x + lose(b), 0) + gO.reduce((x, { o }) => x + Math.max(0, -o.worst), 0);
+  const inArbs = openG.reduce((x, g) => x + (g.stake || 0), 0);
+  const lockLo = gO.reduce((x, { o }) => x + o.worst, 0), lockHi = gO.reduce((x, { g, o }) => x + (g.kind === "middle" ? Math.max(o.both, o.worst) : Math.max(o.ifA, o.ifB)), 0);
   const shown = bets.filter((b) => filter === "all" || (filter === "live" ? b.live : filter === "pending" ? b.status === "pending" : b.status !== "pending"));
   const ins = insights(plain);
   return `<div class="kpis" style="margin-top:12px">
@@ -233,8 +241,9 @@ function mine(el) {
       <div class="kpi"><div class="k">ROI</div><div class="v">${s.roi != null ? pct(s.roi) : "–"}</div><div class="s">${s.w}-${s.l}${s.p ? "-" + s.p : ""} on ${money(s.staked)} staked${arbsL.length ? " · arbs apart" : ""}</div></div>
       <div class="kpi"><div class="k">Expected profit</div><div class="v ${s.expPl >= 0 ? "pos" : "neg"}">${s.nExp ? money(s.expPl) : "–"}</div><div class="s">from the prices you got</div></div>
       <div class="kpi"><div class="k">Avg CLV</div><div class="v ${s.clv > 0 ? "pos" : s.clv < 0 ? "neg" : ""}">${s.clv != null ? pct(s.clv) : "–"}</div><div class="s">beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
-      <div class="kpi"><div class="k">Open</div><div class="v">${pend.length}</div><div class="s">${money(pend.reduce((x, b) => x + (b.stake || 0), 0))} at risk</div></div>
-      ${arbsL.length ? `<div class="kpi"><div class="k">Arbs & middles</div><div class="v ${sa.pl >= 0 ? "pos" : "neg"}">${money(sa.pl)}</div><div class="s">${sa.n} settled pair${sa.n === 1 ? "" : "s"}${arbsL.length > sa.n ? ` · ${arbsL.length - sa.n} open` : ""} · own category</div></div>` : ""}
+      <div class="kpi"><div class="k">At risk</div><div class="v">${money(atRisk)}</div><div class="s">${openB.length} open bet${openB.length === 1 ? "" : "s"}${openB.some((b) => lose(b) < (b.stake || 0) - 0.005) ? " · bonus stakes not counted" : ""}</div></div>
+      ${openG.length ? `<div class="kpi"><div class="k">In open arbs</div><div class="v">${money(inArbs)}</div><div class="s">${openG.length} pair${openG.length === 1 ? "" : "s"} · ${Math.abs(lockHi - lockLo) < 0.01 ? `locks <b class="${lockLo >= 0 ? "pos" : "neg"}">${money(lockLo)}</b>` : `makes <b class="${lockLo >= 0 ? "pos" : "neg"}">${money(lockLo)}</b> to <b class="pos">${money(lockHi)}</b>`}</div></div>` : ""}
+      ${sa.n ? `<div class="kpi"><div class="k">Arbs & middles</div><div class="v ${sa.pl >= 0 ? "pos" : "neg"}">${money(sa.pl)}</div><div class="s">${sa.n} settled pair${sa.n === 1 ? "" : "s"} · own category</div></div>` : ""}
     </div>
     ${sugg.length ? `<div class="card lg-chk"><b>${sugg.length === 1 ? "These two bets look" : `${sugg.length} pairs of bets look`} like ${sugg.every((p) => p.kind === "middle") ? "a middle" : "an arb or middle"}</b>
       <div class="small muted" style="margin:4px 0 8px">Paired, they count as one result in their own category, so the losing leg isn't a lost bet in your record.</div>
