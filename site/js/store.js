@@ -198,7 +198,9 @@ export function loadAllProps() {
 
 export const propsFor = (gameId) => [...S.props.values()].filter((p) => p.id === gameId);
 
-export const saveBet = (b) => setDoc(doc(db, "bets", b.id), JSON.parse(JSON.stringify(b)));
+// saving a bet also nudges the engine (presence.betsAt) so a new live bet is tracked on the next live pull
+export const saveBet = (b) => setDoc(doc(db, "bets", b.id), JSON.parse(JSON.stringify(b)))
+  .then((r) => { rupdate(rref(rtdb, "presence"), { betsAt: new Date().toISOString() }).catch(() => {}); return r; });
 export const deleteBet = (id) => deleteDoc(doc(db, "bets", id));
 export const savePromo = (p) => setDoc(doc(db, "promos", p.id), JSON.parse(JSON.stringify(p)));
 export const deletePromo = (id) => deleteDoc(doc(db, "promos", id));

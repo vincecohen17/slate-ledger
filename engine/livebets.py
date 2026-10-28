@@ -195,3 +195,72 @@ def compute(data_dir, sport, gid, st, legs, log=print):
                     "market": leg["market"], "player": leg["player"], "point": pt, "side": leg["side"], "left": round(left, 3),
                     "dnp": bool(p and p.get("dnp"))}
     return out
+
+
+# ---------------------------------------------------------------------------
+# live bets: how good was the price? A live bet's closing line isn't the pre-game close; the honest yardstick is the
+# live fair a few minutes after the bet (the market has caught up with whatever moved it). Written to the bet as
+# liveCheck {fair, clv, at, mins}; grading uses it as the bet's CLV.
+
+def _norm(s):
+    return R.norm(s or "")
+
+
+def live_fair(doc, leg):
+    """the live no-vig fair of this leg's side in a live game doc, or None"""
+    mk, side, pt = (leg.get("market") or ""), leg.get("side"), leg.get("point")
+    if leg.get("player"):
+        for p in doc.get("props") or []:
+            if p.get("market") != mk:
+                continue
+            for r in p.get("rows") or []:
+                if _norm(r.get("player")) != _norm(leg["player"]) or (pt is not None and r.get("point") is not None and abs(r["point"] - pt) > 1e-6):
+                    continue
+                f = r.get("fair") or {}
+                k = next((x for x in f if _norm(x) == _norm(side)), None)
+                if k and f[k] is not None:
+                    return f[k]
+        return None
+    base = mk.replace("alternate_", "")
+    for l in doc.get("lines") or []:
+        if (l.get("market") or "").replace("alternate_", "") != base or not l.get("fair"):
+            continue
+        if leg.get("team") and l.get("team") and _norm(l["team"]) != _norm(leg["team"]):
+            continue
+        lp = l.get("point")
+        if base.startswith("spreads"):
+            want = pt if _norm(side) == _norm(doc.get("home")) else (-pt if pt is not None else None)
+            if want is None or lp is None or abs(lp - want) > 1e-6:
+                continue
+        elif pt is not None and lp is not None and abs(lp - pt) > 1e-6:
+            continue
+        k = next((x for x in l["fair"] if _norm(x) == _norm(side)), None)
+        if k and l["fair"][k] is not None:
+            return l["fair"][k]
+    return None
+
+
+def live_checks(pending, docs_by_gid, now, data_dir, after_min=5, until_min=30):
+    """pending: [{id, legs, dec, at}] live bets not yet checked -> {betId: liveCheck} for those 5-30 minutes old whose
+    every leg has a live fair right now"""
+    from datetime import datetime
+    out = {}
+    for b in pending:
+        try:
+            age = (now - datetime.fromisoformat(b["at"].replace("Z", "+00:00"))).total_seconds() / 60
+        except Exception:
+            continue
+        if age < after_min or age > until_min or not b.get("dec"):
+            continue
+        p = 1.0
+        for leg in b["legs"]:
+            d = docs_by_gid.get(leg.get("gameId"))
+            f = live_fair(d, resolve(leg, data_dir) or leg) if d else None
+            if f is None:
+                p = None
+                break
+            p *= f
+        if p is not None:
+            out[b["id"]] = {"fair": round(p, 4), "clv": round(p * b["dec"] - 1, 4), "mins": round(age, 1),
+                            "at": now.isoformat().replace("+00:00", "Z")}
+    return out

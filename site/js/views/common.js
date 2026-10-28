@@ -31,7 +31,7 @@ export function edgeCard(e) {
         ${e.ctx?.length ? `<span class="tiny muted ellip" title="${esc(e.ctx.join(" · "))}">ⓘ ${esc(e.ctx[0])}${e.ctx.length > 1 ? ` +${e.ctx.length - 1}` : ""}</span>` : ""}
         ${e.last10?.length ? `<span class="l10">${spark(e.last10, e.point, { side: (e.label.match(/ (Over|Under) /) || [])[1] })}<span>last ${e.last10.length}: ${hitRate(e.last10, e.point, (e.label.match(/ (Over|Under) /) || [])[1])}</span></span>` : ""}
         ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model gives this ${prob(e.modelP, 1)}, a fair price of ${am(amFromProb(e.modelP))}${e.ctx?.length ? ". Context in the model: " + esc(e.ctx.join(" · ")) : ""}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · model ${bothP(e.modelP)}</span>` : ""}</div>
-      <button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair, source: "edge" }))}'>Log</button>
+      <button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair, source: e.live ? "live" : "edge", live: !!e.live }))}'>Log</button>
     </div>
   </div>`;
 }
@@ -60,6 +60,11 @@ export function ladder(line, side, limit = 8, showAll = false) {
 export function logSheet(pre = {}) {
   const venues = VENUES.filter((v) => v.key !== "any"), edit = !!pre.id;
   const settled = ["won", "lost", "push", "void"].includes(pre.status);
+  // a bet on a game already in play is a live bet: keep the score and clock when it was placed
+  const gid = pre.gameId || pre.legs?.[0]?.gameId, g = gid && S.games.get(gid), lv = gid && S.liveGames.get(gid);
+  const st = lv?.state || (S.live?.games || []).find((x) => x.id === gid)?.state;
+  const isLive = edit ? !!pre.live : !!(pre.live || lv || (g && new Date(g.commence) < new Date() && Date.now() - new Date(g.commence) < 5 * 3600000));
+  const liveSt = edit ? (pre.liveState || null) : st && st.home?.score != null ? { away: st.away.score, home: st.home.score, detail: st.detail || "", text: `${st.away.score}–${st.home.score} ${st.detail || ""}`.trim() } : null;
   sheet(`<h3>${edit ? "Check this bet" : "Log a bet"}</h3>
     <div class="col" style="gap:10px">
       <label class="f">Bet<input id="lb-label" value="${esc(pre.label || "")}" placeholder="e.g. Knicks -3.5"></label>
@@ -70,7 +75,9 @@ export function logSheet(pre = {}) {
         <label class="f">Promo<select id="lb-promo"><option value="">None</option>${[...S.promos.values()].map((p) => `<option value="${p.id}" ${p.id === pre.promoId ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}</select></label>
         ${settled ? `<label class="f">Result<select id="lb-status">${["won", "lost", "push", "void"].map((s) => `<option ${s === pre.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
       </div>
-      <label class="row lb-boost" style="gap:8px;align-items:flex-start" hidden><input type="checkbox" id="lb-boostin" ${pre.boostIn ? "checked" : ""} style="margin-top:3px">
+      <label class="row lb-boost" style="gap:8px;align-items:center"><input type="checkbox" id="lb-live" ${isLive ? "checked" : ""}>
+        <span class="small">Live bet (placed during the game)${liveSt ? ` <span class="tiny muted">· ${esc(liveSt.text)}</span>` : ""}</span></label>
+      <label class="row lb-boost lb-bst" style="gap:8px;align-items:flex-start" hidden><input type="checkbox" id="lb-boostin" ${pre.boostIn ? "checked" : ""} style="margin-top:3px">
         <span class="small">The odds above already include the boost (what the app showed after boosting). Leave unchecked if you typed the normal price.</span></label>
       <div class="lb-pay card" style="padding:10px 12px"></div>
       <p class="note">Our fair at logging: ${(pre.fairAtLog ?? pre.fair) != null ? prob(pre.fairAtLog ?? pre.fair, 1) : "none"}. Closing line value fills in automatically once grading runs.</p>
@@ -83,7 +90,7 @@ export function logSheet(pre = {}) {
     };
     const preview = () => {          // what it pays, so a double-counted boost is easy to spot
       const { odds, stake, promo, boostIn } = read(), boost = isBoost(promo);
-      $(".lb-boost", el).hidden = !boost;
+      $(".lb-bst", el).hidden = !boost;
       if (isNaN(odds) || isNaN(stake)) { $(".lb-pay", el).innerHTML = `<span class="tiny muted">Enter odds and stake to see the payout.</span>`; return; }
       const b = { stake, dec: decFromAm(odds), boostIn };
       const base = stake * (b.dec - 1), w = settleProfit(b, promo, "won"), l = settleProfit(b, promo, "lost");
@@ -100,7 +107,8 @@ export function logSheet(pre = {}) {
       const v = venues.find((x) => x.key === $("#lb-venue", el).value);
       const promoId = $("#lb-promo", el).value || null;
       const common = { label: $("#lb-label", el).value.trim(), venue: v.key, venueName: v.name, am: odds, dec: decFromAm(odds), stake, promoId,
-        boostIn: isBoost(S.promos.get(promoId)) ? boostIn : null };
+        boostIn: isBoost(S.promos.get(promoId)) ? boostIn : null, live: !!$("#lb-live", el).checked,
+        liveState: $("#lb-live", el).checked ? liveSt : null };
       let bet;
       if (edit) {
         bet = { ...pre, ...common, checkedAt: new Date().toISOString() };

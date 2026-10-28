@@ -50,6 +50,7 @@ const GROUPS = {
   type: ["Bet type", betType], sport: ["Sport", (b) => b.league || "Unknown"], venue: ["Venue", (b) => b.venueName || b.venue],
   odds: ["Odds range", oddsBand], edge: ["Edge when logged", edgeBand], source: ["Where it came from", (b) => SOURCES[b.source] || b.source || "Typed in"],
   promo: ["Promo", (b) => b.promoId ? "With a promo" : "No promo"],
+  timing: ["Live or pre-game", (b) => b.live ? "Live (in-game)" : "Pre-game"],
 };
 
 function summarize(list) {
@@ -131,6 +132,11 @@ function insights(list) {
       if (s.clv <= -0.02) out.push(["neg", `Rethink ${k} (${lab.toLowerCase()}): ${pct(s.clv)} CLV over ${s.nClv} bets means you're taking worse prices than the close.`]);
     }
   }
+  const lv = list.filter((b) => b.live && ["won", "lost", "push"].includes(b.status)), pg = list.filter((b) => !b.live && ["won", "lost", "push"].includes(b.status));
+  if (lv.length >= 5) {
+    const a = summarize(lv), c = summarize(pg);
+    out.push([a.clv != null && a.clv > 0.01 ? "pos" : a.clv != null && a.clv < -0.01 ? "neg" : "", `Live bets: ${a.n} settled, ${money(a.pl)}${a.roi != null ? `, ${pct(a.roi)} ROI` : ""}${a.clv != null ? `, ${pct(a.clv)} vs the live fair a few minutes later` : ""}${c.roi != null ? ` (pre-game ROI ${pct(c.roi)})` : ""}. ${a.clv != null && a.clv < -0.01 ? "The live market is beating your timing: stick to live edges the site flags, and only when the price is still there." : a.clv != null && a.clv > 0.01 ? "Your live timing is beating the market. Keep it up." : ""}`]);
+  }
   const noEdge = list.filter((b) => ["won", "lost"].includes(b.status) && evAtLog(b) != null && evAtLog(b) < 0);
   if (noEdge.length >= 5) {
     const s = summarize(noEdge);
@@ -158,7 +164,10 @@ function betRow(b) {
       <div class="lt-m"><span><b class="num">${am(b.am)}</b></span><span>${money(b.stake)}${win != null && !done ? ` to win <b class="num">${money(win)}</b>` : ""}</span>
         <span>${esc(b.venueName || b.venue || "")}</span>${b.league ? `<span>${esc(b.league)}</span>` : ""}${b.promoId ? `<span class="pill s">${esc(S.promos.get(b.promoId)?.title || "promo")}${b.boostIn ? " · in odds" : ""}</span>` : ""}${needsCheck(b) ? `<span class="lt-chip neg" title="did the odds you typed already include the boost?">check boost</span>` : ""}
         ${b.fairAtLog != null ? `<span class="lt-chip ${ev > 0 ? "pos" : ev < 0 ? "neg" : ""}" title="our fair when you logged it">fair ${prob(b.fairAtLog)} · ${pct(ev)}</span>` : ""}
-        ${b.clv != null ? `<span class="lt-chip ${b.clv > 0 ? "pos" : b.clv < 0 ? "neg" : ""}" title="value of your price at the closing fair">CLV ${pct(b.clv)}</span>` : ""}</div>
+        ${b.live ? `<span class="pill live" title="placed during the game">● live${b.liveState?.text ? ` · ${esc(b.liveState.text)}` : ""}</span>` : ""}
+        ${b.clv != null ? `<span class="lt-chip ${b.clv > 0 ? "pos" : b.clv < 0 ? "neg" : ""}" title="${b.live ? "your price at the live fair a few minutes after the bet" : "value of your price at the closing fair"}">CLV ${pct(b.clv)}</span>`
+          : b.liveCheck ? `<span class="lt-chip ${b.liveCheck.clv > 0 ? "pos" : b.liveCheck.clv < 0 ? "neg" : ""}" title="the live fair ${Math.round(b.liveCheck.mins)} minutes after you bet: ${prob(b.liveCheck.fair)}">${Math.round(b.liveCheck.mins)}-min check ${pct(b.liveCheck.clv)}</span>`
+          : b.live && b.status === "pending" ? `<span class="lt-chip" title="the live fair is checked 5 to 30 minutes after the bet">price check pending</span>` : ""}</div>
     </div>
     <div class="lt-r">${done ? `<span class="pill ${b.status === "won" ? "pos" : b.status === "lost" ? "neg" : ""}">${b.status}${b.autoSettled ? " · auto" : ""}</span><span class="lt-res ${b.profit >= 0 ? "pos" : "neg"}">${money(b.profit)}</span>`
       : `<span class="lt-act">${["won", "lost", "push", "void"].map((s) => `<button class="btn sm ghost" data-set="${b.id}|${s}" title="mark ${s}">${s[0].toUpperCase()}</button>`).join("")}</span>`}
@@ -180,7 +189,7 @@ function mine(el) {
   const bets = [...S.bets.values()].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const settled = bets.filter((b) => ["won", "lost", "push"].includes(b.status)).sort((a, b) => (a.settledAt || "").localeCompare(b.settledAt || ""));
   const s = summarize(bets), pend = bets.filter((b) => b.status === "pending");
-  const shown = bets.filter((b) => filter === "all" || (filter === "pending" ? b.status === "pending" : b.status !== "pending"));
+  const shown = bets.filter((b) => filter === "all" || (filter === "live" ? b.live : filter === "pending" ? b.status === "pending" : b.status !== "pending"));
   const ins = insights(bets);
   return `<div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="k">Profit / loss</div><div class="v ${s.pl >= 0 ? "pos" : "neg"}">${money(s.pl)}</div><div class="s">${s.n} settled · ${s.w}-${s.l}${s.p ? "-" + s.p : ""}</div></div>
@@ -204,7 +213,7 @@ function mine(el) {
     <div class="sec-title">Breakdown<span class="line"></span></div>
     <div class="bar">${Object.entries(GROUPS).map(([k, [lab]]) => `<button class="chip sm ${k === groupBy ? "on" : ""}" data-grp="${k}">${lab}</button>`).join("")}</div>
     <div class="card">${groupTable(bets, groupBy)}<p class="note">CLV is what your price was worth at the closing sharp fair: positive means you got a better number than the market settled on. Over a few hundred bets it predicts profit far better than wins and losses do.</p></div>
-    <div class="row" style="justify-content:space-between;margin-top:14px;flex-wrap:wrap;gap:8px"><div class="bar" style="margin:0">${["pending", "settled", "all"].map((f) => `<button class="chip ${f === filter ? "on" : ""}" data-flt="${f}">${f[0].toUpperCase() + f.slice(1)}</button>`).join("")}</div>
+    <div class="row" style="justify-content:space-between;margin-top:14px;flex-wrap:wrap;gap:8px"><div class="bar" style="margin:0">${["pending", "settled", "live", "all"].map((f) => `<button class="chip ${f === filter ? "on" : ""}" data-flt="${f}">${f === "live" ? "● Live bets" : f[0].toUpperCase() + f.slice(1)}</button>`).join("")}</div>
       <button class="btn" id="add-bet">Log a bet</button></div>
     ${shown.length ? betList(shown)
       : `<div class="empty"><h3>No ${filter === "all" ? "" : filter} bets</h3>Log bets from Edges, the Lab, Picks or Promos, or add one here.</div>`}`;

@@ -90,11 +90,14 @@ export function renderGameLive(el, g) {
     const fair = l.fair?.[o], md = l.model?.[o];
     const lab = l.market === "h2h" ? `${o} ML` : l.market === "spreads" ? `${o} ${o === g.home ? (l.point > 0 ? "+" : "") + l.point : (-l.point > 0 ? "+" : "") + -l.point}`
       : l.market === "team_totals" ? `${l.team} ${o} ${l.point}` : `${o} ${l.point}`;
+    const own = l.market === "spreads" ? (o === g.home ? l.point : -l.point) : l.point ?? null;
+    const lg = { label: lab, gameId: g.id, league: g.league, matchup: `${g.away} @ ${g.home}`, commence: g.commence, market: l.market, side: o, point: own,
+      team: l.team || null, am: best?.am ?? null, venue: best?.book, venueName: best?.name, fair: fair ?? null, source: "live", live: true };
     return `<div class="lv-row"><span class="ellip">${esc(lab)}</span>
       <span class="num">${best ? `${bookLogo(best.book, best.name, 13)} ${am(best.am)}` : "–"}</span>
       <span class="num tiny">${fair != null ? bothP(fair) : "–"}</span>
       <span class="num tiny ${md != null && fair != null ? (md - fair >= 0.03 ? "pos" : md - fair <= -0.03 ? "neg" : "") : ""}">${md != null ? prob(md) : "–"}</span>
-      ${edgeBar(best?.edge, 0.08)}</div>`;
+      ${edgeBar(best?.edge, 0.08)}<button class="btn sm ghost lv-log" data-log='${esc(JSON.stringify(lg))}' title="log a live bet on this">Log</button></div>`;
   };
   // one line per market: the main one (most books, closest to a coin flip), team totals for both teams
   const pick = (mk) => { const ls = lines.filter((l) => l.market === mk); return ls.find((l) => l.isMain) || ls.sort((a, b) => (b.nBooks || 0) - (a.nBooks || 0))[0]; };
@@ -115,14 +118,17 @@ export function renderGameLive(el, g) {
         ${m.pDraw != null ? `<span>draw ${prob(m.pDraw)}</span>` : ""}
         ${m.serve ? `<span>points won on serve (model): ${esc(g.home.split(" ").pop())} ${Math.round(m.serve[0] * 100)}%, ${esc(g.away.split(" ").pop())} ${Math.round(m.serve[1] * 100)}%</span>` : ""}</div></div>
     <div class="card"><b>Live lines</b> <span class="tiny muted">best price at your venues · live fair · our live model · edge</span>
-      <div class="lv-head tiny muted"><span>Bet</span><span>Best</span><span>Fair</span><span>Model</span><span>Edge</span></div>
+      <div class="lv-head tiny muted"><span>Bet</span><span>Best</span><span>Fair</span><span>Model</span><span>Edge</span><span></span></div>
       ${mainLines.map((l) => l.outcomes.map((o) => row(l, o)).join("")).join("") || `<div class="note">No live lines yet.</div>`}</div>
     ${props.length ? `<div class="card"><b>Live props</b> <span class="tiny muted">now → our projected final · chance over the line (model vs market)</span>
       ${props.map((r) => `<div class="lv-prop">${headshot({ player: r.player, headshot: r.headshot }, 30)}
         <span class="col" style="gap:0;min-width:0"><span class="small ellip"><b>${esc(r.player)}</b> ${esc(r.market.replace(/^player_/, "").replace(/_/g, " "))} ${r.point}</span>
           <span class="tiny muted"><b class="num">${r.live.cur}</b> now → <b class="num">${r.live.proj}</b> projected</span></span>
         <div class="lv-prog"><i style="width:${Math.min(100, r.live.cur / Math.max(r.point, 0.5) * 100)}%"></i><i class="ln" style="left:${Math.min(100, r.point / Math.max(r.point, r.live.proj, 0.5) * 100)}%"></i></div>
-        <span class="num tiny ${r.live.Over - (r.fair?.Over ?? 0.5) >= 0.05 ? "pos" : r.live.Over - (r.fair?.Over ?? 0.5) <= -0.05 ? "neg" : ""}">O ${prob(r.live.Over)}<br><span class="muted">mkt ${prob(r.fair?.Over)}</span></span></div>`).join("")}</div>` : ""}
+        <span class="num tiny ${r.live.Over - (r.fair?.Over ?? 0.5) >= 0.05 ? "pos" : r.live.Over - (r.fair?.Over ?? 0.5) <= -0.05 ? "neg" : ""}">O ${prob(r.live.Over)}<br><span class="muted">mkt ${prob(r.fair?.Over)}</span></span>
+        <span class="col" style="gap:3px">${["Over", "Under"].map((o) => `<button class="btn sm ghost lv-log" data-log='${esc(JSON.stringify({ label: `${r.player} ${o} ${r.point} ${r.market.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " ")}`,
+          gameId: g.id, league: g.league, matchup: `${g.away} @ ${g.home}`, commence: g.commence, market: r.market, side: o, point: r.point, player: r.player,
+          am: r.bestVenue?.[o]?.am ?? null, venue: r.bestVenue?.[o]?.book, venueName: r.bestVenue?.[o]?.name, fair: r.fair?.[o] ?? null, source: "live", live: true }))}'>${o[0]}</button>`).join("")}</span></div>`).join("")}</div>` : ""}
     ${d.edges?.length ? `<div class="sec-title">Live edges in this game<span class="line"></span></div><div class="grid tight">${d.edges.map(edgeCard).join("")}</div>` : ""}</div>`);
   bindLog(el);
 }

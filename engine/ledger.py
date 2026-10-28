@@ -294,6 +294,9 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
             continue
         if not g:
             continue
+        if b.get("live"):          # a live bet's yardstick is the live fair minutes later, not the pre-game close
+            lc = b.get("liveCheck") or {}
+            g["clv"], g["closeFair"] = lc.get("clv"), lc.get("fair")
         snap.reference.update({"auto": {"result": g["result"], "clv": g["clv"], "closeFair": g["closeFair"],
                                         "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}})
         n += 1

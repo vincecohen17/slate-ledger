@@ -25,7 +25,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   applies the calibration to every model probability on each run. Reports page shows the card.
 - `engine/finals.py` finished games (ESPN summary fetched once per game: final score, line score, team stats, scoring
   plays, box scores) plus our pre-game numbers from `track/open` and how they did; data repo `finals/<date>.json`,
-  Firestore `finals/{sport|espnId}` and `board/finals` (three days). Collected in auto/rebuild runs before grading.
+  Realtime Database `pre/fin` (three days). Bets grade as soon as their game is in finals. Collected in auto/rebuild runs before grading.
 - `site/js/promo.js` promo engine: 13 promo kinds (KINDS), plain-words parser, dollar value per promo (bonus-bet
   conversion measured on the board), optimizer (main lines only, venue price at most 10% over fair), pick'em entries,
   discounted lines via `site/js/dist.js` (port of build.p_over; keep in sync), settlement for the ledger.
@@ -35,7 +35,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   Bets and picks name the bet with gameId, market, side, point (that side's own line), player, team.
 - `engine/livebets.py` every live run: each leg of Vince's open bets gets its current stat from the ESPN box score (all sports,
   MLB included), projected finish and chance, written to `live/{gameId}` as betLegs {"<betId>#<leg>"}; old bets without
-  market/side are read from their labels (also used by ledger grading).
+  market/side are read from their labels (also used by ledger grading). Live bets (bet.live, logged from the Live tab,
+  live edges, or any bet on a game in play, with liveState score/clock) get liveCheck {fair, clv, mins}: the live fair
+  5-30 minutes after the bet, which grading uses as their CLV (the pre-game close says nothing about a live price).
 - `engine/rt.py` Realtime Database (free, no daily write count; 10 GB/month download allowance): the board the engine
   publishes under `pre/` (status, edges, reports, g/<id> a game with main lines, ga/<id> alternate lines, p/<id>/<market>
   main prop rows, pa/<id>/<market> alternate rows, mu/<id> matchups, fin/board + fin/d/<key> finals) and in-play data
@@ -57,7 +59,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   market (Odds API key), side, point (the side's own line), player?, team?; graded by the engine: status, profit, clv, closeFair
 - `.github/workflows/pull.yml` engine run (manual or push to `engine/run-request`; live cron after the 5M upgrade).
   `deploy.yml` deploys site + rules on changes to `site/`, `firebase.json` or the rules template.
-- Private data repo `vincecohen17/slate-ledger-data`: `latest/` (board.json, props.json, edges.json),
+- Private data repo `vincecohen17/slate-ledger-data`: `latest/` (board.json, props.json, edges.json, log_<mode>.txt: the
+  last run's log lines, last_error.json when a run failed),
   `snapshots/<date>/` raw API payloads (gz) for closes and backtests, `credits.jsonl`.
 
 ## Rules

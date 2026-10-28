@@ -235,7 +235,7 @@ def live():
         ls = {}
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
     if ls.get("day") != today:
-        ls = {"day": today, "used": 0, "props": {}, **{k: ls[k] for k in ("betLegs", "betsAt", "rt", "rtBoardAt", "fsLiveCleared") if k in ls}}
+        ls = {"day": today, "used": 0, "props": {}, **{k: ls[k] for k in ("betLegs", "betsAt", "liveBets", "rt", "rtBoardAt", "fsLiveCleared") if k in ls}}
     room = C.LIVE_DAY_CAP - ls.get("used", 0)
     if room <= 0:
         log("live credit cap reached for today")
@@ -255,20 +255,26 @@ def live():
     import livebets as LB
     bet_legs, bet_games = {}, set()
     # open bets are read every 5 minutes (Firestore reads are on a daily quota), the legs kept in live_state between reads
-    if _age_min(ls.get("betsAt")) >= 5 or "betLegs" not in ls:
+    # ... and right away when the site says a bet was just saved (presence.betsAt)
+    if _age_min(ls.get("betsAt")) >= 5 or "betLegs" not in ls or (pres.get("betsAt") or "") > (ls.get("betsAt") or ""):
         try:
             _db = firestore_db()
             if _db:
-                found = {}
+                found, live_open = {}, []
                 for snap in _db.collection("bets").where("status", "==", "pending").stream():
                     b = snap.to_dict() or {}
+                    if b.get("live") and not b.get("liveCheck") and b.get("dec"):
+                        legs = [{k: x.get(k) for k in ("gameId", "market", "side", "point", "player", "team", "label")}
+                                for x in (b.get("legs") or [b]) if x.get("gameId")]
+                        if legs:
+                            live_open.append({"id": snap.id, "legs": legs, "dec": b["dec"], "at": b.get("createdAt")})
                     for i, leg in enumerate(b.get("legs") or [b]):
                         if not leg.get("gameId"):
                             continue
                         r = LB.resolve(leg, DATA_DIR)
                         if r and r.get("player"):
                             found.setdefault(leg["gameId"], {})[f"{snap.id}#{i}"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")}
-                ls["betLegs"], ls["betsAt"] = found, iso(NOW)
+                ls["betLegs"], ls["betsAt"], ls["liveBets"] = found, iso(NOW), live_open
         except Exception as e:
             log(f"open bets read failed: {type(e).__name__}")
     bet_legs = ls.get("betLegs") or {}
@@ -355,6 +361,19 @@ def live():
                 "edges": len(d["edges"]), "props": len(d["props"]), "betLegs": len(d["betLegs"])} for d in docs],
               open(os.path.join(DATA_DIR, "latest", "live.json"), "w"), indent=0)
     json.dump(sorted("|".join(k) for k in states), open(os.path.join(DATA_DIR, "latest", "live_keys.json"), "w"), indent=0)
+    # live bets: the live fair 5-30 minutes after the bet, as that bet's closing-line check
+    if ls.get("liveBets"):
+        try:
+            import livebets as LB2
+            chk = LB2.live_checks(ls["liveBets"], {d["id"]: d for d in docs}, NOW, DATA_DIR)
+            if chk:
+                _db = firestore_db()
+                for bid, c in chk.items():
+                    _db.document(f"bets/{bid}").update({"liveCheck": c})
+                ls["liveBets"] = [b for b in ls["liveBets"] if b["id"] not in chk]
+                log(f"live: price check written for {len(chk)} live bets")
+        except Exception as e:
+            log(f"live: live bet check failed ({type(e).__name__})")
     # in-play data goes to the Realtime Database (no daily write count); only changed pieces are sent
     summary = [{"id": d["id"], "league": d["league"], "home": d["home"], "away": d["away"], "homeRef": d["homeRef"], "awayRef": d["awayRef"],
                 "state": d["state"], "pHome": (d["model"] or {}).get("pHome"),
