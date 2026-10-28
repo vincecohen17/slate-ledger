@@ -43,13 +43,58 @@ const pickList = (list, attr) => list.length ? `<div class="pr-hits">${list.map(
     ${betImage({ gameId: l.gameId, label: l.label, player: l.player, headshot: l.headshot }, 22)}<span class="grow ellip">${esc(l.label)}</span>
     <span class="tiny muted">${esc(l.league)} · ${fmtTime(l.commence)}</span></button>`).join("")}</div>` : "";
 
+// ---------- what I read, in a sentence, and what's still missing (so a promo never saves half understood)
+const x2 = (v) => `${+(+v).toFixed(2)}x`;
+function explain(p) {
+  const k = kindOf(p.kind).key, ven = p.venue && p.venue !== "any" ? venueName(p.venue) : "any app";
+  const pc = (v) => `${Math.round((v || 0) * 100)}%`, d = (v) => (v == null ? "?" : `$${v}`), o = (v) => (v == null ? "?" : v > 0 ? `+${v}` : `${v}`);
+  const who = p.targetLabel || "a player";
+  const stat = (() => { const t = findTarget(p.target); return t?.market ? t.market.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " ") : ""; })();
+  switch (k) {
+    case "discounted_line": return `${ven} special pick: ${who} ${p.promoSide || "Over"} ${p.promoLine ?? "?"}${stat ? ` ${stat}` : ""}${p.promoMult ? `, paying ${x2(p.promoMult)} on its own. Pair it with ${Math.max(1, (p.picks || 2) - 1)} more pick${(p.picks || 2) > 2 ? "s" : ""}; the entry pays ${x2(p.promoMult)} × the other pick's multiplier` : `, in a ${p.picks || 2}-pick entry paying ${p.mult || payoutFor(p.venue, p.picks || 2) || "?"}x`}.`;
+    case "pickem_boost": return `${ven}: a ${p.picks ?? "?"}-pick entry paying ${p.mult ? `${p.mult}x` : "?"}${p.boost ? ` plus ${pc(p.boost)}` : ""}${p.stake ? `, up to $${p.stake}` : ""}.`;
+    case "free_entry": return `${ven}: a free ${d(p.amount)} ${p.picks ?? 2}-pick entry (you keep the whole payout, nothing at risk).`;
+    case "profit_boost": return `${ven}: ${pc(p.boost)} more on what a bet wins${p.stake ? `, on up to $${p.stake}` : ""}${p.maxLegs === 1 ? ", singles only" : ""}.`;
+    case "parlay_boost": return `${ven}: ${pc(p.boost)} more on a ${p.minLegs}+ leg ${p.sameGame === "required" ? "same-game parlay" : "parlay"}${p.stake ? `, on up to $${p.stake}` : ""}.`;
+    case "odds_boost": return `${ven}: ${p.targetLabel || "a set bet"} boosted to ${o(p.boostedOdds)}${p.origOdds != null ? ` (normally ${o(p.origOdds)})` : ""}${p.stake ? `, up to $${p.stake}` : ""}.`;
+    case "fee_free": return `${ven}: ${p.feeOff >= 1 ? "no fee" : `${pc(p.feeOff)} of the fee waived`} on trades.`;
+    case "bonus_bet": return `${ven}: ${p.count > 1 ? `${p.count} bonus bets of ${d(p.amount)}` : `a ${d(p.amount)} bonus bet`} (the stake isn't returned, only the winnings).`;
+    case "no_sweat": return `${ven}: if the bet loses you get up to ${d(p.refundMax ?? p.stake)} back as ${p.refundAs === "cash" ? "cash" : "bonus bets"}.`;
+    case "parlay_insurance": return `${ven}: a ${p.minLegs}+ leg parlay that refunds up to ${d(p.refundMax ?? p.stake)} if exactly one leg misses.`;
+    case "bet_and_get": return `${ven}: bet ${d(p.qualStake)} and get ${d(p.amount)} in bonus bets${p.condition === "win" ? " if it wins" : p.condition === "lose" ? " if it loses" : ", win or lose"}.`;
+    case "deposit_match": return `${ven}: a ${d(p.amount)} deposit bonus${p.playthrough ? ` you must wager ${p.playthrough}x` : ""}.`;
+    default: return describe(p);
+  }
+}
+function missing(p) {
+  const k = kindOf(p.kind).key, out = [];
+  const need = (f, lab) => { if (p[f] == null || p[f] === "" || p[f] === 0) out.push([f, lab]); };
+  if (["discounted_line", "pickem_boost", "free_entry"].includes(k) && (!p.venue || p.venue === "any")) out.push(["venue", "which app"]);
+  if (k === "discounted_line") { if (!p.target) out.push(["target", "the player (pick them below)"]); need("promoLine", "the promo line"); }
+  if (k === "pickem_boost") { need("picks", "picks in the entry"); if (!p.mult && !p.boost) out.push(["mult", "what the entry pays"]); }
+  if (k === "free_entry") need("amount", "the entry amount");
+  if (["profit_boost", "parlay_boost"].includes(k)) need("boost", "the boost %");
+  if (k === "odds_boost") need("boostedOdds", "the boosted odds");
+  if (k === "bonus_bet") need("amount", "the bonus amount");
+  if (k === "bet_and_get") { need("qualStake", "the bet you place"); need("amount", "the bonus you get"); }
+  if (["no_sweat", "parlay_insurance"].includes(k) && p.refundMax == null && p.stake == null) out.push(["refundMax", "the max refund"]);
+  if (k === "deposit_match") { need("amount", "the bonus"); need("playthrough", "the playthrough"); }
+  return out;
+}
+function readout(p) {
+  const miss = missing(p);
+  return `<div class="pr-read"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="pill s">${esc(kindOf(p.kind).name)}</span>${p.venue && p.venue !== "any" ? `<span class="lg-name">${bookLogo(p.venue, venueName(p.venue), 16)}${esc(venueName(p.venue))}</span>` : ""}</div>
+    <div class="small" style="margin-top:4px">${esc(explain(p))}</div>
+    ${miss.length ? `<div class="tiny neg" style="margin-top:4px">Still need: ${esc(miss.map((x) => x[1]).join(", "))}. Set it up and fill ${miss.length > 1 ? "those" : "it"} in.</div>` : `<div class="tiny pos" style="margin-top:4px">Got everything I need. Set it up to see what it's worth and the best plays.</div>`}</div>`;
+}
+
 // ---------- the form: only the fields this kind of promo needs
-function field(p, f) {
+function field(p, f, miss = new Set()) {
   const [lab, type, ph] = FIELDS[f] || [f, "num"];
   let val = p[f];
   if (type === "pct") val = val ? Math.round(val * 100) : "";
   if (type === "odds" && val != null && val !== "") val = val > 0 ? `+${val}` : val;
-  return `<label class="f">${esc(lab)}<input data-k="${f}" data-t="${type}" ${type === "date" ? 'type="date"' : 'inputmode="decimal"'} value="${esc(val ?? "")}" placeholder="${esc(ph || "")}"></label>`;
+  return `<label class="f ${miss.has(f) ? "miss" : ""}">${esc(lab)}<input data-k="${f}" data-t="${type}" ${type === "date" ? 'type="date"' : 'inputmode="decimal"'} value="${esc(val ?? "")}" placeholder="${esc(ph || "")}"></label>`;
 }
 const sel = (k, cur, opts, lab) => `<label class="f">${lab}<select data-k="${k}" data-t="str">${opts.map(([v, t]) => `<option value="${v}" ${String(cur) === String(v) ? "selected" : ""}>${t}</option>`).join("")}</select></label>`;
 
@@ -57,7 +102,9 @@ function form(p) {
   const kind = kindOf(p.kind), F = new Set(kind.fields);
   const groups = [...new Set(KINDS.map((k) => k.group))];
   const venues = VENUES.filter((v) => (["pickem_boost", "free_entry", "discounted_line"].includes(kind.key) ? v.dfs : true));
-  const inputs = [...F].filter((f) => FIELDS[f] && f !== "expires").map((f) => field(p, f));
+  const miss = missing(p), M = new Set(miss.map((x) => x[0]));
+  // a pick with its own multiplier pays by multiplying, so the entry's table payout doesn't apply
+  const inputs = [...F].filter((f) => FIELDS[f] && f !== "expires" && !(f === "mult" && kind.key === "discounted_line" && p.promoMult)).map((f) => field(p, f, M));
   if (F.has("refundAs")) inputs.push(sel("refundAs", p.refundAs, [["bonus", "Bonus bets"], ["cash", "Cash"]], "Refund paid as"));
   if (F.has("condition")) inputs.push(sel("condition", p.condition, [["any", "Always"], ["win", "Only if it wins"], ["lose", "Only if it loses"]], "Bonus arrives"));
   if (F.has("ptBase")) inputs.push(sel("ptBase", p.ptBase, [["bonus", "Bonus only"], ["both", "Deposit + bonus"]], "Playthrough on"));
@@ -80,14 +127,15 @@ function form(p) {
     } catch (e) { return ""; }
   })();
   return `<div class="card col pr-form" style="gap:12px;margin-top:12px">
-    <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px"><b>${p.id ? "Edit promo" : "Check what I read"}</b><span class="tiny muted">${esc(describe(p))}</span></div>
+    <div class="col" style="gap:4px"><b>${p.id ? "Edit promo" : "Check what I read"}</b><div class="small">${esc(explain(p))}</div>
+      ${miss.length ? `<div class="tiny neg">Still need: ${esc(miss.map((x) => x[1]).join(", "))} (outlined below).</div>` : ""}</div>
     <div class="fgrid">
-      <label class="f">App<select data-k="venue" data-t="str">${venues.map((x) => `<option value="${x.key}" ${x.key === p.venue ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+      <label class="f ${M.has("venue") ? "miss" : ""}">App<select data-k="venue" data-t="str">${venues.map((x) => `<option value="${x.key}" ${x.key === p.venue ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
       <label class="f">Type<select data-k="kind" data-t="str">${groups.map((g) => `<optgroup label="${g}">${KINDS.filter((k) => k.group === g).map((k) => `<option value="${k.key}" ${k.key === kind.key ? "selected" : ""}>${k.name}</option>`).join("")}</optgroup>`).join("")}</select></label>
       ${inputs.join("")}
     </div>
     <div class="tiny muted">${esc(kind.blurb)}${FEE_VENUES.has(p.venue) || kind.key !== "fee_free" ? "" : " · fee waivers only matter on Kalshi, Polymarket, Novig and ProphetX"}${!venueHasFeed(p.venue) && p.venue !== "any" ? ` · ${esc(venueName(p.venue))} isn't in the odds feed, so I use a typical sportsbook price (or the sharp line for pick'em) as a stand-in` : ""}</div>
-    ${F.has("target") ? `<div class="col" style="gap:6px"><span class="tiny muted">${kind.key === "discounted_line" ? "Which player prop?" : "Which bet?"}</span>
+    ${F.has("target") ? `<div class="col ${M.has("target") ? "miss" : ""}" style="gap:6px"><span class="tiny muted">${kind.key === "discounted_line" ? "Which player prop?" : "Which bet?"}</span>
       ${tgt ? `<div class="row pr-tgt">${betImage({ gameId: tgt.gameId, label: tgt.label, player: tgt.player, headshot: tgt.headshot }, 26)}<b class="grow">${esc(tgt.label)}</b><span class="tiny muted">sharp ${prob(tgt.fair, 1)}${tgt.mean != null ? ` · avg ${tgt.mean}` : ""}</span><button class="btn sm ghost" data-untarget>Change</button></div>`
         : `<input id="pr-tq" placeholder="Search a player, team or bet" value="${esc(targetQ)}">${pickList(search(targetQ, { props: kind.key === "discounted_line" }), "data-target")}`}</div>` : ""}
     ${F.has("sports") ? `<div class="row" style="flex-wrap:wrap;gap:6px"><span class="tiny muted">Sports</span>${SPORTS.map((s) => `<button class="chip sm ${p.sports.includes(s) ? "on" : ""}" data-sp="${s}">${s}</button>`).join("")}
@@ -216,7 +264,8 @@ export function renderPromos(el) {
     <div class="card col" style="gap:8px;margin-top:12px">
       <b>Add a promo</b>
       <textarea id="pr-text" placeholder="Paste it from the app, e.g. 'Kalshi: no fees on NFL trades this weekend' · 'Bet $25 get $100 in bonus bets' · 'PrizePicks: LeBron 18.5 points discounted, more only' · 'FanDuel 30% SGP boost, 3+ legs, max $25'"></textarea>
-      <div class="row" style="flex-wrap:wrap"><button class="btn" id="pr-read">Read it</button><span class="tiny muted">or start from a type:</span>
+      <div id="pr-live"></div>
+      <div class="row" style="flex-wrap:wrap"><button class="btn" id="pr-read">Set it up</button><span class="tiny muted">or start from a type:</span>
         ${groups.map((g) => KINDS.filter((k) => k.group === g).map((k) => `<button class="chip sm" data-new="${k.key}" title="${esc(k.blurb)}">${esc(k.name)}</button>`).join("")).join("")}</div>
     </div>
     ${draft ? form(draft) : ""}
@@ -231,6 +280,9 @@ export function renderPromos(el) {
 
 function bind(el) {
   const rerender = () => renderPromos(el);
+  const tx = $("#pr-text", el), live = $("#pr-live", el);
+  let tm = null;
+  if (tx) tx.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { const t = tx.value.trim(); live.innerHTML = t.length > 6 ? readout(autoTarget(parsePromo(t))) : ""; }, 250); };
   $("#pr-read", el).onclick = () => { const t = $("#pr-text", el).value.trim(); if (!t) return; draft = autoTarget(parsePromo(t)); targetQ = ""; rerender(); };
   $$("[data-new]", el).forEach((b) => b.onclick = () => { draft = blank(b.dataset.new, PICKEM.has(draft?.venue) ? draft.venue : "any"); targetQ = ""; if (["pickem_boost", "free_entry", "discounted_line"].includes(b.dataset.new)) draft.venue = "prizepicks"; rerender(); });
   if (draft) {

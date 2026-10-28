@@ -58,8 +58,8 @@ export const FIELDS = {
   refundMax: ["Max refund $", "num"], qualStake: ["Qualifying bet $", "num"], deposit: ["Your deposit $", "num"],
   playthrough: ["Playthrough (x)", "num"], picks: ["Picks in the entry", "int"], mult: ["Payout multiplier (x)", "num"],
   boostedOdds: ["Boosted odds", "odds"], origOdds: ["Original odds", "odds"], promoLine: ["Promo line", "num"],
-  promoMult: ["This pick's own multiplier (x), if it has one (Chalkboard free pick 1.78x)", "num"],
-  otherMult: ["Other picks' multiplier (x each), if the app shows it", "num"],
+  promoMult: ["This pick pays (x), if it has its own", "num", "e.g. 1.78"],
+  otherMult: ["Other picks pay (x each), if shown", "num", "assumed 1.73"],
   feeOff: ["Share of fee waived %", "pct"], winBoost: ["Extra % on winnings", "pct"], extraWin: ["Extra $ if it wins", "num"],
   expires: ["Expires", "date"],
 };
@@ -91,8 +91,25 @@ const num = (x) => x == null ? null : NUMW[x] ?? parseFloat(String(x).replace(/,
 const ODDS = "([+-]\\d{3,5}|even|evens)";
 const oddsNum = (x) => /even/.test(x) ? 100 : +x;
 
+const STATW = "points?|pts|rebounds?|rebs?|boards|assists?|asts?|pra|pts ?\\+ ?reb ?\\+ ?ast|p\\+r\\+a|threes|3pm|3-?pointers|3s|pass(?:ing)? (?:yds|yards|tds|touchdowns)|rush(?:ing)? (?:yds|yards)|rec(?:eiving)? (?:yds|yards)|yards|yds|receptions|catches|shots on goal|shots|sog|saves|strikeouts|ks|hits|total bases|tbs?|touchdowns|tds|goals|blocks|steals|stocks|fantasy (?:points|pts)|outs|runs|rbis?";
+const NUMR = "(\\d*\\.\\d+|\\d+)";
+// the line a pick'em special names: its number and side (more / higher / over / o0.5 = Over; less / lower / under / u = Under)
+function statLine(t) {
+  const sideW = "(over|under|more|less|higher|lower|o|u)";
+  const re = new RegExp(`(?:\\b${sideW}\\s*(?:than\\s*)?)?${NUMR}\\s*\\+?\\s*(?:${STATW})\\b`, "g");
+  const glued = new RegExp(`\\b([ou])${NUMR}\\b`);
+  let hit = null;
+  for (const x of t.matchAll(re)) { if (/\b(?:was|from)\s*$/.test(t.slice(Math.max(0, x.index - 8), x.index))) continue; hit = x; break; }   // skip "was 26.5"
+  const g = t.match(glued);
+  if (!hit && !g) return null;
+  const w = hit ? hit[1] : g[1], n = hit ? +hit[2] : +g[2];
+  const before = hit ? t.slice(Math.max(0, hit.index - 30), hit.index) : "";
+  const sw = w || (before.match(/\b(over|under|more|less|higher|lower)\b[^\d]*$/) || [])[1] || (g && g[1]) || (/\b(?:under|less|lower)\b/.test(t) ? "under" : null);
+  return { line: n, side: sw && /^(under|less|lower|u)$/.test(sw) ? "Under" : sw ? "Over" : null };
+}
+
 export function parsePromo(text) {
-  const t = " " + text.toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, " ") + " ";
+  const t = " " + text.toLowerCase().replace(/[–—]/g, "-").replace(/[()[\]{}"“”|]/g, " ").replace(/\s+/g, " ") + " ";
   const p = blank();
   p.text = text;
   // the longest alias that appears wins ("dk pick6" is Pick6, not DraftKings)
@@ -103,24 +120,30 @@ export function parsePromo(text) {
   const m = (re) => t.match(re);
 
   // what kind of promo
+  const sl = statLine(t);
   const pct = m(/(\d{1,3})\s*%\s*(?:profit\s*|odds\s*|parlay\s*|sgp\s*|combo\s*|trade\s*|payout\s*|winnings\s*)*boost/) || m(/boost(?:ed)?[a-z ]{0,30}?(\d{1,3})\s*%/) || m(/(\d{1,3})\s*%[a-z0-9 .'-]{0,30}?boost/) || m(/(\d{1,3})\s*%\s*(?:more|extra)\s*(?:on\s*)?(?:winnings|profit|payout)/);
   if (pct) p.boost = +pct[1] / 100;
-  const ob = m(new RegExp(`(?:boosted|boost)?\\s*(?:from\\s*)?${ODDS}\\s*(?:to|->|→|now)\\s*${ODDS}`));
-  if (/fee[- ]?free|no fees?|zero fees?|fees? waived|waive[sd]? (?:the )?fees?|no commission|0% commission|commission[- ]free|reduced (?:juice|fees?|vig|commission)|half (?:the )?fees?/.test(t)) {
+  // "+120 to +150", "from +120 to +150": old then new; "+250 (was +200)", "now +150 from +120": new then old
+  const ob0 = m(new RegExp(`(?:boosted|boost)?\\s*(?:from\\s*)?${ODDS}\\s*(?:to|->|→|now)\\s*${ODDS}`));
+  const ob1 = !ob0 && m(new RegExp(`${ODDS}\\s*\\(?\\s*(?:was|from|orig(?:inally)?|reg(?:ular(?:ly)?)?)\\s*${ODDS}`));
+  const ob = ob0 || (ob1 ? [ob1[0], ob1[2], ob1[1]] : null);
+  if (/fee[- ]?free|no fees?|zero fees?|(?:zero|no|0%) (?:fees?|commission|vig|juice)|fees? waived|waive[sd]? (?:the )?fees?|no commission|0% commission|commission[- ]free|reduced (?:juice|fees?|vig|commission)|half (?:the )?fees?/.test(t)) {
     p.kind = "fee_free"; const h = m(/(\d{1,3})\s*%\s*(?:off|lower|reduced)?\s*(?:fees?|commission)/); p.feeOff = /half/.test(t) ? 0.5 : h && !/0%/.test(h[0]) ? +h[1] / 100 : 1;
   } else if (/deposit match|match(?:es)? your (?:first )?deposit|deposit bonus|first deposit|playthrough|rollover|wagering requirement|play-through/.test(t)) {
     p.kind = "deposit_match";
     const up = m(/up to \$\s*([\d,]+)/); if (up) p.amount = num(up[1]);
     const px = m(/(\d{1,2})\s*x\s*(?:playthrough|rollover|wagering|play-through)/) || m(/(?:playthrough|rollover|wager(?:ed|ing)?)[a-z ]{0,20}?(\d{1,2})\s*(?:x|times)/); if (px) p.playthrough = +px[1];
     if (/deposit (?:\+|and|plus) bonus|bonus (?:\+|and|plus) deposit/.test(t)) p.ptBase = "both";
-  } else if (/(?:discount(?:ed)?|special|taco|reduced|flash|free|bonus|promo|boosted|power|gift) (?:line|pick|projection|square)|line (?:discount|drop)|discounted|(?:was|from) \d+(?:\.5)? (?:to|now) \d+(?:\.5)?/.test(t) && (pick || /line|pick/.test(t))) {
+  } else if ((/(?:discount(?:ed)?|special|taco|reduced|flash|free|bonus|promo|boosted|power|gift) (?:line|pick|projection|square)|line (?:discount|drop)|discounted|freebie|(?:was|from) \d+(?:\.5)? (?:to|now) \d+(?:\.5)?/.test(t) && (pick || /line|pick/.test(t)))
+      || (pick && sl && !/free (?:entry|play|lineup)|\$\s*\d+\s*(?:free )?entry/.test(t))) {
+    // one named pick with its own line (a pick'em special, free pick, discounted line, boosted pick)
     p.kind = "discounted_line";
     const px = m(/(\d+(?:\.\d+)?)\s*x\b/) || m(/(?:pays?|multiplier|odds(?: of)?)\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*x?/);
-    if (px && +px[1] > 1 && +px[1] < 20) p.promoMult = +px[1];
-    if (/\bpair\b|2[- ]pick|two[- ]picks?|one other pick|another pick/.test(t)) p.picks = 2;
-    const ln = m(/(?:to|now|at)\s*(\d+(?:\.\d)?)\b/) || m(/(\d+(?:\.\d)?)\s*(?:points|pts|rebounds|reb|assists|ast|pra|yards|yds|receptions|shots|sog|saves|strikeouts|ks|hits|threes|3pm|total bases)/) || m(/\b(\d+\.5)\b/);
+    if (px && +px[1] > 1 && +px[1] < 20 && !["prizepicks", "pick6"].includes(p.venue)) p.promoMult = +px[1];
+    if (/\bpair\b|pair it|2[- ]pick|two[- ]picks?|one other pick|another pick|1 other pick/.test(t)) p.picks = 2;
+    const ln = sl ? [null, sl.line] : m(new RegExp(`(?:to|now|at)\\s*${NUMR}\\b`)) || m(/\b(\d+\.5)\b/);
     if (ln) p.promoLine = +ln[1];
-    if (/\bunder\b|less/.test(t)) p.promoSide = "Under";
+    p.promoSide = sl?.side || (/\b(?:under|less|lower)\b/.test(t) ? "Under" : "Over");
   } else if (/free (?:entry|play|lineup|pick'?em|squad)|bonus entry|entry credit|promo entry|free \$?\d+ (?:entry|lineup)/.test(t) && (pick || /entry|lineup/.test(t))) {
     p.kind = "free_entry";
   } else if (pick && (pct || /\d+(?:\.\d+)?\s*x\b|multiplier|pays? \d|payout boost/.test(t))) {
@@ -135,9 +158,9 @@ export function parsePromo(text) {
     p.kind = "bet_and_get"; const g = m(/(?:bet|wager|place|trade)\s*\$\s*(\d+)[a-z ,]{0,30}?get\s*\$\s*(\d+)/); p.qualStake = +g[1]; p.amount = +g[2];
     if (/(?:if|when) (?:it|your bet|the bet|your wager) (?:wins|cashes|hits)|win and get/.test(t)) p.condition = "win";
     else if (/(?:if|when) (?:it|your bet|the bet|your wager) (?:loses|doesn'?t win|misses)|lose and get/.test(t)) p.condition = "lose";
-  } else if (/bonus bets?|free bets?|bet credits?|site credit|free \$\d+|token/.test(t) && !pct) {
+  } else if ((/bonus bets?|free bets?|bet credits?|site credit|free \$\d+|token/.test(t) || /\$\s*\d+\s*(?:in\s*)?bonus\b(?!\s*(?:boost|%))/.test(t)) && !pct) {
     p.kind = "bonus_bet";
-  } else if (/parlay|combo|sgp|same game|same-game|\blegs?\b|multi/.test(t) && !/profit boost|any (?:bet|wager)|single|straight/.test(t)) {
+  } else if (/parlay|combo|sgp|same game|same-game|\blegs?\b|multi/.test(t) && !/any (?:bet|wager)|single|straight|or parlay|including parlays/.test(t)) {
     p.kind = "parlay_boost"; p.minLegs = 2;
   } else if (/custom/.test(t)) p.kind = "custom";
   else p.kind = "profit_boost";
@@ -150,7 +173,7 @@ export function parsePromo(text) {
   if (pick) { p.picks = exact ? num(exact[1]) : legs ? num(legs[1]) : null; }
   else if (exact && !legs) p.minLegs = num(exact[1]);
   if (["parlay_boost", "parlay_insurance"].includes(p.kind) && p.minLegs < 2) p.minLegs = p.kind === "parlay_insurance" ? 3 : 2;
-  const mx = m(/(\d{1,3}(?:\.\d+)?)\s*x\b(?! ?(?:playthrough|rollover|wagering))/); if (mx && pick) p.mult = +mx[1];
+  const mx = m(/(\d{1,3}(?:\.\d+)?)\s*x\b(?! ?(?:playthrough|rollover|wagering))/); if (mx && pick && !p.promoMult) p.mult = +mx[1];
   if (/singles? only|straight bets? only|single bets? only|not valid on parlays|excludes? parlays/.test(t)) p.maxLegs = 1;
   if (/same.?game|sgp/.test(t)) p.sameGame = /no (?:same.?game|sgp)|excludes? (?:same.?game|sgp)/.test(t) ? "banned" : "required";
   if (/different games|separate games/.test(t)) p.sameGame = "banned";
@@ -160,7 +183,7 @@ export function parsePromo(text) {
   if (stake && !["deposit_match", "bet_and_get"].includes(p.kind)) p.stake = num(stake[1]);
   const win = m(/max(?:imum)?\s*(?:extra|boosted|additional)?\s*(?:winnings|profit|payout)\s*(?:of\s*)?\$\s*([\d,]+)/) || m(/(?:extra|boosted) winnings (?:capped|limited) (?:at|to) \$\s*([\d,]+)/);
   if (win) p.maxWin = num(win[1]);
-  const amt = m(/\$\s*([\d,]+)\s*(?:in\s*)?(?:bonus bets?|free bets?|bet credits?|site credit|bonus|free (?:entry|play|lineup)|entry|token)/) || m(/(?:bonus bet|free bet|free entry|bonus)\s*(?:of|worth)?\s*\$\s*([\d,]+)/);
+  const amt = m(/\$\s*([\d,]+)\s*(?:in\s*)?(?:bonus bets?|free bets?|bet credits?|site credit|bonus|free (?:entry|play|lineup)|entry|lineup|token)/) || m(/(?:bonus bet|free bet|free entry|free lineup|bonus)\s*(?:of|worth)?\s*\$\s*([\d,]+)/) || m(/free \$\s*([\d,]+)/);
   if (amt && ["bonus_bet", "free_entry", "deposit_match"].includes(p.kind) && p.amount == null) p.amount = num(amt[1]);
   const cnt = m(/(\d{1,2}|two|three|four|five)\s*x\s*\$\s*\d+/) || m(/(\d{1,2}|two|three|four|five)\s*(?:bonus bets|free bets|tokens|boosts)/);
   if (cnt) { p.count = num(cnt[1]); const each = m(/x\s*\$\s*(\d+)/); if (each) p.amount = +each[1]; }
@@ -183,7 +206,7 @@ export function parsePromo(text) {
   // sports, bet types, timing
   for (const [w, lg] of Object.entries(SPORT_WORDS)) if (new RegExp(`[^a-z]${w}[^a-z]`).test(t)) p.sports.push(lg);
   if (/major sports?/.test(t) && !p.sports.length) p.sports = ["NBA", "NFL", "NHL", "MLB"];
-  if (/each (?:major )?sport|one (?:pick|leg|selection) (?:in|from|per) each|one per sport|different sports|across sports/.test(t)) p.onePerSport = true;
+  if (/each (?:major )?sport|one (?:pick|leg|selection) (?:in|from|per) each|(?:one|a) (?:pick|leg|selection) each|one per sport|different sports|across sports/.test(t)) p.onePerSport = true;
   p.sports = [...new Set(p.sports)];
   if (p.onePerSport && p.sports.length > p.minLegs) p.minLegs = p.sports.length;
   if (/player props?|props? only|prop bets?/.test(t)) p.betTypes.push("prop");
@@ -217,7 +240,7 @@ export function describe(p) {
     case "deposit_match": b.push(`$${p.amount ?? "?"} bonus${p.playthrough ? `, ${p.playthrough}x playthrough` : ""}`); break;
     case "pickem_boost": b.push(`${p.picks ?? "?"}-pick entry at ${p.mult ?? "?"}x${p.boost ? ` +${pc(p.boost)}` : ""}`); break;
     case "free_entry": b.push(`$${p.amount ?? "?"} free ${p.picks ?? "?"}-pick entry`); break;
-    case "discounted_line": b.push(`${p.promoSide || "Over"} ${p.promoLine ?? "?"} on ${p.targetLabel || "a player"}`); break;
+    case "discounted_line": b.push(`${p.promoSide || "Over"} ${p.promoLine ?? "?"} on ${p.targetLabel || "a player"}${p.promoMult ? ` at ${p.promoMult}x` : ""}`); break;
     case "custom": b.push(`custom: ${p.stakeBack ? "" : "stake not returned, "}${p.winBoost ? `+${pc(p.winBoost)} on wins, ` : ""}${p.extraWin ? `+$${p.extraWin} on wins, ` : ""}${p.refundMax ? `$${p.refundMax} back on a loss` : ""}`.replace(/, $/, "")); break;
   }
   if (p.sports?.length) b.push(`${p.onePerSport ? "one leg each: " : ""}${p.sports.join(", ")}`);

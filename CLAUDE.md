@@ -28,7 +28,10 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   Realtime Database `pre/fin` (three days). Bets grade as soon as their game is in finals. Collected in auto/rebuild runs before grading.
 - `site/js/promo.js` promo engine: 13 promo kinds (KINDS), plain-words parser, dollar value per promo (bonus-bet
   conversion measured on the board), optimizer (main lines only, venue price at most 10% over fair), pick'em entries,
-  discounted lines via `site/js/dist.js` (port of build.p_over; keep in sync), settlement for the ledger.
+  discounted lines via `site/js/dist.js` (port of build.p_over; keep in sync), settlement for the ledger. Special picks with their
+  own multiplier (Chalkboard free pick 1.78x) pay the product of every pick's multiplier (promoMult / otherMult). The reader
+  (parsePromo) is checked against `tests/promo_corpus.json` (71 phrasings with the expected fields): keep it passing, add to it.
+  The Promos page shows a live readout of what it read and flags what's missing before saving.
 - `engine/ledger.py` grades after each game: Vince's pending bets (writes bets/{id}.auto {result, clv, closeFair}; the site
   settles them with the promo math) and our picks (status, profit in units, clv, closeFair in picks/<date>.json).
   CLV = closing sharp fair x decimal price - 1, from the pre-game snapshot (tracker keeps them in `track/closed/` 21 days).

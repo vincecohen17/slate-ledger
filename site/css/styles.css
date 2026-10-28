@@ -592,3 +592,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 .pj-link { background: var(--panel-2); border-radius: 10px; padding: 8px 10px; }
 .pj-lr { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .pj-lc { display: inline-flex; flex-direction: column; gap: 1px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; min-width: 0; }
+/* promo reader: live readout, missing fields */
+.pr-read { background: var(--panel-2); border-radius: 10px; padding: 8px 10px; }
+.pr-form .miss input, .pr-form .miss select, .pr-form .col.miss > input { outline: 2px solid var(--neg); outline-offset: 1px; }
+.pr-form .col.miss > .tiny { color: var(--neg); }
