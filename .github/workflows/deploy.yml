@@ -22,6 +22,9 @@ jobs:
           python3 -c "import json;e=json.load(open('data/config/access.json'))['email'];open('database.rules.json','w').write(open('database.rules.template.json').read().replace('__ALLOWED_EMAIL__',e))"
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
+      - name: Check every site module parses (a syntax error would blank the whole site)
+        run: |
+          for f in $(find site/js -name '*.js'); do cp "$f" "$RUNNER_TEMP/m.mjs"; node --check "$RUNNER_TEMP/m.mjs" || { echo "syntax error in $f"; exit 1; }; done
       - name: Credentials
         env: { SA: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" }
         run: |
