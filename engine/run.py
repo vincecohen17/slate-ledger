@@ -358,11 +358,12 @@ def live():
             ls["rtOk"] = False
         else:
             ls["rtOk"] = True
-            if not ls.get("rtRules"):
+            if True:              # cheap: only sends when the rules file changed (latest/rt_rules.json)
                 try:
                     code = rt.ensure_rules(DATA_DIR, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                     ls["rtRules"] = code == 200
-                    log(f"live: realtime database rules {'set' if code == 200 else f'not set ({code})'}")
+                    if code != 200:
+                        log(f"live: realtime database rules not set ({code})")
                 except Exception as e:
                     log(f"live: realtime database rules not set ({type(e).__name__})")
         if ls.get("rtOk") and not ls.get("fsLiveCleared"):       # the old Firestore copies, once
@@ -945,8 +946,19 @@ def publish(game_docs, prop_docs, status, stamp):
     with open(os.path.join(DATA_DIR, "latest", "matchups.json"), "w") as f:
         json.dump(mups, f, separators=(",", ":"))
     if os.environ.get("FIREBASE_SERVICE_ACCOUNT"):
+        pre_ok = False
+        try:        # games, props, edges and status go to the Realtime Database (free, only changed pieces sent)
+            import rt
+            rc = rt.ensure_rules(DATA_DIR, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            if rc != 200:
+                raise RuntimeError(f"rules {rc}")
+            kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log)
+            pre_ok = True
+            log(f"realtime database: {npcs} pieces, {kb} KB")
+        except Exception as e:
+            log(f"realtime database write failed ({type(e).__name__}); using Firestore for the board")
         try:
-            n = write_firestore(game_docs, prop_docs, edge_list, status, rep, picks, mups, previews, fin)
+            n = write_firestore(game_docs, prop_docs, edge_list, status, rep, picks, mups, previews, fin, pre_ok=pre_ok)
             log(f"firestore: {n} docs written")
         except Exception as e:      # the data repo is already written; the site catches up on the next run
             if not _fs_busy(e):
@@ -982,7 +994,7 @@ def write_data_repo(game_docs, prop_docs, edge_list, status):
                             "remaining": status.get("creditsRemaining")}) + "\n")
 
 
-def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(), mups=None, previews=(), fin=None):
+def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(), mups=None, previews=(), fin=None, pre_ok=False):
     db = firestore_db()
 
     hash_file = os.path.join(DATA_DIR, "latest", "hashes.json")
@@ -999,13 +1011,16 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
         if old.get(path) != h:
             writes.append((path, dict(meta, payload=s, updated=status["updated"])))
 
+    if pre_ok:          # the board lives in the Realtime Database: Firestore keeps only the small, slow-changing docs
+        game_docs, prop_docs = [], []
     for g in game_docs:
         put(f"games/{g['id']}", {"sport": g["sport"], "league": g["league"], "commence": g["commence"],
                                  "home": g["home"], "away": g["away"]}, g)
     for p in prop_docs:
         put(f"props/{p['id']}__{p['market']}", {"gameId": p["id"], "market": p["market"],
                                                 "league": p["league"], "commence": p["commence"]}, p)
-    put("board/edges", {}, {"items": edge_list[:400]})
+    if not pre_ok:
+        put("board/edges", {}, {"items": edge_list[:400]})
     if rep:
         put("board/reports", {}, rep)
     for gid, mu in (mups or {}).items():
@@ -1072,6 +1087,21 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
             inb.append(path)
             n += 1
             size += sz
+        if pre_ok and not old.get("_fsPreCleared"):      # the old Firestore copies of the board, once
+            for col in ("games", "props"):
+                for snap in db.collection(col).stream():
+                    batch.delete(snap.reference)
+                    inb.append(None)
+                    n += 1
+                    if len(inb) >= 400:
+                        batch.commit()
+                        done += len(inb)
+                        batch, size, inb = db.batch(), 0, []
+            batch.delete(db.document("board/edges"))
+            inb.append(None)
+            new["_fsPreCleared"] = True
+        elif old.get("_fsPreCleared"):
+            new["_fsPreCleared"] = True
         # remove docs for games that ended more than 6 hours ago
         gone_before = iso(NOW - timedelta(hours=6))
         for col in ("games", "props", "matchups"):

@@ -113,6 +113,75 @@ def ensure_rules(data_dir, repo_root):
     rules = open(os.path.join(repo_root, "database.rules.template.json")).read().replace("__ALLOWED_EMAIL__", email)
     cred = service_account.Credentials.from_service_account_info(json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT"]),
         scopes=["https://www.googleapis.com/auth/firebase.database", "https://www.googleapis.com/auth/userinfo.email"])
+    fn = os.path.join(data_dir, "latest", "rt_rules.json")
+    h = _h(rules)
+    try:
+        if json.load(open(fn)).get("h") == h:
+            return 200
+    except Exception:
+        pass
     s = google.auth.transport.requests.AuthorizedSession(cred)
     r = s.put(f"{url(data_dir)}/.settings/rules.json", data=rules.encode())
+    if r.status_code == 200:
+        json.dump({"h": h}, open(fn, "w"))
     return r.status_code
+
+
+# ---------------------------------------------------------------------------
+# pre-game board: games, props, edges, status under pre/ (Firestore keeps user data, picks, matchups, previews, finals)
+#   pre/status, pre/edges          JSON strings
+#   pre/g/<gameId>/m, /l/<k>       a game without its lines, then one line each (with "_i")
+#   pre/p/<gameId>/<market>/m, /r/<k>   a prop market without its rows, then one row each (with "_i")
+
+def pre_pieces(game_docs, prop_docs, edges, status):
+    out = {"status": json.dumps(status, separators=(",", ":")), "edges": json.dumps({"items": edges[:400]}, separators=(",", ":"))}
+    for g in game_docs:
+        gid = g["id"]
+        out[f"g/{gid}/m"] = json.dumps({k: v for k, v in g.items() if k != "lines"}, separators=(",", ":"))
+        seen = set()
+        for i, l in enumerate(g.get("lines") or []):
+            k = _key(l.get("market"), l.get("point"), l.get("team"), l.get("period"))
+            while k in seen:
+                k = _key(k, i)
+            seen.add(k)
+            out[f"g/{gid}/l/{k}"] = json.dumps(dict(l, _i=i), separators=(",", ":"))
+    for p in prop_docs:
+        base = f"p/{p['id']}/{p['market']}"
+        out[f"{base}/m"] = json.dumps({k: v for k, v in p.items() if k != "rows"}, separators=(",", ":"))
+        seen = set()
+        for i, r in enumerate(p.get("rows") or []):
+            k = _key(r.get("player"), r.get("point"), r.get("alt"), r.get("side"))
+            while k in seen:
+                k = _key(k, i)
+            seen.add(k)
+            out[f"{base}/r/{k}"] = json.dumps(dict(r, _i=i), separators=(",", ":"))
+    return out
+
+
+def publish_pre(game_docs, prop_docs, edges, status, data_dir, log=print):
+    """write the changed pieces of the pre-game board; hashes in latest/rt_pre.json. Returns (KB sent, pieces)."""
+    fn = os.path.join(data_dir, "latest", "rt_pre.json")
+    try:
+        old = json.load(open(fn))
+    except Exception:
+        old = {}
+    now = pre_pieces(game_docs, prop_docs, edges, status)
+    newh = {p: _h(s) for p, s in now.items()}
+    upd = {p: now[p] for p, h in newh.items() if old.get(p) != h}
+    for p in old:
+        if p not in now:
+            upd[p] = None
+    chunk, size, sent = {}, 0, 0
+    r = ref("pre", data_dir)
+    for p, v in upd.items():
+        chunk[p] = v
+        size += len(v or "") + 60
+        if size > 4_000_000:
+            r.update(chunk)
+            sent += size
+            chunk, size = {}, 0
+    if chunk:
+        r.update(chunk)
+        sent += size
+    json.dump(newh, open(fn, "w"), separators=(",", ":"))
+    return sent // 1024, len(upd)

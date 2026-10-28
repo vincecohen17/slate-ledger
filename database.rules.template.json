@@ -8,6 +8,9 @@
     "presence": {
       ".read": "auth != null && auth.token.email == '__ALLOWED_EMAIL__' && auth.token.email_verified == true",
       ".write": "auth != null && auth.token.email == '__ALLOWED_EMAIL__' && auth.token.email_verified == true"
+    },
+    "pre": {
+      ".read": "auth != null && auth.token.email == '__ALLOWED_EMAIL__' && auth.token.email_verified == true"
     }
   }
 }
