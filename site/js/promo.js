@@ -609,7 +609,7 @@ export const isBoost = (promo) => { const k = promo ? kindOf(normalize(promo).ki
 // a promo still to use: not marked used and not past its end date
 export const promoOpen = (p) => !!p && !p.used && !(p.expires && p.expires < new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }));
 // promos that last for many bets (fee holidays, a deposit match wagered through) aren't used up by one bet
-export const singleUse = (p) => !!p && !["fee_free", "deposit_match"].includes(kindOf(normalize(p).kind).key);
+export const singleUse = (p) => !!p && !p.wallet && !["fee_free", "deposit_match"].includes(kindOf(normalize(p).kind).key);     // wallet bonus funds follow the balance
 
 export function settleProfit(b, promo, status) {
   if (status === "push" || status === "void") return 0;

@@ -90,7 +90,8 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
             for e in edges:
                 if e.get("live") or e.get("est") or e.get("logic") != "agrees" or (e.get("score") or 0) < cfg.get("minScore", 0.04):
                     continue
-                if (e.get("track") or {}).get("clv", 0) < 0:
+                tr = e.get("track") or {}
+                if (tr.get("gap") if tr.get("gap") is not None else tr.get("clv", 0)) < 0:     # that kind of edge loses more than its fair says
                     continue
                 k = f"e|{e['gameId']}|{e['label']}|{e['book']}"
                 if k in st["sent"]:

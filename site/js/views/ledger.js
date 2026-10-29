@@ -1,6 +1,6 @@
 // Ledger: Vince's bets and our picks, graded automatically after the games (result + closing line value), with the
 // breakdowns and plain-words takeaways that say what to keep betting and what to stop.
-import { S, saveBet, deleteBet, loadProps } from "../store.js";
+import { S, saveBet, deleteBet, loadProps, sportKeys } from "../store.js";
 import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, bookLogo, teamLogo, todayPT, toast, $, $$ } from "../util.js";
 import { logSheet } from "./common.js";
 import { settleProfit, isBoost } from "../promo.js";
@@ -53,7 +53,7 @@ function edgeBand(b) {
 }
 const SOURCES = { arb: "Arbs & middles", edge: "Edges screen", pick: "Our picks", promo: "Promos", lab: "Bet Lab", manual: "Typed in" };
 const GROUPS = {
-  type: ["Bet type", betType], sport: ["Sport", (b) => b.league || "Unknown"], venue: ["Venue", (b) => b.venueName || b.venue],
+  type: ["Bet type", betType], sport: ["Sport", sportKeys], venue: ["Venue", (b) => b.venueName || b.venue],
   odds: ["Odds range", oddsBand], edge: ["Edge when logged", edgeBand], source: ["Where it came from", (b) => SOURCES[b.source] || b.source || "Typed in"],
   promo: ["Promo", (b) => b.promoId ? "With a promo" : "No promo"],
   timing: ["Live or pre-game", (b) => b.live ? "Live (in-game)" : "Pre-game"],
@@ -100,7 +100,7 @@ const wl = (r) => r.w + r.l ? `<span class="lg-wl"><i class="w" style="width:${(
 function groupTable(list, key) {
   const [, fn] = GROUPS[key];
   const by = new Map();
-  list.forEach((b) => { const k = fn(b); if (!by.has(k)) by.set(k, []); by.get(k).push(b); });
+  list.forEach((b) => { for (const k of [].concat(fn(b))) { if (!by.has(k)) by.set(k, []); by.get(k).push(b); } });
   const rows = [...by.entries()].map(([k, bs]) => ({ k, ...summarize(bs) })).filter((r) => r.n).sort((a, b) => b.n - a.n);
   if (!rows.length) return `<div class="note">Nothing settled yet.</div>`;
   const maxRoi = Math.max(0.05, ...rows.map((r) => Math.abs(r.roi || 0)));
@@ -130,7 +130,7 @@ function insights(list) {
   for (const key of ["type", "sport", "odds", "source", "venue"]) {
     const [lab, fn] = GROUPS[key];
     const by = new Map();
-    list.forEach((b) => { const k = fn(b); if (!by.has(k)) by.set(k, []); by.get(k).push(b); });
+    list.forEach((b) => { for (const k of [].concat(fn(b))) { if (!by.has(k)) by.set(k, []); by.get(k).push(b); } });
     for (const [k, bs] of by) {
       const s = summarize(bs);
       if (s.nClv < MIN) continue;

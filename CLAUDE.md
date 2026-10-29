@@ -58,6 +58,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   CLV at the flagged / last / best price and the result; summary stats/edgecard.json (by venue, line type, market, edge
   size, logic, timing, sport, venue x type, venue x sport) shown on Reports, and edges re-ranked by it (shrunk, n/(n+150)).
   Also opening lines: first fair seen per main line/prop row (track/opens.json) stamped as open/openPt/openAt on lines and edges.
+  Only edges flagged before the start are logged; quotes over 50 decimal or 3x the fair are feed errors; each edge is graded
+  once (track/edgelog/graded.json). Kinds are judged by results: gap (won - expected), zRes, roi; CLV on model-priced lines
+  grades the model against itself. rerank uses gap (a kind 5 pts under its fair drops ~25%).
 - `engine/opps.py` arbs and middles across Vince's venues (all-in prices; middles priced with the alt-line fairs: EV = 1 - S +
   P(middle)); suspect ones (8%+ or a leg 12+ pts off fair) are flagged. Published as RTDB `pre/opps`, Edges > Arbs & middles.
   Each leg carries market/side/point/team so a logged pair grades itself. `site/js/arbs.js`: "Log both legs" (or Ledger >
@@ -69,11 +72,16 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - Site sizing: Firestore `settings/owner` {bankroll, kelly, maxPct, unit} (Ledger > Analysis) drives the suggested stake on
   edges (half for model/estimated fairs), the log sheet's default stake and units in dollars; parlays down to one leg show a
   hedge to lock a result and its expected cost.
+- Sports on bets: site `leaguesOf()` / `sportKeys()` in store.js (each leg's game league, else a team name in the label; saved as
+  bet.leagues); `ledger.backfill_leagues` fills older bets hourly from track/open snapshots, finals, or player/team names in
+  refs. A multi-sport parlay counts in each of its sports and in "Multi-sport".
 - Wallet (Ledger > Wallet, `site/js/wallet.js` + `views/wallet.js`): Firestore `wallet/{id}` entries {venue, type: balance |
   deposit | withdrawal | bonus, cash/bonus or amount, at, note}. From each balance check-in it replays deposits, withdrawals,
   bonus credits and every bet placed/settled at that venue (bonus-funded = promo kind bonus_bet/free_entry: stake from bonus,
   winnings to cash) to know what each app should hold; later check-ins that differ are "unaccounted". Real profit per app =
   cash + open cash stakes + withdrawn - deposited - opening (first check-in + its open stakes), next to the ledger's P/L.
+  DK Pick6 shares the DraftKings account (accountOf). Bonus funds become a promo per app (id wb-<app>, wallet: true) whose
+  amount follows the wallet's bonus balance (syncWalletPromos).
 - `engine/picklive.py` every run re-checks each open pick's playTo venues (current price, pick'em line still listed, in range vs
   goodAt) -> RTDB pre/pickslive and latest/pickslive.json; the Picks screen shows it. Pick'em payouts: Underdog/Dabble real,
   PrizePicks standard = fixed 1.732/leg, DK Pick6 multiplier estimated from DraftKings' no-vig price (dfs estMult in props).

@@ -208,7 +208,31 @@ export const propsFor = (gameId) => [...S.props.values()].filter((p) => p.id ===
 const SETTINGS0 = { bankroll: 0, kelly: 0.25, maxPct: 0.05, unit: 0 };
 export const saveSettings = (x) => setDoc(doc(db, "settings", "owner"), { ...S.settings, ...x });
 
-export const saveBet = (b) => setDoc(doc(db, "bets", b.id), JSON.parse(JSON.stringify(b)))
+// the sports a bet is on: each leg's league from its game (board, live feed, finished games), else the engine's backfill
+// (bet.leagues, read from the pre-game snapshot or the names in the label), else the bet's own league
+const NL = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+export function leaguesOf(b) {
+  if (b.legsB) return [...new Set(b.legsB.flatMap(leaguesOf))];                 // an arb or middle pair
+  const out = new Set();
+  for (const l of (b.legs && b.legs.length ? b.legs : [b])) {
+    const gid = l.gameId || (b.legs?.length > 1 ? null : b.gameId);
+    const lg = l.league || (gid && (S.games.get(gid)?.league || S.liveGames.get(gid)?.league || (S.finals || []).find((x) => x.gameId === gid)?.league));
+    if (lg) { out.add(lg); continue; }
+    // no game: a team name in the leg's label
+    const lab = NL(l.label || b.label);
+    if (lab) for (const g of S.games.values()) if ([g.home, g.away].some((t) => t && lab.includes(NL(t)))) { out.add(g.league); break; }
+  }
+  if (b.leagues?.length && (!out.size || b.leagues.length > out.size)) b.leagues.forEach((x) => out.add(x));
+  if (!out.size && b.league) out.add(b.league);
+  return [...out];
+}
+// the rows a bet belongs to in a by-sport table: its sport, or each sport of a multi-sport parlay plus "Multi-sport"
+export function sportKeys(b) {
+  const L = leaguesOf(b);
+  return !L.length ? ["Unknown"] : L.length === 1 ? L : ["Multi-sport", ...L];
+}
+
+export const saveBet = (b) => setDoc(doc(db, "bets", b.id), JSON.parse(JSON.stringify(b.leagues?.length ? b : { ...b, leagues: leaguesOf(b) })))
   .then((r) => { rupdate(rref(rtdb, "presence"), { betsAt: new Date().toISOString() }).catch(() => {}); return r; });
 export const deleteBet = (id) => deleteDoc(doc(db, "bets", id));
 export const savePromo = (p) => setDoc(doc(db, "promos", p.id), JSON.parse(JSON.stringify(p)));

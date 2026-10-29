@@ -1,7 +1,7 @@
 // Ledger > Analysis: everything the settled bets can say. Skill vs luck, closing line value over time, how well the
 // prices were judged, where (venue x bet type) the money is made or lost, timing, sizing against Kelly, promo value,
 // parlays, and the biggest swings. Each section says in one line what to do with it.
-import { S, saveSettings } from "../store.js";
+import { S, saveSettings, sportKeys } from "../store.js";
 import { esc, am, pct, prob, money, fmtShortDay, bookLogo } from "../util.js";
 import { settleProfit, kindOf, normalize } from "../promo.js";
 import { VENUES } from "../lab.js";
@@ -52,7 +52,7 @@ function table(rows, head) {
 const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
 function groupRows(list, keyFn, order) {
   const by = new Map();
-  list.forEach((b) => { const k = keyFn(b); if (!by.has(k)) by.set(k, []); by.get(k).push(b); });
+  list.forEach((b) => { for (const k of [].concat(keyFn(b))) { if (!by.has(k)) by.set(k, []); by.get(k).push(b); } });
   let ks = [...by.keys()];
   if (order) ks = order.filter((k) => by.has(k)).concat(ks.filter((k) => !order.includes(k)));
   return ks.map((k) => ({ k, ...agg(by.get(k)) })).filter((r) => r.n);
@@ -157,7 +157,7 @@ export function analysis() {
     <b style="display:block;margin-top:12px">ROI by venue and bet type</b>${heat(venues, types, cell("roi"), { fmt: (x) => pct(x, 0), scale: 0.4 })}
     <p class="note">Green cells with a decent count are where to keep firing; orange CLV cells are where the venue's prices are beating you.</p></div>
   <div class="card" style="margin-top:10px"><b>By venue</b>${statTable(groupRows(st, (b) => b.venueName || b.venue).map((r) => ({ ...r, html: `<span class="lg-name">${bookLogo(st.find((b) => (b.venueName || b.venue) === r.k)?.venue || "any", r.k, 16)}${esc(r.k)}</span>` })), "Venue")}</div>
-  <div class="card" style="margin-top:10px"><b>By sport</b>${statTable(groupRows(st, (b) => b.league || "Unknown"), "Sport")}</div>
+  <div class="card" style="margin-top:10px"><b>By sport</b>${statTable(groupRows(st, sportKeys), "Sport")}<p class="note">A parlay counts in each sport it has legs in, and multi-sport parlays also get their own row, so the rows can add up to more than your total.</p></div>
   <div class="card" style="margin-top:10px"><b>By bet type</b>${statTable(groupRows(st, betType), "Type")}</div>
 
   <div class="sec-title">Timing<span class="line"></span></div>

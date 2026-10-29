@@ -35,7 +35,8 @@ export function edgeCard(e) {
     </div>
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
-        ${e.track || e.open != null ? `<span class="tiny row" style="gap:6px;flex-wrap:wrap">${e.track ? `<span class="pill ${e.track.clv > 0 ? "pos" : e.track.clv < 0 ? "neg" : ""}" title="how ${esc(e.track.cat)} edges have done at the close: ${Math.round(e.track.beat * 100)}% beat it">track ${pct(e.track.clv)} CLV · ${e.track.n}</span>` : ""}${e.open != null ? moveTag(e) : ""}</span>` : ""}
+        ${e.track || e.open != null ? `<span class="tiny row" style="gap:6px;flex-wrap:wrap">${e.track ? (e.track.gap != null ? `<span class="pill ${e.track.gap > 0.01 ? "pos" : e.track.gap < -0.01 ? "neg" : ""}" title="how ${esc(e.track.cat)} edges have done: won ${Math.round(e.track.win * 100)}% vs ${Math.round(e.track.exp * 100)}% their fair expected over ${e.track.n} graded${e.track.roi != null ? `, ROI ${pct(e.track.roi)}` : ""}">${esc(e.track.cat.replace(/ \(.*\)/, ""))}: won ${Math.round(e.track.win * 100)}% vs ${Math.round(e.track.exp * 100)}% exp</span>`
+          : `<span class="pill ${e.track.clv > 0 ? "pos" : e.track.clv < 0 ? "neg" : ""}">track ${pct(e.track.clv)} CLV · ${e.track.n}</span>`) : ""}${e.open != null ? moveTag(e) : ""}</span>` : ""}
         ${(() => { const k0 = !e.pickem && e.am != null ? kellyStake(e.fair, decFromAm(e.am), S.settings) : null, k = k0 && (e.model || e.est) ? Math.round(k0 / 2) : k0; /* model or estimated fairs: half size */ return k ? `<span class="tiny"><span class="pill s" title="${Math.round((S.settings.kelly ?? 0.25) * 100)}% Kelly at the fair, capped at ${Math.round((S.settings.maxPct ?? 0.05) * 100)}% of the bankroll (set in Ledger > Analysis)">stake $${k}</span></span>` : ""; })()}
         <span class="tiny muted">fair ${bothP(e.fair)} · edge <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill" title="fair moved from the main line with the stat model">alt line</span>` : ""}${e.est ? ` · <span class="pill" title="nobody quotes the other side, so the fair is estimated (first-scorer markets de-vig across the whole field; others strip each book's measured margin)">est. fair</span>` : ""}</span>
         ${e.ctx?.length ? `<span class="tiny muted ellip" title="${esc(e.ctx.join(" · "))}">ⓘ ${esc(e.ctx[0])}${e.ctx.length > 1 ? ` +${e.ctx.length - 1}` : ""}</span>` : ""}
@@ -107,7 +108,7 @@ export function logSheet(pre = {}) {
       const { odds, stake, promo, boostIn } = read(), boost = isBoost(promo);
       $(".lb-bst", el).hidden = !boost;
       const ur = $(".lb-usedrow", el);
-      if (ur) { ur.hidden = !promo || promo.used; if (promo && ur.dataset.for !== promo.id) { ur.dataset.for = promo.id; $("#lb-used", el).checked = singleUse(promo); } }
+      if (ur) { ur.hidden = !promo || promo.used || promo.wallet; if (promo && ur.dataset.for !== promo.id) { ur.dataset.for = promo.id; $("#lb-used", el).checked = singleUse(promo); } }
       if (isNaN(odds) || isNaN(stake)) { $(".lb-pay", el).innerHTML = `<span class="tiny muted">Enter odds and stake to see the payout.</span>`; return; }
       const b = { stake, dec: decFromAm(odds), boostIn };
       const base = stake * (b.dec - 1), w = settleProfit(b, promo, "won"), l = settleProfit(b, promo, "lost");

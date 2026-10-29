@@ -6,8 +6,14 @@
 // as cash; a push or void returns the stake to where it came from). So it always knows what each app should hold.
 // The next check-in that differs is "unaccounted": an unlogged bet, a typo in odds or a stake, a credit not entered.
 // Real profit since you started tracking = cash now + cash in open bets + withdrawn - deposited - what was there at the start.
-import { S } from "./store.js";
+import { S, savePromo } from "./store.js";
 import { settleProfit, kindOf, normalize } from "./promo.js";
+import { venueName } from "./lab.js";
+
+// apps that share one wallet: DK Pick6 is paid from the DraftKings account (DK Predictions)
+const ACCOUNT = { pick6: "draftkings" };
+export const accountOf = (v) => ACCOUNT[v] || v;
+export const accountName = (a) => (a === "draftkings" ? "DraftKings (Predictions + Pick6)" : venueName(a));
 
 const DONE = ["won", "lost", "push", "void"];
 const t = (x) => (x ? Date.parse(x) : 0);
@@ -18,9 +24,10 @@ export function bonusFunded(b) {
 }
 const profitOf = (b) => (b.profit != null ? b.profit : settleProfit(b, promoOf(b), b.status));
 
-export function venueState(venue, now = Date.now()) {
-  const entries = [...S.wallet.values()].filter((w) => w.venue === venue).sort((a, b) => t(a.at) - t(b.at));
-  const bets = [...S.bets.values()].filter((b) => b.venue === venue && b.stake > 0);
+export function venueState(venue0, now = Date.now()) {
+  const venue = accountOf(venue0);
+  const entries = [...S.wallet.values()].filter((w) => accountOf(w.venue) === venue).sort((a, b) => t(a.at) - t(b.at));
+  const bets = [...S.bets.values()].filter((b) => accountOf(b.venue) === venue && b.stake > 0);
   if (!entries.length && !bets.length) return null;
   const checks = entries.filter((e) => e.type === "balance");
   const start = checks[0] ? t(checks[0].at) : entries[0] ? t(entries[0].at) : null;
@@ -71,6 +78,25 @@ export function venueState(venue, now = Date.now()) {
 }
 
 export function walletAll() {
-  const venues = new Set([...[...S.wallet.values()].map((w) => w.venue)]);
+  const venues = new Set([...[...S.wallet.values()].map((w) => accountOf(w.venue))]);
   return [...venues].map((v) => venueState(v)).filter(Boolean);
+}
+
+// bonus funds in the wallet are a promo you can use: one bonus-bet promo per app (id wb-<app>), its amount kept equal to
+// the wallet's bonus balance, hidden (used) when it runs out. Written only when it changes.
+let syncing = false;
+export function syncWalletPromos() {
+  if (syncing) return;
+  const todo = [];
+  for (const w of walletAll()) {
+    if (!w.tracked && !w.bonusIn) continue;
+    const id = `wb-${w.venue}`, cur = S.promos.get(id), amt = Math.round(Math.max(0, w.bonus) * 100) / 100, used = amt < 0.5;
+    if (!cur && used) continue;
+    if (cur && Math.abs((cur.amount || 0) - amt) < 0.01 && !!cur.used === used) continue;
+    todo.push({ ...(cur || {}), id, kind: "bonus_bet", venue: w.venue, amount: amt, used, wallet: true, count: 1,
+      title: `${accountName(w.venue)} · bonus funds`, createdAt: cur?.createdAt || new Date().toISOString(), usedAt: used ? new Date().toISOString() : null });
+  }
+  if (!todo.length) return;
+  syncing = true;
+  Promise.all(todo.map(savePromo)).catch(() => {}).finally(() => { syncing = false; });
 }

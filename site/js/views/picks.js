@@ -44,7 +44,16 @@ export function pickCard(p) {
       <div class="col"><span class="what">${esc(p.selection)}</span><span class="sub">${esc(p.matchup || "")}${p.commence ? ` · ${fmtTime(p.commence)}` : ""}</span></div>
       <div class="col" style="align-items:flex-end">${units(p.units)}<span class="tiny muted">${p.units ?? "–"}u${S.settings?.unit && p.units ? ` · $${Math.round(p.units * S.settings.unit)}` : ""}</span></div></div>
     <div class="row" style="gap:6px;flex-wrap:wrap">${tier}${stPill}${p.clv != null ? `<span class="pill ${p.clv > 0 ? "pos" : "neg"}">CLV ${pct(p.clv)}</span>` : ""}
-      ${p.checks ? `<span class="pk-checks" title="a pick needs the sports case, our model and the price to agree">${[["logic", "Sports logic"], ["model", "Model"], ["price", "Price"]].map(([k, t]) => `<span class="pillar ${p.checks[k] ? "sup" : "ag"}">${p.checks[k] ? "✓" : "✗"} ${t}</span>`).join("")}</span>` : ""}</div>
+      ${(() => {      // the checks as posted, with the model check recomputed from the pick's own numbers
+        const mOK = p.modelP != null && p.marketFair != null ? p.modelP > p.marketFair : null;
+        const ch = p.checks ? { ...p.checks } : mOK != null ? { model: mOK } : null;
+        if (!ch) return "";
+        const wrong = ch.model === true && mOK === false;
+        if (mOK != null) ch.model = mOK;
+        return `<span class="pk-checks" title="a pick needs the sports case, our model and the price to agree">${[["logic", "Sports logic"], ["model", "Model"], ["price", "Price"]].filter(([k]) => ch[k] != null).map(([k, t]) => `<span class="pillar ${ch[k] ? "sup" : "ag"}">${ch[k] ? "✓" : "✗"} ${t}</span>`).join("")}</span>`
+          + (wrong ? `<span class="pill neg" title="posted as model-agrees, but our model's ${prob(p.modelP, 1)} is below the market's ${prob(p.marketFair, 1)} on this side">model actually below market</span>` : "");
+      })()}
+      ${(p.fair || 0) >= 0.7 ? `<span class="pill" title="a 70%+ favorite pays little and loses to minutes, blowouts and foul trouble; it needs a real price edge">heavy favorite</span>` : ""}</div>
     ${p.logicCase ? `<div class="small" style="line-height:1.45"><b>The sports case:</b> ${esc(p.logicCase)}</div>` : ""}
     <div class="playto">
       <div class="fc"><div class="k">Fair</div><div class="v">${am(p.fairAm)}</div><div class="s">${prob(p.fair, 1)}</div></div>

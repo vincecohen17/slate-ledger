@@ -11,25 +11,30 @@ const venueName = (k) => S.edges.find((e) => e.book === k)?.bookName || k;
 function edgeCard(C) {
   if (!C || !C.n) return `<div class="card note">Collecting. Every edge the board flags is logged with its price, followed to the close and graded after the game; the first grades land after today's games, and categories show from 3 edges (trust them from a few hundred).</div>`;
   const rows = C[ecDim] || [];
-  const max = Math.max(0.01, ...rows.map((r) => Math.abs(r.clv)));
-  const conf = (r) => r.z == null ? "" : Math.abs(r.z) >= 2.5 ? `<span class="pill ${r.clv > 0 ? "pos" : "neg"}">solid</span>` : Math.abs(r.z) >= 1.5 ? `<span class="pill">likely</span>` : `<span class="pill" style="opacity:.6">noise?</span>`;
+  // results first: wins against what the fair expected. CLV on lines priced from our own model is measured against that
+  // same model, so it can look great while the bets lose; it stays as a column, second.
+  const gap = (r) => r.gap ?? (r.win != null && r.exp != null ? r.win - r.exp : null);
+  const max = Math.max(0.01, ...rows.map((r) => Math.abs(gap(r) || 0)));
+  const conf = (r) => r.zRes == null ? "" : Math.abs(r.zRes) >= 2.5 ? `<span class="pill ${r.zRes > 0 ? "pos" : "neg"}">${r.zRes > 0 ? "real edge" : "mirage"}</span>` : Math.abs(r.zRes) >= 1.5 ? `<span class="pill">${r.zRes > 0 ? "promising" : "doubtful"}</span>` : `<span class="pill" style="opacity:.6">too early</span>`;
   const name = (k) => ecDim === "venue" ? `<span class="lg-name">${bookLogo(k, venueName(k), 16)}${esc(venueName(k))}</span>` : ecDim.startsWith("venue") ? (() => { const [v, rest] = k.split(" · "); return `<span class="lg-name">${bookLogo(v, venueName(v), 16)}${esc(venueName(v))} · ${esc(rest)}</span>`; })() : esc(k);
   const d = C.daily || [];
+  const A = C.all, ga = gap(A);
+  const pp = (x) => `${x > 0 ? "+" : ""}${(x * 100).toFixed(1)} pts`;
   return `<div class="card">
     <div class="kpis"><div class="kpi"><div class="k">Edges graded</div><div class="v">${C.n.toLocaleString()}</div><div class="s">since ${esc(C.since || "")}</div></div>
-      <div class="kpi"><div class="k">CLV at the flagged price</div><div class="v ${C.all.clv > 0 ? "pos" : "neg"}">${pct(C.all.clv)}</div><div class="s">beat the close ${Math.round(C.all.beat * 100)}%</div></div>
-      <div class="kpi"><div class="k">If you waited</div><div class="v ${C.all.clvLast > 0 ? "pos" : "neg"}">${pct(C.all.clvLast)}</div><div class="s">the venue's last price before the start</div></div>
-      <div class="kpi"><div class="k">Flat 1u ROI</div><div class="v ${C.all.roi > 0 ? "pos" : "neg"}">${C.all.roi != null ? pct(C.all.roi) : "–"}</div><div class="s">won ${C.all.win != null ? Math.round(C.all.win * 100) + "%" : "–"} vs ${C.all.exp != null ? Math.round(C.all.exp * 100) + "%" : "–"} expected</div></div></div>
+      <div class="kpi"><div class="k">Won vs expected</div><div class="v ${ga > 0 ? "pos" : ga < 0 ? "neg" : ""}">${ga != null ? pp(ga) : "–"}</div><div class="s">won ${A.win != null ? Math.round(A.win * 100) + "%" : "–"} vs ${A.exp != null ? Math.round(A.exp * 100) + "%" : "–"} the fair said${A.zRes != null ? ` · ${A.zRes > 0 ? "+" : ""}${A.zRes}σ` : ""}</div></div>
+      <div class="kpi"><div class="k">Flat 1u ROI</div><div class="v ${A.roi > 0 ? "pos" : "neg"}">${A.roi != null ? pct(A.roi) : "–"}</div><div class="s">every flagged edge at its flagged price</div></div>
+      <div class="kpi"><div class="k">CLV at the flag</div><div class="v">${pct(A.clv)}</div><div class="s">vs our closing fair (self-graded on model-priced lines)</div></div></div>
     <div class="bar" style="margin-top:10px">${EC_DIMS.map(([k, l]) => `<button class="chip sm ${k === ecDim ? "on" : ""}" data-ec="${k}">${l}</button>`).join("")}</div>
-    <div style="overflow-x:auto"><table class="l10t an-t" style="width:100%"><thead><tr><th></th><th>Edges</th><th style="min-width:130px">CLV at flag</th><th>Beat close</th><th>Waited</th><th>Best seen</th><th>ROI</th><th>Won / exp</th><th></th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td>${name(r.k)}</td><td class="num">${r.n}</td>
-        <td><div class="lg-roi"><span class="lg-mid"></span><i class="${r.clv >= 0 ? "pos" : "neg"}" style="${r.clv >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(r.clv) / max * 50).toFixed(0)}%"></i></div><span class="num tiny ${r.clv >= 0 ? "pos" : "neg"}">${pct(r.clv)}</span></td>
-        <td class="num">${Math.round(r.beat * 100)}%</td><td class="num ${r.clvLast >= 0 ? "pos" : "neg"}">${pct(r.clvLast)}</td><td class="num">${pct(r.clvBest)}</td>
-        <td class="num ${r.roi > 0 ? "pos" : r.roi < 0 ? "neg" : ""}">${r.roi != null ? pct(r.roi) : "–"}</td><td class="num">${r.win != null ? `${Math.round(r.win * 100)} / ${Math.round(r.exp * 100)}` : "–"}</td><td>${conf(r)}</td></tr>`).join("")}
+    <div style="overflow-x:auto"><table class="l10t an-t" style="width:100%"><thead><tr><th></th><th>Graded</th><th style="min-width:130px">Won vs expected</th><th>Won / exp</th><th>ROI</th><th>CLV</th><th>Waited</th><th></th></tr></thead><tbody>
+      ${rows.map((r) => { const g = gap(r); return `<tr><td>${name(r.k)}</td><td class="num">${r.graded ?? r.n}</td>
+        <td><div class="lg-roi"><span class="lg-mid"></span><i class="${g >= 0 ? "pos" : "neg"}" style="${g >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(g || 0) / max * 50).toFixed(0)}%"></i></div><span class="num tiny ${g >= 0 ? "pos" : "neg"}">${g != null ? pp(g) : "–"}</span></td>
+        <td class="num">${r.win != null ? `${Math.round(r.win * 100)} / ${Math.round(r.exp * 100)}` : "–"}</td>
+        <td class="num ${r.roi > 0 ? "pos" : r.roi < 0 ? "neg" : ""}">${r.roi != null ? pct(r.roi) : "–"}</td><td class="num">${pct(r.clv)}</td><td class="num">${pct(r.clvLast)}</td><td>${conf(r)}</td></tr>`; }).join("")}
     </tbody></table></div>
-    ${d.length >= 3 ? `<div style="margin-top:10px">${lineChart([{ pts: d.map((x, i) => ({ i, y: x.clv, tip: `${x.d}: ${pct(x.clv)} over ${x.n} edges` })), color: "var(--pos)" }], { h: 160, fmt: (x) => pct(x), labels: d.map((x, i) => (i % Math.ceil(d.length / 6) === 0 ? x.d.slice(5) : "")) })}${legend([["var(--pos)", "average CLV of the day's flagged edges"]])}</div>` : ""}
-    <p class="note"><b>CLV at flag</b>: what the price we flagged was worth at the closing sharp fair. Positive across hundreds of edges means that kind of edge is real; negative means the "edge" was the venue being right and the fair being slow.
-      <b>Waited</b> is the same edge at the venue's last price before the start (negative when waiting costs you: bet early there). <b>Best seen</b> is the best price the venue showed. "solid" means the CLV is 2.5+ standard errors from zero. These numbers also nudge each new edge's rank.</p></div>`;
+    ${d.length >= 3 ? `<div style="margin-top:10px">${lineChart([{ pts: d.map((x, i) => ({ i, y: gap(x) ?? 0, tip: `${x.d}: won ${Math.round((x.win || 0) * 100)}% vs ${Math.round((x.exp || 0) * 100)}% expected over ${x.graded ?? x.n} edges` })), color: "var(--accent)" }], { h: 160, fmt: (x) => pp(x), labels: d.map((x, i) => (i % Math.ceil(d.length / 6) === 0 ? x.d.slice(5) : "")) })}${legend([["var(--accent)", "each day: flagged edges' win rate minus what their fair expected"]])}</div>` : ""}
+    <p class="note"><b>Won vs expected</b> is the honest test of an edge: how often that kind of flagged bet won, minus the chance our fair gave it. Above zero over a few hundred edges, the edge is real; below, the fair was wrong (a "mirage"). The tag reads it at 2.5 standard errors.
+      <b>CLV</b> here is the flagged price at our own closing fair, which on lines priced from our model grades the model against itself, so trust it only on main lines. <b>Waited</b> is the venue's last price before the start. These results also nudge each new edge's rank: a kind that wins less than its fair says gets pushed down.</p></div>`;
 }
 
 function divBars(rows, val, fmt, tip) {

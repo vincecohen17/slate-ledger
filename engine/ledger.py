@@ -338,3 +338,73 @@ def debug_bets(db, data_dir, fin_by_gid):
                     "boostIn": b.get("boostIn"), "live": b.get("live"), "settledAt": b.get("settledAt")})
     json.dump(out, open(os.path.join(data_dir, "latest", "ledger_debug.json"), "w"), indent=1, default=str)
     return len(out)
+
+
+# ---------------------------------------------------------------------------
+# sports on bets logged before the site recorded them (Bet Lab parlays, promo entries, typed-in bets): each leg's
+# league from its game's pre-game snapshot or the finals, else from a player or team name in the label. Written once
+# per bet as leagues [..] + leaguesAt, at most hourly (it reads every bet).
+
+def backfill_leagues(db, data_dir, now, log=print):
+    import config as C
+    import refs as R
+    st_fn = os.path.join(data_dir, "latest", "leagues_state.json")
+    try:
+        last = json.load(open(st_fn)).get("at")
+    except Exception:
+        last = None
+    if last and now - datetime.fromisoformat(last) < timedelta(hours=1):
+        return 0
+    by_gid = {}
+    for fn in sorted(glob.glob(os.path.join(data_dir, "finals", "20*.json")))[-21:]:
+        try:
+            for d in json.load(open(fn)).values():
+                if d.get("gameId") and d.get("league"):
+                    by_gid[d["gameId"]] = d["league"]
+        except Exception:
+            pass
+    names = []          # (normalized name, league): players with two or more words, and full team names
+    for fn in glob.glob(os.path.join(data_dir, "refs", "*.json")):
+        sport = os.path.basename(fn)[:-5]
+        if sport not in C.SPORTS:
+            continue
+        try:
+            rf = json.load(open(fn))
+        except Exception:
+            continue
+        lg = C.label(sport)
+        names += [(k, lg) for k in (rf.get("teams") or {}) if len(k) >= 6]
+        names += [(k, lg) for k in (rf.get("players") or {}) if len(k) >= 8]
+    names.sort(key=lambda x: -len(x[0]))
+
+    def league_of(leg):
+        gid = leg.get("gameId")
+        if gid:
+            if gid in by_gid:
+                return by_gid[gid]
+            try:
+                return C.label(json.load(open(os.path.join(data_dir, "track", "open", f"{gid}.json")))["sport"])
+            except Exception:
+                pass
+        lab = R.norm(" ".join(str(leg.get(k) or "") for k in ("player", "label", "team", "side")))
+        if lab:
+            hits = {lg for k, lg in names if k in lab}
+            if len(hits) == 1:
+                return hits.pop()
+        return None
+
+    n = 0
+    for snap in db.collection("bets").stream():
+        b = snap.to_dict() or {}
+        if b.get("leaguesAt"):
+            continue
+        legs = b.get("legs") or [b]
+        found = sorted({x for x in (league_of(dict(l, gameId=l.get("gameId") or (b.get("gameId") if len(legs) == 1 else None))) for l in legs) if x})
+        if not found and b.get("league"):
+            found = [b["league"]]
+        db.document(f"bets/{snap.id}").update({"leagues": found or b.get("leagues") or [], "leaguesAt": now.isoformat()})
+        n += 1
+    json.dump({"at": now.isoformat()}, open(st_fn, "w"))
+    if n:
+        log(f"ledger: sports filled in on {n} bets")
+    return n

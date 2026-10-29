@@ -74,6 +74,15 @@ def _venue_price(line, side, venue):
     return None
 
 
+def _sane(dec, fair):
+    """a placeholder quote (+99900) or a price three times what the fair supports is a feed error, not an edge"""
+    return dec is not None and 1 < dec <= 50 and (fair is None or dec * fair <= 3)
+
+
+def _ok(r):
+    return r.get("hrs", -1) >= 0 and _sane(r.get("dec"), r.get("fair"))
+
+
 def observe(data_dir, game_docs, prop_docs, edges, now, log=print):
     fn = os.path.join(data_dir, "track", "edgelog", "open.json")
     os.makedirs(os.path.dirname(fn), exist_ok=True)
@@ -85,7 +94,8 @@ def observe(data_dir, game_docs, prop_docs, edges, now, log=print):
     t = _iso(now)
     new = 0
     for e in edges:
-        if e.get("live"):
+        # in-play prices against a pre-game fair mean nothing: only edges flagged before the start are logged
+        if e.get("live") or _dt(e["commence"]) <= now:
             continue
         k = _key(e["gameId"], e["market"], e["side"], e.get("point"), e.get("player"), e.get("team") if not e.get("player") else None)
         ent = book.get(k)
@@ -94,7 +104,7 @@ def observe(data_dir, game_docs, prop_docs, edges, now, log=print):
                              "market": e["market"], "side": e["side"], "point": e.get("point"), "player": e.get("player"),
                              "team": e.get("team") if not e.get("player") else None, "label": e.get("label"), "obs": {}}
         dec = (1 / e["be"]) if e.get("pickem") and e.get("be") else (1 / 0.5774 if e.get("pickem") else _dec(e.get("am")))
-        if not dec:
+        if not dec or not _sane(dec, e.get("fair")):
             continue
         v = ent["obs"].get(e["book"])
         if v is None:
@@ -140,8 +150,15 @@ def grade(data_dir, fin_by_gid, now, log=print):
         book = json.load(open(fn))
     except Exception:
         return 0
+    gfn = os.path.join(data_dir, "track", "edgelog", "graded.json")
+    try:
+        done = json.load(open(gfn))
+    except Exception:
+        done = {}
     out, keep, n = {}, {}, 0
     for k, ent in book.items():
+        if k in done:           # graded already (it came back onto the board after the start): never twice
+            continue
         start = _dt(ent["commence"])
         if now < start + timedelta(hours=2) and ent["gid"] not in fin_by_gid:
             keep[k] = ent
@@ -163,8 +180,11 @@ def grade(data_dir, fin_by_gid, now, log=print):
         if close is None or g.get("void"):
             continue
         hrs = None
+        done[k] = ent["commence"][:10]
         for venue, v in ent["obs"].items():
             hrs = (start - _dt(v["t"])).total_seconds() / 3600
+            if hrs < 0 or not _sane(v["dec"], v.get("fair")):
+                continue
             kind = ("pick'em" if v.get("pickem") else "prop" if ent.get("player") else "line")
             row = {"d": ent["commence"][:10], "sport": ent.get("sport"), "league": ent.get("league"), "venue": venue,
                    "mk": ent["market"], "kind": kind, "main": ent.get("main", False), "est": bool(v.get("est")), "model": bool(v.get("model")),
@@ -180,6 +200,8 @@ def grade(data_dir, fin_by_gid, now, log=print):
             for r in rows:
                 f.write(json.dumps(r, separators=(",", ":")) + "\n")
     json.dump(keep, open(fn, "w"), separators=(",", ":"))
+    cut = (now - timedelta(days=5)).strftime("%Y-%m-%d")
+    json.dump({k: d for k, d in done.items() if d >= cut}, open(gfn, "w"), separators=(",", ":"))
     return n
 
 
@@ -237,6 +259,10 @@ def _agg(rows):
             "graded": len(g), "roi": round(sum(r["pnl"] for r in g) / len(g), 4) if g else None,
             "win": round(sum(r["y"] for r in g) / len(g), 3) if g else None,
             "exp": round(sum(r["close"] for r in g) / len(g), 3) if g else None,
+            # results against what the fair expected: the honest test (CLV on model-priced lines is measured against our
+            # own model, so it can look good while the bets lose)
+            "gap": round((sum(r["y"] for r in g) - sum(r["close"] for r in g)) / len(g), 4) if g else None,
+            "zRes": round((sum(r["y"] for r in g) - sum(r["close"] for r in g)) / max(1e-9, sum(r["close"] * (1 - r["close"]) for r in g)) ** 0.5, 2) if len(g) > 2 else None,
             # z of the CLV mean: how sure we are it isn't noise
             "z": round(clv / ((sum((r["clv"] - clv) ** 2 for r in rows) / max(1, n - 1)) ** 0.5 / n ** 0.5), 2) if n > 2 and len({r["clv"] for r in rows}) > 1 else None}
 
@@ -251,7 +277,7 @@ def summarize(data_dir, days=120, now=None):
                 r = json.loads(line)
             except Exception:
                 continue
-            if r.get("d", "") >= cut:
+            if r.get("d", "") >= cut and _ok(r):       # history logged before the fixes: drop in-play and junk-quote rows
                 rows.append(r)
     out = {"updated": _iso(now), "n": len(rows), "since": min((r["d"] for r in rows), default=None)}
     if rows:
@@ -272,8 +298,9 @@ def summarize(data_dir, days=120, now=None):
 
 
 def rerank(edges, card, prior=150):
-    """nudge each edge's rank by how its kind of edge has done at the close (venue x kind, else kind), shrunk toward
-    zero: with n graded edges the history counts n / (n + prior). Stamps e["track"] for the site."""
+    """nudge each edge's rank by how its kind of edge has actually done: wins against what the fair expected (venue x
+    kind, else kind), shrunk toward zero (n / (n + prior)). A kind that wins 5 points less than its fair said drops about
+    a quarter. Stamps e["track"] for the site."""
     if not card or not card.get("n"):
         return
     vk = {x["k"]: x for x in card.get("venueKind", [])}
@@ -283,13 +310,13 @@ def rerank(edges, card, prior=150):
              "model": bool(e.get("model")), "main": bool(e.get("main", True))}
         k = _kind(r)
         s = vk.get(f"{e['book']} · {k}")
-        if not s or s["n"] < 30:
+        if not s or (s.get("graded") or 0) < 30:
             s = kd.get(k)
-        if not s or s["n"] < 30:
+        if not s or (s.get("graded") or 0) < 30 or s.get("gap") is None:
             continue
-        w = s["n"] / (s["n"] + prior)
-        adj = max(-0.5, min(0.5, s["clv"] * w * 8))
-        e["track"] = {"n": s["n"], "clv": s["clv"], "beat": s["beat"], "cat": s["k"]}
+        w = s["graded"] / (s["graded"] + prior)
+        adj = max(-0.5, min(0.5, s["gap"] * w * 6))
+        e["track"] = {"n": s["graded"], "clv": s["clv"], "beat": s["beat"], "cat": s["k"], "win": s["win"], "exp": s["exp"], "gap": s["gap"], "roi": s["roi"]}
         e["score"] = round(e["score"] * (1 + adj), 4)
     edges.sort(key=lambda x: -x["score"])
 

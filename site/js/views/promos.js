@@ -6,6 +6,7 @@ import { KINDS, FIELDS, SPORTS, BET_TYPES, PICKEM, FEE_VENUES, kindOf, blank, no
   bonusConv, convCurve, findTarget, pAtLine, autoTarget, decOf, amOf, payoutFor, venueHasFeed } from "../promo.js";
 import { betImage, logSheet } from "./common.js";
 import { labWithPromo } from "./lab.js";
+import { syncWalletPromos } from "../wallet.js";
 
 let draft = null, open = new Set(), checker = { q: "", key: null, odds: "", line: "", boost: "", mult: "" }, targetQ = "";
 const results = new Map();        // promo id -> {stamp, opts}
@@ -206,7 +207,7 @@ function promoCard(p) {
     ${bets.length ? `<div class="tiny">${bets.length} bet${bets.length > 1 ? "s" : ""} logged · P/L <span class="${pl >= 0 ? "pos" : "neg"}">${money(pl)}</span></div>` : ""}
     <div class="row" style="flex-wrap:wrap"><button class="btn sm" data-open="${esc(p.id)}">${open.has(p.id) ? "Hide bets" : "See best bets"}</button><button class="btn sm ghost" data-edit="${esc(p.id)}">Edit</button>
       ${k === "discounted_line" && st !== "used" && st !== "expired" && p.target ? `<button class="btn sm ghost" data-lab="${esc(p.id)}" title="pair it with any pick you like and log it">Build your own in the Bet Lab</button>` : ""}
-      <button class="btn sm ghost" data-used="${esc(p.id)}">${p.used ? "Mark active" : "Mark used"}</button><button class="btn sm ghost" data-del="${esc(p.id)}">Delete</button></div>
+      ${p.wallet ? `<span class="tiny muted">From your Wallet: the amount follows your bonus balance there</span>` : `<button class="btn sm ghost" data-used="${esc(p.id)}">${p.used ? "Mark active" : "Mark used"}</button><button class="btn sm ghost" data-del="${esc(p.id)}">Delete</button>`}</div>
     ${open.has(p.id) ? `<div class="col" style="gap:8px">${usesBonus ? convChart(p) : ""}
       ${!venueHasFeed(p.venue) && p.venue !== "any" ? `<div class="note">${esc(venueName(p.venue))} isn't in the odds feed: prices shown are typical sportsbook prices. Check the app's price before betting.</div>` : ""}
       ${VENUES.find((v) => v.key === p.venue)?.proxy ? `<div class="note">${esc(venueName(p.venue))} prices are read from the matching sportsbook; confirm the price in the app.</div>` : ""}
@@ -254,6 +255,7 @@ function checkerCard() {
 
 export function renderPromos(el) {
   loadAllProps();
+  syncWalletPromos();          // bonus funds in the Wallet show up here as a promo
   const list = [...S.promos.values()].map(normalize);
   const rank = { today: 0, active: 1, used: 2, expired: 3 };
   list.sort((a, b) => rank[status(a)] - rank[status(b)] || worth(b, best(b)) - worth(a, best(a)));

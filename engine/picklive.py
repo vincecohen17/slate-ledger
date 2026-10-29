@@ -77,6 +77,13 @@ def check(picks, game_docs, prop_docs, now):
             cur["inRange"] = bool(dec and good and dec >= good - 1e-9)
             venues.append(cur)
         fair_now = ((line or {}).get("fair") or {}).get(side) if line else None
+        # an audit that doesn't take the pick run's word: is our model really on the pick's side of the market, is a
+        # usable price in range now, and is it a heavy favorite (little upside, minutes and blowout risk)
+        mp, mk = pk.get("modelP"), pk.get("marketFair")
+        audit = {"model": None if mp is None or mk is None else mp > mk, "price": any(x["inRange"] for x in venues),
+                 "fav": (pk.get("fair") or 0) >= 0.7}
+        claims = pk.get("checks") or {}
+        audit["mismatch"] = [k for k in ("model", "price") if claims.get(k) is True and audit[k] is False]
         out[pk["id"]] = {"at": now.isoformat().replace("+00:00", "Z"), "venues": venues, "fairNow": fair_now,
-                         "anyInRange": any(x["inRange"] for x in venues)}
+                         "anyInRange": any(x["inRange"] for x in venues), "audit": audit}
     return out

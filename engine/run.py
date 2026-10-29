@@ -1027,6 +1027,7 @@ def publish(game_docs, prop_docs, status, stamp):
             n_b = ledger.grade_bets(firestore_db() if os.environ.get("FIREBASE_SERVICE_ACCOUNT") else None, DATA_DIR, fin_by, log=log)
             if firestore_db():
                 ledger.debug_bets(firestore_db(), DATA_DIR, fin_by)
+                ledger.backfill_leagues(firestore_db(), DATA_DIR, NOW, log=log)
             if n_p or n_b:
                 log(f"ledger: {n_p} picks and {n_b} bets graded")
         except Exception as e:

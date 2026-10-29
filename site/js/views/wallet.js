@@ -3,7 +3,7 @@
 import { S, saveWallet, deleteWallet } from "../store.js";
 import { esc, money, bookLogo, sheet, toast, uid, $, $$ } from "../util.js";
 import { VENUES, venueName } from "../lab.js";
-import { venueState, walletAll } from "../wallet.js";
+import { venueState, walletAll, accountName, accountOf, syncWalletPromos } from "../wallet.js";
 import { divRows } from "./charts.js";
 
 let openHist = new Set();
@@ -22,13 +22,13 @@ function entryLine(e) {
 }
 
 function appCard(w) {
-  const name = venueName(w.venue);
+  const name = accountName(w.venue);
   return `<div class="card col wl-card" style="gap:8px">
     <div class="row" style="justify-content:space-between;gap:8px"><b class="row" style="gap:8px">${bookLogo(w.venue, name, 24)}${esc(name)}</b>
       <span class="tiny muted">${w.checkedAt ? `checked in ${ago(w.checkedAt)}${w.nBets ? ` · ${w.nBets} bet${w.nBets === 1 ? "" : "s"} since tracking` : ""}` : "no check-in yet"}</span></div>
     <div class="wl-nums">
       <div><div class="k">Cash</div><div class="v num">${money(w.cash)}</div><div class="s">${w.tracked ? "what the app should show" : "check in to start"}</div></div>
-      <div><div class="k">Bonus</div><div class="v num">${money(w.bonus)}</div><div class="s">${w.openBonus ? `${money(w.openBonus)} in open bets` : "available"}</div></div>
+      <div><div class="k">Bonus</div><div class="v num">${money(w.bonus)}</div><div class="s">${w.openBonus ? `${money(w.openBonus)} in open bets · ` : ""}${w.bonus >= 0.5 ? `<a href="#/promos">use it</a>` : "available"}</div></div>
       <div><div class="k">In open bets</div><div class="v num">${money(w.openCash)}</div><div class="s">cash</div></div>
       <div><div class="k">Real profit</div><div class="v num ${cls(w.real)}">${w.real != null ? sgn(w.real) : "–"}</div><div class="s">${w.tracked ? `ledger ${sgn(w.ledger)}` : "after a check-in"}</div></div>
     </div>
@@ -47,7 +47,8 @@ export function walletHtml() {
   const tr = all.filter((w) => w.tracked);
   const sum = (k, L = all) => L.reduce((x, w) => x + (w[k] || 0), 0);
   const realT = sum("real", tr), ledT = sum("ledger", tr), unT = sum("unacc", tr);
-  const others = VENUES.filter((v) => v.key !== "any" && !all.some((w) => w.venue === v.key));
+  syncWalletPromos();
+  const others = VENUES.filter((v) => v.key !== "any" && accountOf(v.key) === v.key && !all.some((w) => w.venue === v.key));
   return `${all.length ? `<div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="k">Cash in apps</div><div class="v">${money(sum("cash"))}</div><div class="s">${all.length} app${all.length === 1 ? "" : "s"}</div></div>
       <div class="kpi"><div class="k">Bonus funds</div><div class="v">${money(sum("bonus"))}</div><div class="s">not cash until it wins</div></div>
@@ -55,16 +56,16 @@ export function walletHtml() {
       <div class="kpi"><div class="k">Net deposited</div><div class="v">${money(sum("dep", tr) - sum("wd", tr))}</div><div class="s">${money(sum("dep", tr))} in · ${money(sum("wd", tr))} out</div></div>
       <div class="kpi"><div class="k">Real profit</div><div class="v ${cls(realT)}">${tr.length ? sgn(realT) : "–"}</div><div class="s">ledger says ${sgn(ledT)}${Math.abs(unT) > 0.5 ? ` · ${sgn(unT)} unaccounted` : ""}</div></div>
     </div>` : `<div class="card note" style="margin-top:12px">Track what's really in each app. Pick an app below and check in: type the cash and bonus balance the app shows right now. From then on every bet you log, deposit and withdrawal updates it, and each later check-in shows whether the ledger missed anything.</div>`}
-    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center"><select id="wl-new" style="max-width:220px">${others.map((v) => `<option value="${v.key}">${esc(v.name)}</option>`).join("")}</select>
+    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center"><select id="wl-new" style="max-width:220px">${others.map((v) => `<option value="${v.key}">${esc(accountName(v.key))}</option>`).join("")}</select>
       <button class="btn sm" id="wl-add">Check in an app</button><span class="tiny muted">start tracking another app with its balance right now</span></div>
-    ${tr.length > 1 ? `<div class="sec-title">Where you're making it<span class="line"></span></div><div class="card">${divRows(tr.map((w) => ({ k: venueName(w.venue), html: `<span class="lg-name">${bookLogo(w.venue, venueName(w.venue), 16)}${esc(venueName(w.venue))}</span>`, v: w.real, tip: `${venueName(w.venue)}: real ${sgn(w.real)}, ledger ${sgn(w.ledger)}` })).sort((a, b) => b.v - a.v), { fmt: sgn })}
+    ${tr.length > 1 ? `<div class="sec-title">Where you're making it<span class="line"></span></div><div class="card">${divRows(tr.map((w) => ({ k: accountName(w.venue), html: `<span class="lg-name">${bookLogo(w.venue, accountName(w.venue), 16)}${esc(accountName(w.venue))}</span>`, v: w.real, tip: `${accountName(w.venue)}: real ${sgn(w.real)}, ledger ${sgn(w.ledger)}` })).sort((a, b) => b.v - a.v), { fmt: sgn })}
       <p class="note">Real profit per app since you started tracking it: cash now + cash in open bets + withdrawals − deposits − what was there at the first check-in. Bonus funds aren't counted until they win.</p></div>` : ""}
     ${all.length ? `<div class="sec-title">Your apps<span class="line"></span></div><div class="grid wl-grid">${all.map(appCard).join("")}</div>` : ""}`;
 }
 
 function walletSheet(type, venue) {
   const w = venueState(venue) || { cash: 0, bonus: 0, tracked: false };
-  const name = venueName(venue);
+  const name = accountName(accountOf(venue));
   const title = { balance: `Check in: ${name}`, deposit: `Deposit to ${name}`, withdrawal: `Withdraw from ${name}`, bonus: `Bonus received at ${name}` }[type];
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   sheet(`<h3>${esc(title)}</h3><div class="col" style="gap:10px">
