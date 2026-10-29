@@ -273,7 +273,8 @@ def live():
                             continue
                         r = LB.resolve(leg, DATA_DIR)
                         if r and r.get("player"):
-                            found.setdefault(leg["gameId"], {})[f"{snap.id}#{i}"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")}
+                            found.setdefault(leg["gameId"], {})[f"{snap.id}#{i}"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")} \
+                                | {k: leg.get(k) or b.get(k) for k in ("matchup", "league", "commence")}
                 ls["betLegs"], ls["betsAt"], ls["liveBets"] = found, iso(NOW), live_open
         except Exception as e:
             log(f"open bets read failed: {type(e).__name__}")
@@ -286,7 +287,8 @@ def live():
                 continue
             r = LB.resolve({k: pk.get(k) for k in ("gameId", "market", "side", "point", "player", "team")} | {"label": pk.get("selection")}, DATA_DIR)
             if r and r.get("player"):
-                bet_legs.setdefault(pk["gameId"], {})[f"{pk['id']}#0"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")}
+                bet_legs.setdefault(pk["gameId"], {})[f"{pk['id']}#0"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")} \
+                    | {k: pk.get(k) for k in ("matchup", "league", "commence")}
     except Exception as e:
         log(f"open picks read failed: {type(e).__name__}")
     bet_games = set(bet_legs)
@@ -374,6 +376,22 @@ def live():
     missing = [gid for gid in bet_games if gid not in have]
     if missing:
         gm = {**meta, **{g["id"]: g for g in games}}
+        # a game that ended before live mode saw it in play: rebuild it from the bet itself (matchup, league, start)
+        lg2s = {C.label(x): x for x in C.SPORTS}
+        for gid in missing:
+            if gid in gm:
+                continue
+            info = next((v for v in bet_legs[gid].values() if v.get("matchup") and " @ " in v["matchup"] and lg2s.get(v.get("league"))), None)
+            if not info:
+                continue
+            away, home = info["matchup"].split(" @ ", 1)
+            g = {"id": gid, "sport": lg2s[info["league"]], "league": info["league"], "home": home.strip(), "away": away.strip(),
+                 "commence": info.get("commence") or iso(NOW - timedelta(hours=3))}
+            try:
+                refs.decorate_game(g, refs.load(g["sport"], DATA_DIR))
+            except Exception:
+                pass
+            gm[gid] = g
         ms = [gm[x] for x in missing if x in gm and NOW - timedelta(hours=14) <= datetime.fromisoformat(gm[x]["commence"].replace("Z", "+00:00")) <= NOW]
         post = {}
         if ms:
