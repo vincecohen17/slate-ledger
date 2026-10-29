@@ -381,6 +381,13 @@ def live():
         for gid in missing:
             if gid in gm:
                 continue
+            try:                # the pre-game snapshot the tracker keeps for every game: sport, teams, abbreviations, start
+                tg = json.load(open(os.path.join(DATA_DIR, "track", "open", f"{gid}.json")))
+                gm[gid] = {"id": gid, "sport": tg["sport"], "league": C.label(tg["sport"]), "home": tg["home"], "away": tg["away"],
+                           "commence": tg["commence"], "homeRef": {"abbr": tg.get("ha")}, "awayRef": {"abbr": tg.get("aa")}}
+                continue
+            except Exception:
+                pass
             info = next((v for v in bet_legs[gid].values() if v.get("matchup") and " @ " in v["matchup"] and lg2s.get(v.get("league"))), None)
             if not info:
                 continue
