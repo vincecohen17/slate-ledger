@@ -137,7 +137,7 @@ function props(g) {
 
 export function renderGame(el, id, tab) {
   const g = S.games.get(id);
-  const isLive = S.liveGames.has(id) || (g && new Date(g.commence) < new Date() && Date.now() - new Date(g.commence) < 5 * 3600000);
+  const isLive = (S.liveGames.has(id) && !S.liveGames.get(id).final) || (g && new Date(g.commence) < new Date() && Date.now() - new Date(g.commence) < 5 * 3600000);
   tab = tab || (isLive ? "live" : "matchup");
   if (!g) { el.innerHTML = `<div class="empty"><h3>Game not on the board</h3><a href="#/">Back to the board</a></div>`; return; }
   loadProps(id);

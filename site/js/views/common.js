@@ -71,7 +71,7 @@ export function logSheet(pre = {}) {
   const venues = VENUES.filter((v) => v.key !== "any"), edit = !!pre.id;
   const settled = ["won", "lost", "push", "void"].includes(pre.status);
   // a bet on a game already in play is a live bet: keep the score and clock when it was placed
-  const gid = pre.gameId || pre.legs?.[0]?.gameId, g = gid && S.games.get(gid), lv = gid && S.liveGames.get(gid);
+  const gid = pre.gameId || pre.legs?.[0]?.gameId, g = gid && S.games.get(gid), lv0 = gid && S.liveGames.get(gid), lv = lv0 && !lv0.final ? lv0 : null;
   const st = lv?.state || (S.live?.games || []).find((x) => x.id === gid)?.state;
   const isLive = edit ? !!pre.live : !!(pre.live || lv || (g && new Date(g.commence) < new Date() && Date.now() - new Date(g.commence) < 5 * 3600000));
   const liveSt = edit ? (pre.liveState || null) : st && st.home?.score != null ? { away: st.away.score, home: st.home.score, detail: st.detail || "", text: `${st.away.score}–${st.home.score} ${st.detail || ""}`.trim() } : null;

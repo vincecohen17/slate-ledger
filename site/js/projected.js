@@ -134,9 +134,13 @@ function legRaw(leg) {
   const fr = fromFinal(fin, leg);
   if (fr != null) return { p: fr, src: "final" };
   const d = S.liveGames.get(leg.gameId);
+  if (d?.final && d.state?.home?.score != null) {     // just finished, not graded yet: the final score decides it
+    const fr2 = fromFinal({ home: { score: d.state.home.score, name: d.home }, away: { score: d.state.away.score, name: d.away } }, leg);
+    if (fr2 != null) return { p: fr2, src: "final" };
+  }
   if (d) {
     const bl = leg._k && d.betLegs?.[leg._k];       // the engine's numbers for this exact leg: box-score stat every live run
-    if (bl && bl.p != null) return { p: bl.p, src: "live", cur: bl.cur, proj: bl.proj, dnp: bl.dnp };
+    if (bl && bl.p != null) return { p: bl.p, src: d.final ? "final" : "live", cur: bl.cur, proj: bl.proj, dnp: bl.dnp };
     if (leg.player) {
       const r = findProp(d.props, leg);
       if (bl && bl.cur != null && !(r?.live)) {
@@ -287,7 +291,12 @@ export function progress(leg, r) {
   return r.held ? { ...pg, held: true } : pg;
 }
 function progress0(leg, r) {
-  if (r.src === "final") return { cls: r.p === 1 ? "pos" : r.p === 0 ? "neg" : "", icon: r.p === 1 ? "✓" : r.p === 0 ? "✗" : "=", text: r.p === 1 ? "Won" : r.p === 0 ? "Lost" : "Push", bar: { done: r.p } };
+  if (r.src === "final") {
+    const res = r.p === 1 ? "Won" : r.p === 0 ? "Lost" : "Push";
+    const st0 = gameState(leg.gameId), fs = st0?.home?.score != null ? ` · final ${st0.away.score}–${st0.home.score}` : "";
+    const stat = leg.player && r.cur != null ? ` · finished with ${fmtN(r.cur)} (${leg.side === "Under" || leg.side === "No" ? "under" : "over"} ${leg.point})${r.dnp ? " · didn't play: check if the app voids it" : ""}` : fs;
+    return { cls: r.p === 1 ? "pos" : r.p === 0 ? "neg" : "", icon: r.p === 1 ? "✓" : r.p === 0 ? "✗" : "=", text: `${res}${stat} · grading soon`, bar: { done: r.p } };
+  }
   const d = S.liveGames.get(leg.gameId), st = gameState(leg.gameId);
   const g = S.games.get(leg.gameId);
   if (!st) return { cls: "muted", icon: "○", text: g ? `Starts ${fmtTime(g.commence)}` : "Not started", bar: { cur: 0, line: null, proj: null } };

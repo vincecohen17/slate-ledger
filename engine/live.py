@@ -70,8 +70,9 @@ def _path(sport):
     return None
 
 
-def scoreboards(sports):
-    """{(sport, homeAbbr, awayAbbr): state} for games in progress (tennis: player names)"""
+def scoreboards(sports, post=None):
+    """{(sport, homeAbbr, awayAbbr): state} for games in progress (tennis: player names). With a dict as `post`, games
+    that have finished are put there too (state final=True), so bets on them read as won or lost until they're graded."""
     out = {}
     done = set()
     for sport in sports:
@@ -93,7 +94,8 @@ def scoreboards(sports):
         for e in sb.get("events", []):
             c = e["competitions"][0]
             st = c.get("status") or e.get("status") or {}
-            if (st.get("type") or {}).get("state") != "in":
+            ph = (st.get("type") or {}).get("state")
+            if ph != "in" and not (ph == "post" and post is not None):
                 continue
             side = {x["homeAway"]: x for x in c["competitors"]}
             sit = c.get("situation") or {}
@@ -109,6 +111,10 @@ def scoreboards(sports):
                              half="top" if str(state["detail"] or "").lower().startswith(("top", "mid")) else "bottom")
                 if str(state["detail"] or "").lower().startswith(("mid", "end")):
                     state["between"] = True
+            if ph == "post":
+                state.update(final=True, detail=(st.get("type") or {}).get("shortDetail") or "Final")
+                post[(sport, R.norm(state["home"]["abbr"]), R.norm(state["away"]["abbr"]))] = state
+                continue
             out[(sport, R.norm(state["home"]["abbr"]), R.norm(state["away"]["abbr"]))] = state
     return out
 

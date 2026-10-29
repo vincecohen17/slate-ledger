@@ -148,6 +148,8 @@ def stat(sport, market, p):
 
 
 def left_frac(sport, st):
+    if st.get("final"):                          # the game is over: every stat is final
+        return 0.0
     if sport == "baseball_mlb":
         inn, half, outs = st.get("period") or 1, (st.get("half") or "top"), st.get("outs") or 0
         det = str(st.get("detail") or "").lower()

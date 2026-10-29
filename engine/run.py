@@ -235,7 +235,7 @@ def live():
         ls = {}
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
     if ls.get("day") != today:
-        ls = {"day": today, "used": 0, "props": {}, **{k: ls[k] for k in ("betLegs", "betsAt", "liveBets", "rt", "rtBoardAt", "fsLiveCleared") if k in ls}}
+        ls = {"day": today, "used": 0, "props": {}, **{k: ls[k] for k in ("betLegs", "betsAt", "liveBets", "rt", "rtBoardAt", "fsLiveCleared", "liveMeta") if k in ls}}
     room = C.LIVE_DAY_CAP - ls.get("used", 0)
     if room <= 0:
         log("live credit cap reached for today")
@@ -277,9 +277,19 @@ def live():
                 ls["betLegs"], ls["betsAt"], ls["liveBets"] = found, iso(NOW), live_open
         except Exception as e:
             log(f"open bets read failed: {type(e).__name__}")
-    bet_legs = ls.get("betLegs") or {}
+    bet_legs = {g: dict(v) for g, v in (ls.get("betLegs") or {}).items()}
+    prop_games = set(sorted(bet_legs)[:4])          # live prop prices cost credits: at most 4 games besides the watched one
+    # our open prop picks get the same live and final stat (read from the picks files here: no database reads)
+    try:
+        for pk in load_picks(3):
+            if pk.get("status") in ("void", "won", "lost", "push") or pk.get("tier") == "likely" or not pk.get("gameId") or not pk.get("player"):
+                continue
+            r = LB.resolve({k: pk.get(k) for k in ("gameId", "market", "side", "point", "player", "team")} | {"label": pk.get("selection")}, DATA_DIR)
+            if r and r.get("player"):
+                bet_legs.setdefault(pk["gameId"], {})[f"{pk['id']}#0"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")}
+    except Exception as e:
+        log(f"open picks read failed: {type(e).__name__}")
     bet_games = set(bet_legs)
-    prop_games = set(sorted(bet_games)[:4])          # live prop prices cost credits: at most 4 games besides the watched one
     for s in sports:
         try:
             data = api.odds(s, C.GAME_MARKETS, None, bookmakers=C.EVENT_BOOKS)
@@ -353,6 +363,41 @@ def live():
                          "homeRef": g.get("homeRef"), "awayRef": g.get("awayRef"), "state": st,
                          "model": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in (pj or {}).items()},
                          "lines": g["lines"], "props": props, "edges": E[:40], "betLegs": bl, "updated": iso(NOW)})
+    # games that just ended still have open bets until the ledger grades them: keep them in the live feed with the final
+    # score and each leg's final stat, so a finished bet reads won or lost instead of going back to "not started"
+    meta = ls.setdefault("liveMeta", {})            # teams and sport of every game seen in play (the odds cache drops a game once it ends)
+    for d in docs:
+        meta[d["id"]] = {k: d.get(k) for k in ("sport", "league", "home", "away", "commence", "homeRef", "awayRef")} | {"id": d["id"]}
+    for k in [k for k, v in meta.items() if datetime.fromisoformat(v["commence"].replace("Z", "+00:00")) < NOW - timedelta(hours=16)]:
+        del meta[k]
+    have = {d["id"] for d in docs}
+    missing = [gid for gid in bet_games if gid not in have]
+    if missing:
+        gm = {**meta, **{g["id"]: g for g in games}}
+        ms = [gm[x] for x in missing if x in gm and NOW - timedelta(hours=14) <= datetime.fromisoformat(gm[x]["commence"].replace("Z", "+00:00")) <= NOW]
+        post = {}
+        if ms:
+            try:
+                LV.scoreboards(sorted({g["sport"] for g in ms}), post=post)
+            except Exception as e:
+                log(f"live: final scoreboards failed ({type(e).__name__})")
+        for g in ms:
+            s = g["sport"]
+            ha, aa = (g.get("homeRef") or {}).get("abbr"), (g.get("awayRef") or {}).get("abbr")
+            st = post.get((s, refs.norm(ha or ""), refs.norm(aa or ""))) or post.get((s, refs.norm(g["home"]), refs.norm(g["away"])))
+            if not st:
+                continue
+            try:
+                bl = LB.compute(DATA_DIR, s, g["id"], st, bet_legs[g["id"]], log)
+            except Exception as e:
+                log(f"bet legs (final) failed: {type(e).__name__}")
+                bl = {}
+            docs.append({"id": g["id"], "league": g["league"], "sport": s, "home": g["home"], "away": g["away"], "commence": g["commence"],
+                         "homeRef": g.get("homeRef"), "awayRef": g.get("awayRef"), "state": st, "model": {}, "final": True,
+                         "lines": [], "props": [], "edges": [], "betLegs": bl, "updated": iso(NOW)})
+        n_fin = sum(1 for d in docs if d.get("final"))
+        if n_fin:
+            log(f"live: {n_fin} finished games kept for their open bets")
     ls["used"] = ls.get("used", 0) + api.used_run
     os.makedirs(os.path.dirname(fn), exist_ok=True)
     json.dump(ls, open(fn, "w"))
@@ -378,7 +423,7 @@ def live():
     summary = [{"id": d["id"], "league": d["league"], "home": d["home"], "away": d["away"], "homeRef": d["homeRef"], "awayRef": d["awayRef"],
                 "state": d["state"], "pHome": (d["model"] or {}).get("pHome"),
                 "mkt": next(((l.get("fair") or {}).get(d["home"]) for l in d["lines"] if l["market"] == "h2h"), None),
-                "edges": len(d["edges"])} for d in docs]
+                "edges": len(d["edges"])} for d in docs if not d.get("final")]
     edges_all.sort(key=lambda e: -e["score"])
     if firestore_db():
         import rt
@@ -442,7 +487,7 @@ def _fs_live(docs, edges_all, ls, today, pres, bet_games):
         summary = [{"id": d["id"], "league": d["league"], "home": d["home"], "away": d["away"], "homeRef": d["homeRef"], "awayRef": d["awayRef"],
                     "state": d["state"], "pHome": (d["model"] or {}).get("pHome"),
                     "mkt": next(((l.get("fair") or {}).get(d["home"]) for l in d["lines"] if l["market"] == "h2h"), None),
-                    "edges": len(d["edges"])} for d in docs]
+                    "edges": len(d["edges"])} for d in docs if not d.get("final")]
         edges_all.sort(key=lambda e: -e["score"])
         hb = hashlib.sha1(json.dumps([summary, edges_all[:150]], separators=(",", ":")).encode()).hexdigest()
         if hashes.get("_board") != hb or _age_min(ls.get("boardAt")) >= 10:       # the "updated" stamp still moves every 10 min
