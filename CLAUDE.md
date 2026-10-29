@@ -43,6 +43,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   market/side are read from their labels (also used by ledger grading). Live bets (bet.live, logged from the Live tab,
   live edges, or any bet on a game in play, with liveState score/clock) get liveCheck {fair, clv, mins}: the live fair
   5-30 minutes after the bet, which grading uses as their CLV (the pre-game close says nothing about a live price).
+  Open prop picks get betLegs too ("<pickId>#0"). A game that has ended but still has open bets or picks stays in the live
+  feed (doc final: true, ESPN's final state via scoreboards(post=...), final stats with no time left) until they grade; its
+  teams come from live_state liveMeta, else the pre-game snapshot track/open/<gameId>.json, else the bet's matchup.
 - `engine/rt.py` Realtime Database (free, no daily write count; 10 GB/month download allowance): the board the engine
   publishes under `pre/` (status, edges, reports, g/<id> a game with main lines, ga/<id> alternate lines, p/<id>/<market>
   main prop rows, pa/<id>/<market> alternate rows, mu/<id> matchups, fin/board + fin/d/<key> finals) and in-play data
