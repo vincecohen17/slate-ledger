@@ -30,7 +30,7 @@ def _mode():
         return m
     try:  # push-triggered runs read the mode from the first word of engine/run-request
         w = open(os.path.join(os.path.dirname(__file__), "run-request")).read().split()
-        if w and w[0] in ("mock", "live", "auto", "refresh", "rebuild", "probe", "stats", "history", "backtest"):
+        if w and w[0] in ("mock", "live", "watch", "auto", "refresh", "rebuild", "probe", "stats", "history", "backtest"):
             return w[0]
     except OSError:
         pass
@@ -213,21 +213,25 @@ def _live_pre(s, g, mu, games):
     return {"margin": -sp["point"], "total": tt["point"]}
 
 
-def live():
+def live(watch=False, full=True, pres=None):
     """In-play: live prices for every game in progress, our live projection, live edges; live props for the game
-    being watched. Writes Firestore live/{gameId} and board/live. Runs only while the site is open."""
+    being watched. Writes the Realtime Database live/. A plain live run goes only while the site is open.
+    watch=True: one pass of the watcher loop (watch()). full=False: no Odds API calls at all (free): only the games with
+    Vince's open bets or picks get their score, each leg's live stat, projected finish and chance from ESPN, written as
+    the games' small live/g/<id>/m pieces (lines, edges and the board are left as the last full pass wrote them).
+    Returns {"need": open legs still in play or starting within 15 minutes}."""
     import live as LV
     import refs
     key = os.environ.get("ODDS_API_KEY")
-    if not key:
+    if full and not key:
         raise RuntimeError("ODDS_API_KEY secret is missing or empty")
-    pres = presence_doc()
+    pres = pres if pres is not None else presence_doc()
     at = pres.get("at")
     # the site dispatches live runs itself; if its presence write didn't land (Firebase daily limit), trust the dispatch
     asked = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-    if not asked and (not at or (NOW - datetime.fromisoformat(at.replace("Z", "+00:00"))).total_seconds() > C.ACTIVE_MINUTES * 60):
+    if not watch and not asked and (not at or (NOW - datetime.fromisoformat(at.replace("Z", "+00:00"))).total_seconds() > C.ACTIVE_MINUTES * 60):
         log("site closed: no live pull")
-        return
+        return {"need": False}
     fn = os.path.join(DATA_DIR, "latest", "live_state.json")
     try:
         ls = json.load(open(fn))
@@ -237,9 +241,11 @@ def live():
     if ls.get("day") != today:
         ls = {"day": today, "used": 0, "props": {}, **{k: ls[k] for k in ("betLegs", "betsAt", "liveBets", "rt", "rtBoardAt", "fsLiveCleared", "liveMeta") if k in ls}}
     room = C.LIVE_DAY_CAP - ls.get("used", 0)
-    if room <= 0:
-        log("live credit cap reached for today")
-        return
+    if full and room <= 0:
+        if not watch:
+            log("live credit cap reached for today")
+            return {"need": False}
+        full = False            # out of in-play credits: the watcher keeps the bets' stats going for free
     games, _ = load_cache(keep_hours=6)
     started = [g for g in games if NOW - timedelta(hours=5) <= datetime.fromisoformat(g["commence"].replace("Z", "+00:00")) <= NOW]
     sports = sorted({g["sport"] for g in started})
@@ -248,7 +254,7 @@ def live():
         mups = json.load(open(os.path.join(DATA_DIR, "latest", "matchups.json")))
     except Exception:
         mups = {}
-    api = OddsAPI(key, max_credits=min(2000, room))
+    api = OddsAPI(key, max_credits=min(2000, max(room, 0))) if full else None
     docs, edges_all = [], []
     # every leg of Vince's open bets, by game: live stat + chance from the ESPN box score each run (betLegs), and games
     # with an open prop bet also get live prop prices
@@ -293,16 +299,18 @@ def live():
         log(f"open picks read failed: {type(e).__name__}")
     bet_games = set(bet_legs)
     for s in sports:
-        try:
-            data = api.odds(s, C.GAME_MARKETS, None, bookmakers=C.EVENT_BOOKS)
-        except Exception as e:
-            log(f"live odds failed for {C.label(s)}: {type(e).__name__}")
-            continue
-        Rf = refs.load(s, DATA_DIR)
-        for ev in data:
-            if datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00")) > NOW or not ev.get("bookmakers"):
+        if full:
+            try:
+                data = api.odds(s, C.GAME_MARKETS, None, bookmakers=C.EVENT_BOOKS)
+            except Exception as e:
+                log(f"live odds failed for {C.label(s)}: {type(e).__name__}")
                 continue
-            g = build.build_game(ev, C.label(s))
+            gl = [build.build_game(ev, C.label(s)) for ev in data
+                  if datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00")) <= NOW and ev.get("bookmakers")]
+        else:       # free pass: the games with open legs, from the pre-game cache (no prices)
+            gl = [dict(x, lines=[]) for x in started if x["sport"] == s and x["id"] in bet_legs]
+        Rf = refs.load(s, DATA_DIR)
+        for g in gl:
             refs.decorate_game(g, Rf)
             LV.stale_after(g, 120)
             ha, aa = (g.get("homeRef") or {}).get("abbr"), (g.get("awayRef") or {}).get("abbr")
@@ -333,7 +341,7 @@ def live():
                 pdir = os.path.join(DATA_DIR, "latest", "live_props")
                 pfn = os.path.join(pdir, f"{g['id']}.json")
                 try:
-                    if _age_min(ls["props"].get(g["id"])) >= C.LIVE_PROP_EVERY_MIN:
+                    if full and _age_min(ls["props"].get(g["id"])) >= C.LIVE_PROP_EVERY_MIN:
                         pm = [m for m in C.core_markets(s) if build.is_player_market(m)]
                         ed, _ = api.event_odds_all(s, g["id"], pm, C.EVENT_BOOKS)
                         props = list(build.build_props(ed, C.label(s)).values()) if ed else []
@@ -357,7 +365,7 @@ def live():
                     bl = LB.compute(DATA_DIR, s, g["id"], st, bet_legs[g["id"]], log)
                 except Exception as e:
                     log(f"bet legs failed: {type(e).__name__}")
-            E = build.edges([g], props if fresh_props else [], min_edge=0.015)      # kept lines are for stats, not edges
+            E = build.edges([g], props if fresh_props else [], min_edge=0.015) if full else []     # kept lines are for stats, not edges
             for e in E:
                 e["live"] = True
             edges_all += E
@@ -423,7 +431,7 @@ def live():
         n_fin = sum(1 for d in docs if d.get("final"))
         if n_fin:
             log(f"live: {n_fin} finished games kept for their open bets")
-    ls["used"] = ls.get("used", 0) + api.used_run
+    ls["used"] = ls.get("used", 0) + (api.used_run if api else 0)
     os.makedirs(os.path.dirname(fn), exist_ok=True)
     json.dump(ls, open(fn, "w"))
     # small summary in the private data repo (what the Live screen shows), for checking without the site
@@ -450,7 +458,15 @@ def live():
                 "mkt": next(((l.get("fair") or {}).get(d["home"]) for l in d["lines"] if l["market"] == "h2h"), None),
                 "edges": len(d["edges"])} for d in docs if not d.get("final")]
     edges_all.sort(key=lambda e: -e["score"])
-    if firestore_db():
+    if firestore_db() and not full:
+        import rt
+        try:
+            sent, nw = rt.publish(docs, None, ls, DATA_DIR, partial=True)
+            if nw:
+                log(f"watch: {nw} games' bet stats updated ({sent // 1024} KB)")
+        except Exception as e:
+            log(f"watch: realtime database write failed ({type(e).__name__})")
+    elif firestore_db():
         import rt
         try:
             sent, nw = rt.publish(docs, {"games": summary, "edges": edges_all[:150], "updated": iso(NOW), "creditsToday": ls["used"]}, ls, DATA_DIR)
@@ -483,7 +499,83 @@ def live():
     fs = ls.get("fs") or {}
     ls["fs"] = fs
     json.dump(ls, open(fn, "w"))
-    log(f"live: {len(docs)} games, {len(edges_all)} edges, credits {api.used_run} (today {ls['used']})")
+    if full:
+        log(f"live: {len(docs)} games, {len(edges_all)} edges, credits {api.used_run} (today {ls['used']})")
+    # still worth watching: an open leg on a game in play, or one starting within 15 minutes
+    soon = any(NOW - timedelta(minutes=20) <= datetime.fromisoformat(v["commence"].replace("Z", "+00:00")) <= NOW + timedelta(minutes=15)
+               for legs in bet_legs.values() for v in legs.values() if v.get("commence"))
+    return {"need": soon or any(d.get("betLegs") and not d.get("final") for d in docs)}
+
+
+def watch():
+    """The watcher: one long job (Actions minutes are free on this public repo) that keeps Vince's open bets current
+    every minute until they're done, app open or not. While the site is on a live screen (presence.live in the last 3
+    minutes) each pass is a full live pull (prices, edges; the same credits the site's own live runs used); otherwise
+    it's free (ESPN only). Ends when nothing is left to watch, or after 50 minutes (the auto run starts the next one)."""
+    import time
+    global NOW
+    t0 = time.time()
+    passes = {True: 0, False: 0}
+    while True:
+        NOW = datetime.now(timezone.utc)
+        t1 = time.time()
+        pres = presence_doc()
+        site_live = bool(pres.get("live")) and _age_min(pres.get("at")) <= 3
+        try:
+            r = live(watch=True, full=site_live, pres=pres) or {}
+        except Exception as e:
+            log(f"watch: pass failed ({type(e).__name__}: {str(e)[:120]})")
+            r = {"need": True}
+        passes[site_live] += 1
+        if not (r.get("need") or site_live):
+            log("watch: nothing left in play")
+            break
+        if time.time() - t0 > 50 * 60:
+            log("watch: 50 minutes up; the next auto run picks it up")
+            break
+        time.sleep(max(5, 60 - (time.time() - t1)))
+    log(f"watch: {passes[True]} full passes, {passes[False]} free passes in {round((time.time() - t0) / 60)} min")
+
+
+def _watch_wanted():
+    """auto runs: should a watcher be running? Open bets (or picks) on a game in play or starting within 15 minutes.
+    Reads the pending bets once (a handful of Firestore reads) and asks GitHub whether a watcher is already going."""
+    db = firestore_db()
+    if not db or not os.environ.get("GITHUB_TOKEN"):
+        return False
+    lo, hi = iso(NOW - timedelta(hours=5)), iso(NOW + timedelta(minutes=15))
+    want = False
+    try:
+        for snap in db.collection("bets").where("status", "==", "pending").stream():
+            b = snap.to_dict() or {}
+            if any(lo <= (x.get("commence") or b.get("commence") or "") <= hi for x in (b.get("legs") or [b])):
+                want = True
+                break
+    except Exception as e:
+        log(f"watch: open bets not read ({type(e).__name__})")
+    if not want:
+        try:
+            want = any(pk.get("status") not in ("void", "won", "lost", "push") and pk.get("tier") != "likely" and pk.get("player")
+                       and lo <= (pk.get("commence") or "") <= hi for pk in load_picks(2))
+        except Exception:
+            pass
+    if not want:
+        return False
+    import urllib.request
+    h = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}", "Accept": "application/vnd.github+json"}
+    base = "https://api.github.com/repos/vincecohen17/slate-ledger/actions/workflows/pull.yml"
+    try:
+        for stt in ("in_progress", "queued"):
+            runs = json.load(urllib.request.urlopen(urllib.request.Request(f"{base}/runs?status={stt}&per_page=20", headers=h), timeout=20))
+            if any((r.get("display_title") or "") == "watch" for r in runs.get("workflow_runs") or []):
+                return False
+        urllib.request.urlopen(urllib.request.Request(f"{base}/dispatches", data=json.dumps({"ref": "main", "inputs": {"mode": "watch"}}).encode(),
+                                                      method="POST", headers=h), timeout=20)
+        log("watch: started the watcher for open bets in play")
+        return True
+    except Exception as e:
+        log(f"watch: could not start the watcher ({type(e).__name__})")
+        return False
 
 
 def _fs_live(docs, edges_all, ls, today, pres, bet_games):
@@ -612,6 +704,11 @@ def auto():
     key = os.environ.get("ODDS_API_KEY")
     if not key:
         raise RuntimeError("ODDS_API_KEY secret is missing or empty")
+    if MODE == "auto":
+        try:                # open bets in play: make sure the free every-minute watcher is going, app open or not
+            _watch_wanted()
+        except Exception as e:
+            log(f"watch: check failed ({type(e).__name__})")
     st = load_state()
     try:
         st["historyLeft"] = max(0, C.HISTORY_RESERVE - json.load(open(os.path.join(DATA_DIR, "history", "state.json"))).get("spent", 0))
@@ -830,6 +927,8 @@ def main():
         return rebuild()
     if MODE == "live":
         return live()
+    if MODE == "watch":
+        return watch()
     if MODE == "history":
         return run_history()
     if MODE == "rtdb_setup":

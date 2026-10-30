@@ -67,12 +67,20 @@ def pieces(d):
     return out
 
 
-def publish(docs, board, state, data_dir, log=print):
-    """write the changed pieces under live/; state keeps the hashes between runs (live_state.json). Returns bytes sent."""
+def publish(docs, board, state, data_dir, log=print, partial=False):
+    """write the changed pieces under live/; state keeps the hashes between runs (live_state.json). Returns bytes sent.
+    partial: the watcher's free pass: only each game's small m piece (score, clock, bet legs); nothing else is written
+    or removed, and the other pieces' hashes are kept for the next full pass."""
     old = state.get("rt") or {}
     now = {}
     for d in docs:
-        now.update(pieces(d))
+        now.update({p: v for p, v in pieces(d).items() if not partial or p.endswith("/m")})
+    if partial:
+        upd = {p: v for p, v in now.items() if old.get(p) != _h(v)}
+        if upd:
+            ref("live", data_dir).update(upd)
+        state["rt"] = {**old, **{p: _h(v) for p, v in now.items()}}
+        return sum(len(v) for v in upd.values()), len(upd)
     now["board"] = z(board)
     upd, sent = {}, 0
     newh = {}

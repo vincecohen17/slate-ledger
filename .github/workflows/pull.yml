@@ -1,8 +1,9 @@
 name: pull-odds
+run-name: "${{ github.event.inputs.mode || github.event_name }}"
 on:
   workflow_dispatch:
     inputs:
-      mode: { description: "auto, refresh, live, rebuild, stats", default: "auto" }
+      mode: { description: "auto, refresh, live, watch, rebuild, stats", default: "auto" }
   push:
     branches: [main]
     paths: ["engine/run-request"]
@@ -10,14 +11,15 @@ on:
     # app-driven refresh: every 5 minutes the engine checks whether the site is open and what is stale
     - cron: "*/5 * * * *"
 # in-play pulls run in their own lane so a long pre-game pull never holds them up
-concurrency: { group: "pull-${{ (github.event.inputs.mode == 'live' || github.event.inputs.mode == 'history' || github.event.inputs.mode == 'backtest') && github.event.inputs.mode || 'main' }}", cancel-in-progress: false }
+# the watcher (mode watch: open bets every minute, a long job) shares the live lane, so only one of them runs at a time
+concurrency: { group: "pull-${{ (github.event.inputs.mode == 'live' || github.event.inputs.mode == 'watch') && 'live' || (github.event.inputs.mode == 'history' || github.event.inputs.mode == 'backtest') && github.event.inputs.mode || 'main' }}", cancel-in-progress: false }
 permissions:
   contents: read
   actions: write        # a long history backfill asks for its next run
 jobs:
   pull:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4

@@ -46,6 +46,11 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   Open prop picks get betLegs too ("<pickId>#0"). A game that has ended but still has open bets or picks stays in the live
   feed (doc final: true, ESPN's final state via scoreboards(post=...), final stats with no time left) until they grade; its
   teams come from live_state liveMeta, else the pre-game snapshot track/open/<gameId>.json, else the bet's matchup.
+- Watcher (`run.py watch()`, mode watch, the live lane, up to 50 min a job): every minute until Vince's open bets and prop
+  picks are done, app open or not. Each pass is a full live pull while the site is on a live screen (presence.live within
+  3 min; the site dispatches "watch" every minute there) and otherwise free: ESPN only, the bet games' small live/g/<id>/m
+  pieces (score, clock, bet legs, projected finish) via rt.publish(partial=True), no Odds API credits. Auto runs start it
+  (_watch_wanted: a pending bet or pick on a game started in the last 5 h or starting within 15 min, no watcher running).
 - `engine/rt.py` Realtime Database (free, no daily write count; 10 GB/month download allowance): the board the engine
   publishes under `pre/` (status, edges, reports, g/<id> a game with main lines, ga/<id> alternate lines, p/<id>/<market>
   main prop rows, pa/<id>/<market> alternate rows, mu/<id> matchups, fin/board + fin/d/<key> finals) and in-play data

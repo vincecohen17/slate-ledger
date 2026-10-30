@@ -274,13 +274,15 @@ let view = { view: "board", game: null }, lastLive = 0, liveTimer = null;
 function liveKick() {
   if (!dispatchToken || document.visibilityState !== "visible" || !view.live || Date.now() - lastLive < 55000) return;
   lastLive = Date.now();
-  beatOut({ at: new Date().toISOString(), view: view.view, game: view.game }).finally(() => dispatch("live"));
+  // "watch": one engine job that keeps going every minute (full live prices while this screen says live, free bet
+  // stats otherwise); a dispatch while it runs just waits in line
+  beatOut({ at: new Date().toISOString(), view: view.view, game: view.game, live: true }).finally(() => dispatch("watch"));
 }
 export function setView(v, game, isLive) {
   const was = view.live;
   view = { view: v, game: game || null, live: !!isLive };
   if (isLive && !was) { liveKick(); clearInterval(liveTimer); liveTimer = setInterval(liveKick, 60000); }
-  if (!isLive && was) { clearInterval(liveTimer); liveTimer = null; }
+  if (!isLive && was) { clearInterval(liveTimer); liveTimer = null; beatOut({ at: new Date().toISOString(), view: view.view, game: view.game, live: false }).catch(() => {}); }
 }
 // Firebase's free daily write allowance can run out; the engine is still started directly so the data repo keeps
 // updating, and the header says why the screen isn't changing
@@ -289,7 +291,7 @@ function fsOk() { if (S.fsLimit) { S.fsLimit = false; changed(); } }
 // the heartbeat goes to the Realtime Database (free to write as often as needed); Firestore only if that fails
 const beatOut = (x) => rupdate(rref(rtdb, "presence"), x)
   .catch(() => setDoc(doc(db, "presence", "owner"), x, { merge: true }).then(() => fsOk(), fsFail));
-const ping = (extra = {}) => beatOut({ at: new Date().toISOString(), view: view.view, game: view.game, ...extra }).finally(() => kick(!!extra.force));
+const ping = (extra = {}) => beatOut({ at: new Date().toISOString(), view: view.view, game: view.game, live: !!view.live, ...extra }).finally(() => kick(!!extra.force));
 export function startPresence() {
   const on = () => { if (document.visibilityState === "visible") { ping(); clearInterval(beat); beat = setInterval(ping, 120000); } else { clearInterval(beat); beat = null; } };
   document.addEventListener("visibilitychange", on);
