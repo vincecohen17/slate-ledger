@@ -220,3 +220,6 @@ export function oddsFromInput(s, venue) {
   }
   return parseFloat(t.replace(/^\+/, ""));
 }
+
+// dollars on offer at a price (exchanges publish it through the odds feed): $47, $8.2k, $290k
+export const kUsd = (v) => v == null ? "" : v >= 9950 ? `$${Math.round(v / 1000)}k` : v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`;

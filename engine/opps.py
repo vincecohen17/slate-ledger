@@ -50,7 +50,7 @@ def _side_quotes(line, side):
         c = pe.get("cost")
         if c and 0 < c < 1:
             am = pe.get("allInAm", pe.get("am"))
-            _META[(q["book"], c)] = {"age": None if age is None else round(age, 1), "exch": q.get("kind") == "exchange"}
+            _META[(q["book"], c)] = {"age": None if age is None else round(age, 1), "exch": q.get("kind") == "exchange", "avail": pe.get("avail")}
             out.append((c, q["book"], q["name"], am))
     return sorted(out)
 
@@ -71,7 +71,23 @@ def _leg(book, name, am, cost, label, fair=None, spec=None, limit=None):
     # or the middle's edge is gone. Exchanges (ProphetX, Novig, Kalshi, Polymarket) can move against you with size.
     return dict({"book": book, "name": name, "am": am, "dec": round(1 / cost, 4), "label": label,
                  "fair": fair, "off": None if fair is None else round(fair - cost, 4),
-                 "age": m.get("age"), "exch": bool(m.get("exch")), "holdTo": _am_of_cost(limit) if limit else None}, **(spec or {}))
+                 "age": m.get("age"), "exch": bool(m.get("exch")), "avail": m.get("avail"),
+                 "holdTo": _am_of_cost(limit) if limit else None}, **(spec or {}))
+
+
+THIN = 25      # dollars: a pair that can't take $50 in total (about $25 a leg) at these prices isn't worth chasing
+
+
+def _max_pay(pairs):
+    """pairs: [(cost, avail)]. The biggest payout X both legs fill at their prices (a leg's stake is X x cost), or None
+    when no leg says how much is on offer (sportsbooks; their limits aren't published)"""
+    caps = [a / c for c, a in pairs if a is not None and c]
+    return min(caps) if caps else None
+
+
+def _thin(*legs):
+    mp = _max_pay([(c, _META.get((b, c), {}).get("avail")) for c, b in legs])
+    return mp is not None and mp * sum(c for c, _ in legs) < 2 * THIN
 
 
 def _spec(l, side, home=None, mk=None):
@@ -100,10 +116,12 @@ def _arbs_in(lines, meta, labels, home=None):
             for cb, bb, nb, ab in b[:3]:
                 if ba == bb:
                     continue
-                if best is None or ca + cb < best[0]:
-                    best = (ca + cb, (ca, ba, na, aa), (cb, bb, nb, ab))
-        if best and best[0] < 0.995:
-            s, (ca, ba, na, aa), (cb, bb, nb, ab) = best
+                # a pair with real money on both sides beats a slightly better one that only fills a few dollars
+                rank = (_thin((ca, ba), (cb, bb)), ca + cb)
+                if ca + cb < 0.995 and (best is None or rank < best[0]):
+                    best = (rank, (ca, ba, na, aa), (cb, bb, nb, ab))
+        if best:
+            (_, s), (ca, ba, na, aa), (cb, bb, nb, ab) = best
             out.append(dict(meta, kind="arb", market=l.get("market") or meta.get("market"), point=l.get("point"), profit=round(1 / s - 1, 4),
                             legs=[_leg(ba, na, aa, ca, labels(l, outs[0]), (l.get("fair") or {}).get(outs[0]), _spec(l, outs[0], home, meta.get("market")), 1 - cb),
                                   _leg(bb, nb, ab, cb, labels(l, outs[1]), (l.get("fair") or {}).get(outs[1]), _spec(l, outs[1], home, meta.get("market")), 1 - ca)],
@@ -208,5 +226,16 @@ def find(game_docs, prop_docs, now_iso=None, pulled=None):
         if o.get("free") and not o["suspect"]:
             o["score"] += 1         # a middle that can't lose goes first
         o["oldest"] = max((x.get("age") or 0) for x in o["legs"])
+        # size: the most each leg fills at its price (exchanges publish it; sportsbooks don't) -> the payout that fits,
+        # the total stake and what it locks in. Thin ones (under $50 in all) stay listed but drop down and never alert.
+        mp = _max_pay([(1 / x["dec"], x.get("avail")) for x in o["legs"]])
+        if mp is not None:
+            S = sum(1 / x["dec"] for x in o["legs"])
+            o["maxPay"] = round(mp, 2)
+            o["maxStake"] = round(mp * S, 2)
+            o["maxProfit"] = round(mp * (1 - S), 2) if o["kind"] == "arb" else round(mp * o.get("ev", 0), 2)
+            o["thin"] = mp * S < 2 * THIN
+            if o["thin"]:
+                o["score"] -= 0.5
     out.sort(key=lambda x: -x["score"])
     return out[:150]

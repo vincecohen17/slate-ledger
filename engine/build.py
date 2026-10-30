@@ -83,13 +83,16 @@ def _finish_line(line, quotes, outcomes):
                 continue
             fp = fair[o] if fair else None
             pe = _price_entry(q["dec"][o], b.get("fee"), fp)
+            lim = (q.get("lim") or {}).get(o)
+            if lim is not None:
+                pe["avail"] = int(round(lim))
             prices[o] = pe
             if stale:
                 continue
             for bucket, ok in ((best, True), (best_venue, b.get("venue"))):
                 if ok and (o not in bucket or pe["cost"] < bucket[o]["cost"]):
                     bucket[o] = {"book": b["key"], "name": b["name"], "am": pe.get("allInAm", pe["am"]),
-                                 "cost": pe["cost"], "edge": pe.get("edge")}
+                                 "cost": pe["cost"], "edge": pe.get("edge"), "avail": pe.get("avail")}
         out_quotes.append({
             "book": b["key"], "name": b["name"], "kind": b["kind"],
             "venue": bool(b.get("venue")), "stale": stale,
@@ -125,7 +128,7 @@ def _reprice(line, fair, source, weight):
             for bucket, ok in ((best, True), (best_venue, q["venue"])):
                 if ok and (o not in bucket or pe["cost"] < bucket[o]["cost"]):
                     bucket[o] = {"book": q["book"], "name": q["name"], "am": pe.get("allInAm", pe["am"]),
-                                 "cost": pe["cost"], "edge": pe.get("edge")}
+                                 "cost": pe["cost"], "edge": pe.get("edge"), "avail": pe.get("avail")}
     line["best"], line["bestVenue"] = best, best_venue
 
 
@@ -157,6 +160,8 @@ def _collect(bookmakers, market_key, keyfn):
             L = lines.setdefault(lid, {"point": pt, "quotes": {}})
             q = L["quotes"].setdefault(b["key"], {"book": b, "dec": {}, "probs": {}, "updated": upd})
             q["dec"][lab] = o["price"]
+            if o.get("bet_limit") is not None:   # exchanges: dollars on offer at this price
+                q.setdefault("lim", {})[lab] = o["bet_limit"]
             back_p = M.implied_from_decimal(o["price"])
             lp = lay_px.get((lid, lab))
             # exchange mid-price when a lay price exists
@@ -695,7 +700,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "gameId": doc["id"], "league": doc["league"], "commence": doc["commence"],
                         "matchup": f"{doc['away']} @ {doc['home']}", "market": line.get("market") or doc.get("market"),
                         "side": o, "point": pt, "team": line.get("team"),
-                        "label": label(o), "book": q["book"], "bookName": q["name"],
+                        "label": label(o), "book": q["book"], "bookName": q["name"], "avail": pe.get("avail"),
                         "am": pe.get("allInAm", pe["am"]), "fair": line["fair"][o],
                         "fairAm": line["fairAm"][o], "edge": e, "ev": pe.get("ev"),
                         "fairWeight": line["fairWeight"], "model": bool(line.get("modelFair")), "est": bool(line.get("oneSided")),

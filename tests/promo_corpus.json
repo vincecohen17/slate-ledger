@@ -676,5 +676,32 @@
 "venue": "sleeper",
 "amount": 25
 }
+],
+[
+"free $1 bet on underdog, you pick",
+{
+"kind": "bonus_bet",
+"venue": "underdog",
+"amount": 1,
+"funds": "own"
+}
+],
+[
+"Underdog: $1 free entry today",
+{
+"kind": "free_entry",
+"venue": "underdog",
+"amount": 1,
+"funds": "own"
+}
+],
+[
+"$40 in bonus funds on underdog",
+{
+"kind": "bonus_bet",
+"venue": "underdog",
+"amount": 40,
+"funds": "bonus"
+}
 ]
 ]

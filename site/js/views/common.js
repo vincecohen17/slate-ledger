@@ -1,5 +1,5 @@
 import { S, saveBet, savePromo } from "../store.js";
-import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, centsTag, oddsFromInput, PRED, $ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, centsTag, oddsFromInput, PRED, kUsd, $ } from "../util.js";
 import { VENUES } from "../lab.js";
 import { settleProfit, isBoost, promoOpen, singleUse } from "../promo.js";
 import { money } from "../util.js";
@@ -31,7 +31,7 @@ export function edgeCard(e) {
       ${betImage(e)}
       <div class="col"><a class="what" href="${e.live ? `#/game/${e.gameId}/live` : href}" style="text-decoration:none">${e.live ? `<span class="pill live">● LIVE</span> ` : ""}${esc(e.label)}</a>
         <span class="sub ellip">${esc(e.matchup)} · ${fmtTime(e.commence)}</span></div>
-      <div class="price"><div class="big">${e.pickem ? "pick'em" : am(e.am)}</div>${!e.pickem && centsTag(e.am, e.book) ? `<div class="tiny" title="what ${esc(e.bookName)} shows: the contract price${e.book === "kalshi" || /polymarket/.test(e.book) ? " before its fee (the American price includes it)" : ""}">${centsTag(e.am, e.book)} in app</div>` : ""}<div class="tiny muted">${e.pickem ? (e.flex && e.minMult ? `${e.estMult ? `~${e.estMult.toFixed(2)}x est. · ` : ""}take at ≥ ${e.minMult.toFixed(2)}x` : `needs ${prob(e.be ?? 0.5774, 1)}`) : prob(1 / decFromAm(e.am), 1)}</div><div class="tiny muted" style="margin-top:3px">${bookTag(e.book, e.bookName, 14)}</div></div>
+      <div class="price"><div class="big">${e.pickem ? "pick'em" : am(e.am)}</div>${!e.pickem && centsTag(e.am, e.book) ? `<div class="tiny" title="what ${esc(e.bookName)} shows: the contract price${e.book === "kalshi" || /polymarket/.test(e.book) ? " before its fee (the American price includes it)" : ""}">${centsTag(e.am, e.book)} in app</div>` : ""}<div class="tiny muted">${e.pickem ? (e.flex && e.minMult ? `${e.estMult ? `~${e.estMult.toFixed(2)}x est. · ` : ""}take at ≥ ${e.minMult.toFixed(2)}x` : `needs ${prob(e.be ?? 0.5774, 1)}`) : prob(1 / decFromAm(e.am), 1)}</div><div class="tiny muted" style="margin-top:3px">${bookTag(e.book, e.bookName, 14)}</div>${e.avail != null ? `<div class="tiny ${e.avail < 25 ? "neg" : "muted"}" title="what ${esc(e.bookName)} has on offer at this exact price; past it you fill at worse prices">${kUsd(e.avail)} at this price</div>` : ""}</div>
     </div>
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
@@ -58,9 +58,9 @@ export function ladder(line, side, limit = 8, showAll = false) {
   if (line.fair) h += `<div class="lrow fair"><span>Sharp fair</span><span class="px">${am(line.fairAm[side])}</span><span class="tiny muted">${prob(line.fair[side], 1)} chance</span><span></span></div>`;
   for (const { q, p } of shown) {
     const e = p.edge;
-    h += `<div class="lrow ${q.stale ? "stale" : ""}" data-tip="${esc(q.name)}: ${am(p.allInAm ?? p.am)}${p.allInAm ? " all-in (fee)" : ""} · edge ${pct(e)}${q.stale ? " · stale" : ""}">
+    h += `<div class="lrow ${q.stale ? "stale" : ""}" data-tip="${esc(q.name)}: ${am(p.allInAm ?? p.am)}${p.allInAm ? " all-in (fee)" : ""} · edge ${pct(e)}${p.avail != null ? ` · ${kUsd(p.avail)} on offer at this price` : ""}${q.stale ? " · stale" : ""}">
       <span class="row ellip" style="gap:6px">${bookTag(q.book, q.name, 16)} ${bookPill(q)}</span>
-      <span class="px">${am(p.allInAm ?? p.am)}${centsTag(p.allInAm ?? p.am, q.book) ? ` <span class="tiny muted">${centsTag(p.allInAm ?? p.am, q.book)}</span>` : ""}</span>${edgeBar(e, max)}<span class="ed ${e > 0.005 ? "pos" : e < -0.04 ? "neg" : ""}">${pct(e)}</span></div>`;
+      <span class="px">${am(p.allInAm ?? p.am)}${centsTag(p.allInAm ?? p.am, q.book) ? ` <span class="tiny muted">${centsTag(p.allInAm ?? p.am, q.book)}</span>` : ""}${p.avail != null ? ` <span class="tiny ${p.avail < 25 ? "neg" : "muted"}">${kUsd(p.avail)}</span>` : ""}</span>${edgeBar(e, max)}<span class="ed ${e > 0.005 ? "pos" : e < -0.04 ? "neg" : ""}">${pct(e)}</span></div>`;
   }
   return h + `</div>`;
 }

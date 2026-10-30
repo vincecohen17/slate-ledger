@@ -3,7 +3,7 @@ import { esc, am, prob, fmtTime, money, uid, toast, todayPT, bookLogo, $, $$ } f
 import { VENUES, venueName, legSpec } from "../lab.js";
 const draftLine = (p, c) => p.promoLine ?? legSpec(c.leg).point;
 import { KINDS, FIELDS, SPORTS, BET_TYPES, PICKEM, FEE_VENUES, kindOf, blank, normalize, parsePromo, describe, optimize, legs,
-  bonusConv, convCurve, findTarget, pAtLine, autoTarget, decOf, amOf, payoutFor, venueHasFeed } from "../promo.js";
+  bonusConv, convCurve, findTarget, pAtLine, autoTarget, decOf, amOf, payoutFor, venueHasFeed, fundsOf } from "../promo.js";
 import { betImage, logSheet } from "./common.js";
 import { labWithPromo } from "./lab.js";
 import { syncWalletPromos } from "../wallet.js";
@@ -47,6 +47,9 @@ const pickList = (list, attr) => list.length ? `<div class="pr-hits">${list.map(
 
 // ---------- what I read, in a sentence, and what's still missing (so a promo never saves half understood)
 const x2 = (v) => `${+(+v).toFixed(2)}x`;
+// a promo being written (no createdAt) defaults to its own free bet; one saved before the choice existed was bonus balance
+const fundsNow = (p) => (p.wallet ? "bonus" : p.funds || (p.createdAt ? "bonus" : "own"));
+const fundsNote = (p) => (fundsNow(p) === "own" ? " Its own free bet: your bonus balance isn't touched, the winnings land as cash." : " Paid from your bonus balance in the app.");
 function explain(p) {
   const k = kindOf(p.kind).key, ven = p.venue && p.venue !== "any" ? venueName(p.venue) : "any app";
   const pc = (v) => `${Math.round((v || 0) * 100)}%`, d = (v) => (v == null ? "?" : `$${v}`), o = (v) => (v == null ? "?" : v > 0 ? `+${v}` : `${v}`);
@@ -55,12 +58,12 @@ function explain(p) {
   switch (k) {
     case "discounted_line": return `${ven} special pick: ${who} ${p.promoSide || "Over"} ${p.promoLine ?? "?"}${stat ? ` ${stat}` : ""}${p.promoMult ? `, paying ${x2(p.promoMult)} on its own. Pair it with ${Math.max(1, (p.picks || 2) - 1)} more pick${(p.picks || 2) > 2 ? "s" : ""}; the entry pays ${x2(p.promoMult)} × the other pick's multiplier` : `, in a ${p.picks || 2}-pick entry paying ${p.mult || payoutFor(p.venue, p.picks || 2) || "?"}x`}.`;
     case "pickem_boost": return `${ven}: a ${p.picks ?? "?"}-pick entry paying ${p.mult ? `${p.mult}x` : "?"}${p.boost ? ` plus ${pc(p.boost)}` : ""}${p.stake ? `, up to $${p.stake}` : ""}.`;
-    case "free_entry": return `${ven}: a free ${d(p.amount)} ${p.picks ?? 2}-pick entry (you keep the whole payout, nothing at risk).`;
+    case "free_entry": return `${ven}: a free ${d(p.amount)} ${p.picks ?? 2}-pick entry (you keep the whole payout, nothing at risk).${fundsNote(p)}`;
     case "profit_boost": return `${ven}: ${pc(p.boost)} more on what a bet wins${p.stake ? `, on up to $${p.stake}` : ""}${p.maxLegs === 1 ? ", singles only" : ""}.`;
     case "parlay_boost": return `${ven}: ${pc(p.boost)} more on a ${p.minLegs}+ leg ${p.sameGame === "required" ? "same-game parlay" : "parlay"}${p.stake ? `, on up to $${p.stake}` : ""}.`;
     case "odds_boost": return `${ven}: ${p.targetLabel || "a set bet"} boosted to ${o(p.boostedOdds)}${p.origOdds != null ? ` (normally ${o(p.origOdds)})` : ""}${p.stake ? `, up to $${p.stake}` : ""}.`;
     case "fee_free": return `${ven}: ${p.feeOff >= 1 ? "no fee" : `${pc(p.feeOff)} of the fee waived`} on trades.`;
-    case "bonus_bet": return `${ven}: ${p.count > 1 ? `${p.count} bonus bets of ${d(p.amount)}` : `a ${d(p.amount)} bonus bet`} (the stake isn't returned, only the winnings).`;
+    case "bonus_bet": return `${ven}: ${p.count > 1 ? `${p.count} ${fundsNow(p) === "own" ? "free" : "bonus"} bets of ${d(p.amount)}` : `a ${d(p.amount)} ${fundsNow(p) === "own" ? "free" : "bonus"} bet`} (the stake isn't returned, only the winnings).${p.wallet ? "" : fundsNote(p)}`;
     case "no_sweat": return `${ven}: if the bet loses you get up to ${d(p.refundMax ?? p.stake)} back as ${p.refundAs === "cash" ? "cash" : "bonus bets"}.`;
     case "parlay_insurance": return `${ven}: a ${p.minLegs}+ leg parlay that refunds up to ${d(p.refundMax ?? p.stake)} if exactly one leg misses.`;
     case "bet_and_get": return `${ven}: bet ${d(p.qualStake)} and get ${d(p.amount)} in bonus bets${p.condition === "win" ? " if it wins" : p.condition === "lose" ? " if it loses" : ", win or lose"}.`;
@@ -112,6 +115,7 @@ function form(p) {
   if (F.has("ptBase")) inputs.push(sel("ptBase", p.ptBase, [["bonus", "Bonus only"], ["both", "Deposit + bonus"]], "Playthrough on"));
   if (F.has("sameGame")) inputs.push(sel("sameGame", p.sameGame, [["allowed", "Any games"], ["banned", "Different games only"], ["required", "Same-game parlay only"]], "Games"));
   if (F.has("promoSide")) inputs.push(sel("promoSide", p.promoSide, [["Over", "Over / More"], ["Under", "Under / Less"]], "Side"));
+  if (["bonus_bet", "free_entry"].includes(kind.key) && !p.wallet) inputs.push(sel("funds", fundsNow(p), [["own", "Its own free bet"], ["bonus", "My bonus balance"]], "Paid from"));
   if (F.has("stakeBack")) inputs.push(sel("stakeBack", p.stakeBack, [["true", "Yes (cash bet)"], ["false", "No (bonus stake)"]], "Stake returned on a win"));
   if (["pickem_boost", "free_entry", "discounted_line"].includes(kind.key)) inputs.push(`<label class="f">Flex payouts (optional)<input data-k="flex" data-t="str" value="${esc(p.flex || "")}" placeholder="3:2.25, 2:1.25"></label>`);
   inputs.push(field(p, "expires"));
@@ -323,6 +327,7 @@ function bind(el) {
     $("#pr-cancel", el).onclick = () => { draft = null; rerender(); };
     $("#pr-save", el).onclick = async () => {
       const p = { ...draft, id: draft.id || uid(), createdAt: draft.createdAt || new Date().toISOString() };
+      if (["bonus_bet", "free_entry"].includes(kindOf(p.kind).key) && !p.wallet) p.funds = fundsNow(draft);
       p.title = draft.titleSet ? draft.title : `${venueName(p.venue)} · ${kindOf(p.kind).name}`;
       delete p.type;
       try { await savePromo(p); results.delete(p.id); open.add(p.id); draft = null; toast("Promo saved"); } catch (e) { toast("Could not save: " + e.message); }

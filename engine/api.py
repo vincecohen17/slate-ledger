@@ -83,6 +83,7 @@ class OddsAPI:
             p["regions"] = ",".join(regions)
             units = len(regions)
         p.update(kw)
+        p.setdefault("includeBetLimits", "true")   # exchanges: the dollars on offer at each quoted price (free, same cost)
         return self._get(f"/sports/{sport}/odds", p, est_cost=len(markets) * units)
 
     def event_odds(self, sport, event_id, markets, regions=None, bookmakers=None):
@@ -93,6 +94,7 @@ class OddsAPI:
         else:
             p["regions"] = ",".join(regions)
             units = len(regions)
+        p["includeBetLimits"] = "true"
         # usage counts markets returned; the estimate assumes about 60% of requested markets come back
         return self._get(f"/sports/{sport}/events/{event_id}/odds", p, est_cost=max(1, int(len(markets) * 0.6)) * units)
 

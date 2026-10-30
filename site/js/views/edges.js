@@ -1,5 +1,5 @@
 import { S, testAlert } from "../store.js";
-import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, $$ } from "../util.js";
+import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$ } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 import { arbSheet } from "../arbs.js";
 
@@ -8,6 +8,8 @@ const F = { league: "All", type: "All", min: 0.015, venue: "All", logic: "All", 
 // arbs and middles across your venues (all-in prices), with the stake split for a chosen total
 let oppTotal = 100;
 let OPPS = [];
+const availPill = (l, stake) => l.avail == null ? (l.exch ? ` <span class="pill" title="an exchange: the price shown is the best one on offer, often only for a small amount. A bigger stake can fill at worse prices; check the price for your size before placing">price moves with size</span>` : "")
+  : ` <span style="text-transform:none" class="pill ${stake != null && stake > l.avail ? "neg" : l.avail < 25 ? "warn" : ""}" title="what the exchange has on offer at this exact price right now; past it you fill at worse prices">${kUsd(l.avail)} at this price</span>`;
 function oppCard(o) {
   OPPS.push(o);
   const tot = oppTotal, st = o.stakes.map((x) => x * tot);
@@ -19,13 +21,14 @@ function oppCard(o) {
     <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">${head}<span class="tiny muted">${esc(o.league)} · ${esc(o.matchup)} · ${fmtTime(o.commence)}</span></div>
     ${o.suspect ? `<div class="tiny neg" style="margin-top:4px">Too good to be true? A leg is far from the sharp fair: check the venue's rules (void on DNP, overtime) and that the price is live before placing either side.</div>` : ""}
     <div class="col" style="gap:6px;margin-top:8px">${o.legs.map((l, i) => `<div class="op-leg">${bookLogo(l.book, l.name, 22)}<span class="col" style="gap:0;min-width:0"><b class="op-lab">${esc(l.label)}</b><span class="tiny muted">${esc(l.name)}${l.fair != null ? ` · fair ${prob(l.fair)}` : ""}${l.age != null ? ` · <span class="${l.age > 10 ? "neg" : ""}" title="how long ago we pulled this price">${ageTxt(l.age)}</span>` : ""}</span>
-        <span class="tiny op-hold">${l.holdTo != null ? `works to <b class="num">${am(l.holdTo)}</b>${centsTag(l.holdTo, l.book) ? ` (${centsTag(l.holdTo, l.book)})` : ""}` : ""}${l.exch ? ` <span class="pill" title="an exchange: the price shown is the best one on offer, often only for a small amount. A bigger stake can fill at worse prices; check the price for your size before placing">price moves with size</span>` : ""}</span></span>
+        <span class="tiny op-hold">${l.holdTo != null ? `works to <b class="num">${am(l.holdTo)}</b>${centsTag(l.holdTo, l.book) ? ` (${centsTag(l.holdTo, l.book)})` : ""}` : ""}${availPill(l, st[i])}</span></span>
       <span class="col" style="align-items:flex-end;gap:0"><b class="num">${am(l.am)}</b>${centsTag(l.am, l.book) ? `<span class="tiny muted">${centsTag(l.am, l.book)} in app</span>` : ""}</span><span class="num op-stake">${money(st[i])}</span></div>`).join("")}</div>
     ${o.legs.some((l) => l.age > 10) ? `<div class="tiny neg" style="margin-top:6px">Some prices here are over 10 minutes old: refresh, and check the line is still up before placing either leg.</div>` : ""}
     <div class="tiny" style="margin-top:8px">${o.kind === "arb"
       ? `Either way you get back about <b>${money(Math.min(...ret))}</b> on ${money(tot)}: <b class="pos">${money(Math.min(...ret) - tot)}</b> locked.`
       : `If one side wins: ${money(Math.min(...ret) - tot)}. If the result lands ${o.window[0]} to ${o.window[1]} (about ${prob(o.pMiddle)}): <b class="pos">${money(ret[0] + ret[1] - tot)}</b>. Expected <b class="${o.ev >= 0 ? "pos" : "neg"}">${money(o.ev * tot * o.stakes[0] * o.legs[0].dec)}</b>.`}</div>
-    <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn sm ghost" data-arb="${OPPS.length - 1}" title="log both legs as one ${o.kind} in the ledger">Log both legs</button></div></div>`;
+    ${o.maxStake != null ? `<div class="tiny ${o.thin ? "neg" : "muted"}" style="margin-top:6px">${o.thin ? "Thin: " : ""}at these prices the exchanges fill about <b>${money(o.maxStake)}</b> in all${o.kind === "arb" ? ` (locks <b class="pos">${money(o.maxProfit)}</b>)` : ""}${tot > o.maxStake + 0.5 ? `; past that the price gets worse` : ""}.</div>` : ""}
+    <div class="row" style="justify-content:flex-end;gap:6px;margin-top:8px">${o.maxStake != null && Math.abs(tot - o.maxStake) > 1 && o.maxStake >= 10 ? `<button class="btn sm ghost" data-opmax="${Math.floor(o.maxStake)}" title="split the most these prices fill">Size to ${money(Math.floor(o.maxStake))}</button>` : ""}<button class="btn sm ghost" data-arb="${OPPS.length - 1}" title="log both legs as one ${o.kind} in the ledger">Log both legs</button></div></div>`;
 }
 let alertsOpen = false;
 function alertsCard() {
@@ -71,6 +74,7 @@ export function renderEdges(el) {
     $$("[data-tab]", el).forEach((b) => b.onclick = () => { F.tab = b.dataset.tab; renderEdges(el); });
     $$("[data-f]", el).forEach((b) => b.onclick = () => { F[b.dataset.f] = b.dataset.v; renderEdges(el); });
     const t = el.querySelector("#op-tot"); if (t) t.onchange = () => { oppTotal = +t.value || 100; renderEdges(el); };
+    $$("[data-opmax]", el).forEach((b) => b.onclick = () => { oppTotal = +b.dataset.opmax; renderEdges(el); toast(`Stakes split for ${money(oppTotal)}`); });
     $$("[data-arb]", el).forEach((b) => b.onclick = () => arbSheet({ ...OPPS[+b.dataset.arb], total: oppTotal }));
     const at = el.querySelector("#al-test"); if (at) at.onclick = () => testAlert().then(() => toast("Test sent: check your phone")).catch((e) => toast("Couldn't send: " + e.message));
     const ah = el.querySelector("#al-how"); if (ah) ah.onclick = () => { alertsOpen = !alertsOpen; renderEdges(el); };

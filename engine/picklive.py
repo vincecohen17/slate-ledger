@@ -71,6 +71,9 @@ def check(picks, game_docs, prop_docs, now):
                 am = EC._venue_price(line, side, ven)
                 dec = _dec(am)
                 cur["listed"] = am is not None
+                av = next((((q.get("prices") or {}).get(side) or {}).get("avail") for q in line.get("quotes") or [] if q.get("book") == ven), None)
+                if av is not None:
+                    cur["avail"] = av          # exchanges: dollars on offer at that price
             else:
                 cur["listed"] = False
             cur["now"] = _am(dec) if dec else None

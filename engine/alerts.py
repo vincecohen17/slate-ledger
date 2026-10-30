@@ -13,6 +13,8 @@ import os
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
+from opps import THIN
+
 
 def _cfg(data_dir):
     try:
@@ -63,8 +65,8 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
         # arbs and middles: go out any time
         fresh = []
         for o in opps:
-            if o.get("suspect"):
-                continue
+            if o.get("suspect") or o.get("thin"):
+                continue           # thin: the exchanges only fill a few dollars at these prices
             k = "o|" + o["kind"] + "|" + "|".join(l["book"] + l["label"] for l in o["legs"])
             if k in st["sent"]:
                 continue
@@ -81,7 +83,8 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
                         else f"NO-RISK MIDDLE: +{o['worst'] * 100:.1f}% either way, both win {o['pMiddle'] * 100:.0f}% of the time" if o.get("free")
                         else f"MIDDLE EV +{o['ev'] * 100:.1f}% ({o['pMiddle'] * 100:.0f}% to hit)")
                 legs = " | ".join(f"{l['label']} {_am(l['am'])} @ {l['name']} ({s * 100:.0f}%)" for l, s in zip(o["legs"], o["stakes"]))
-                lines.append(f"{head} · {o['league']} {o['matchup']}\n{legs}")
+                size = f"\nfills about ${o['maxStake']:,.0f} in all for ${o['maxProfit']:,.2f}" if o.get("maxStake") is not None else ""
+                lines.append(f"{head} · {o['league']} {o['matchup']}\n{legs}{size}")
             nf = sum(1 for _, o in fresh[:5] if o.get("free"))
             _post(cfg, f"{nf} no-risk middle{'s' if nf > 1 else ''} open" if nf else f"{len(fresh)} arb/middle{'s' if len(fresh) > 1 else ''} open",
                   "\n\n".join(lines) + "\n\n(% = share of the total stake per leg; exchange prices can move with size)",
@@ -93,7 +96,8 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
         if not _quiet(cfg, now):
             good = []
             for e in edges:
-                if e.get("live") or e.get("est") or e.get("logic") != "agrees" or (e.get("score") or 0) < cfg.get("minScore", 0.04):
+                if e.get("live") or e.get("est") or e.get("logic") != "agrees" or (e.get("score") or 0) < cfg.get("minScore", 0.04) \
+                        or (e.get("avail") is not None and e["avail"] < THIN):   # an exchange price with only a few dollars behind it
                     continue
                 tr = e.get("track") or {}
                 if (tr.get("gap") if tr.get("gap") is not None else tr.get("clv", 0)) < 0:     # that kind of edge loses more than its fair says

@@ -7,7 +7,7 @@
 // The next check-in that differs is "unaccounted": an unlogged bet, a typo in odds or a stake, a credit not entered.
 // Real profit since you started tracking = cash now + cash in open bets + withdrawn - deposited - what was there at the start.
 import { S, savePromo } from "./store.js";
-import { settleProfit, kindOf, normalize } from "./promo.js";
+import { settleProfit, kindOf, normalize, fundsOf } from "./promo.js";
 import { venueName } from "./lab.js";
 
 // apps that share one wallet: DK Pick6 is paid from the DraftKings account (DK Predictions)
@@ -18,10 +18,18 @@ export const accountName = (a) => (a === "draftkings" ? "DraftKings (Predictions
 const DONE = ["won", "lost", "push", "void"];
 const t = (x) => (x ? Date.parse(x) : 0);
 const promoOf = (b) => (b.promoId ? S.promos.get(b.promoId) : null);
+const freeKind = (p) => !!p && ["bonus_bet", "free_entry"].includes(kindOf(normalize(p).kind).key);
+// paid from the app's bonus balance
 export function bonusFunded(b) {
   const p = promoOf(b);
-  return !!p && ["bonus_bet", "free_entry"].includes(kindOf(normalize(p).kind).key);
+  return freeKind(p) && fundsOf(p) === "bonus";
 }
+// its own free bet or entry: neither cash nor the bonus balance pays the stake; winnings arrive as cash
+export function freeFunded(b) {
+  const p = promoOf(b);
+  return freeKind(p) && fundsOf(p) === "own";
+}
+const noCash = (b) => bonusFunded(b) || freeFunded(b);
 const profitOf = (b) => (b.profit != null ? b.profit : settleProfit(b, promoOf(b), b.status));
 
 export function venueState(venue0, now = Date.now()) {
@@ -40,7 +48,7 @@ export function venueState(venue0, now = Date.now()) {
   ev.sort((a, b) => a.at - b.at || (a.e?.type === "balance" ? 1 : 0) - (b.e?.type === "balance" ? 1 : 0));
   let cash = 0, bonus = 0, started = start == null, dep = 0, wd = 0, opening = null, unacc = 0, unaccBonus = 0, bonusIn = 0;
   const log = [];
-  const openAt = (at) => bets.filter((b) => !bonusFunded(b) && t(b.createdAt) <= at && (!DONE.includes(b.status) || t(b.settledAt || b.createdAt) + 1 > at)).reduce((x, b) => x + b.stake, 0);
+  const openAt = (at) => bets.filter((b) => !noCash(b) && t(b.createdAt) <= at && (!DONE.includes(b.status) || t(b.settledAt || b.createdAt) + 1 > at)).reduce((x, b) => x + b.stake, 0);
   for (const x of ev) {
     if (x.at > now) break;
     if (x.e) {
@@ -60,14 +68,15 @@ export function venueState(venue0, now = Date.now()) {
       log.push(e);
       continue;
     }
-    if (x.place) { if (bonusFunded(x.place)) bonus -= x.place.stake; else cash -= x.place.stake; continue; }
+    if (x.place) { if (freeFunded(x.place)) continue; if (bonusFunded(x.place)) bonus -= x.place.stake; else cash -= x.place.stake; continue; }
     if (x.settle) {
       const b = x.settle, pr = profitOf(b) || 0;
-      if (bonusFunded(b)) { if (b.status === "push" || b.status === "void") bonus += b.stake; else cash += Math.max(0, pr); }
+      if (freeFunded(b)) { if (b.status !== "push" && b.status !== "void") cash += Math.max(0, pr); }
+      else if (bonusFunded(b)) { if (b.status === "push" || b.status === "void") bonus += b.stake; else cash += Math.max(0, pr); }
       else cash += b.stake + pr;
     }
   }
-  const openCash = bets.filter((b) => b.status === "pending" && !bonusFunded(b)).reduce((x, b) => x + b.stake, 0);
+  const openCash = bets.filter((b) => b.status === "pending" && !noCash(b)).reduce((x, b) => x + b.stake, 0);
   const openBonus = bets.filter((b) => b.status === "pending" && bonusFunded(b)).reduce((x, b) => x + b.stake, 0);
   // what the ledger says you made here since tracking started (settled bets)
   const ledger = bets.filter((b) => DONE.includes(b.status) && start != null && t(b.settledAt || b.createdAt) >= start).reduce((x, b) => x + (profitOf(b) || 0), 0);

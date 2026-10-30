@@ -185,6 +185,9 @@ export function parsePromo(text) {
   if (win) p.maxWin = num(win[1]);
   const amt = m(/\$\s*([\d,]+)\s*(?:in\s*)?(?:(?:bonus|promo) (?:funds|cash|money|balance|credits?)|bonus bets?|free bets?|bet credits?|site credit|bonus|free (?:entry|play|lineup)|entry|lineup|token)/) || m(/(?:bonus bet|free bet|free entry|free lineup|bonus)\s*(?:of|worth)?\s*\$\s*([\d,]+)/) || m(/free \$\s*([\d,]+)/);
   if (amt && ["bonus_bet", "free_entry", "deposit_match"].includes(p.kind) && p.amount == null) p.amount = num(amt[1]);
+  // a set free bet or free entry the app hands you on its own ("free $1 bet") vs money out of the bonus balance
+  // ("$40 in bonus funds"): the first never touches the wallet's bonus balance, only its winnings land as cash
+  if (["bonus_bet", "free_entry"].includes(p.kind)) p.funds = /bonus (?:funds|balance|cash|money)|promo (?:funds|cash|money|balance)|site credit|in bonus\b|bonus bets? balance/.test(t) ? "bonus" : "own";
   const cnt = m(/(\d{1,2}|two|three|four|five)\s*x\s*\$\s*\d+/) || m(/(\d{1,2}|two|three|four|five)\s*(?:bonus bets|free bets|tokens|boosts)/);
   if (cnt) { p.count = num(cnt[1]); const each = m(/x\s*\$\s*(\d+)/); if (each) p.amount = +each[1]; }
   const ref = m(/(?:refund|back|insurance|no.?sweat)[a-z ]{0,40}?up to \$\s*([\d,]+)/) || m(/up to \$\s*([\d,]+)[a-z ]{0,30}(?:back|refund|bonus bets?)/);
@@ -610,6 +613,10 @@ export const isBoost = (promo) => { const k = promo ? kindOf(normalize(promo).ki
 export const promoOpen = (p) => !!p && !p.used && !(p.expires && p.expires < new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }));
 // promos that last for many bets (fee holidays, a deposit match wagered through) aren't used up by one bet
 export const singleUse = (p) => !!p && !p.wallet && !["fee_free", "deposit_match"].includes(kindOf(normalize(p).kind).key);     // wallet bonus funds follow the balance
+
+// where a bonus-type promo's stake comes from: "own" = its own free bet or entry (the wallet's bonus balance is untouched),
+// "bonus" = out of the app's bonus balance. Wallet promos are the balance; promos saved before this field read as "bonus".
+export const fundsOf = (p) => (!p ? null : p.wallet ? "bonus" : p.funds || "bonus");
 
 export function settleProfit(b, promo, status) {
   if (status === "push" || status === "void") return 0;
