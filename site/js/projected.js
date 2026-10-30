@@ -422,7 +422,13 @@ export function projectedCard({ items, title, fmt = money, units = false, settle
   const span = (s.best - s.worst) || 1, at = (x) => Math.max(0, Math.min(100, (x - s.worst) / span * 100));
   return `<div class="card col pj" style="gap:12px">
     <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px"><b>${esc(title)}</b>
-      <span class="tiny muted">${s.live ? `<span class="pill live">● ${s.live} in play</span> ` : ""}updates with every live pull</span></div>
+      <span class="tiny muted">${s.live ? `<span class="pill live">● ${s.live} in play</span> ` : ""}${(() => {
+        // when the engine's watcher last wrote these games (it keeps going every minute, app open or not)
+        const ts = rows.flatMap((r) => r.srcs.map((x) => S.liveGames.get(x.leg?.gameId || r.b.gameId)?.updated)).filter(Boolean).sort();
+        if (!ts.length) return "updates every minute once a game starts";
+        const mins = Math.max(0, Math.round((Date.now() - Date.parse(ts.at(-1))) / 60000));
+        return `<span class="${mins > 5 ? "neg" : ""}">updated ${mins < 1 ? "just now" : `${mins} min ago`}</span> · every minute`;
+      })()}</span></div>
     <div class="pj-top">
       <div class="pj-big"><div class="k">Projected</div><div class="v ${s.ev >= 0 ? "pos" : "neg"}">${fmt(s.ev)}</div><div class="s">on ${rows.length} open${!units ? ` · today ${fmt(day)} with ${fmt(settledToday)} settled` : ""}</div></div>
       <div class="pj-big"><div class="k">Chance to finish up</div><div class="v">${pctUp(s.up)}</div><div class="pj-meter"><i style="width:${(s.up * 100).toFixed(0)}%"></i></div>
