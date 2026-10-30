@@ -10,26 +10,68 @@ split so either single win returns the same, so
 
 Only quotes that are not stale; pick'em apps are left out (their payouts are per entry, not per pick).
 """
+from datetime import datetime, timezone
+
+import config as C
+
+
+MAX_AGE_MIN = 45          # prices we pulled longer ago than this are often a prop that's been taken down or a price that's moved
+_NOW = [None]
+_CUR = [(None, None, None)]      # (minutes since we pulled this game's main lines, minutes since we pulled its event markets)
+_META = {}                 # (book, name, am) -> {"age": minutes, "exch": bool} for the legs built from the last scan
+
+
+def _age(upd):
+    if not upd or not _NOW[0]:
+        return None
+    try:
+        return (_NOW[0] - datetime.fromisoformat(upd.replace("Z", "+00:00"))).total_seconds() / 60
+    except Exception:
+        return None
 
 
 def _side_quotes(line, side):
-    """[(cost, book, name, am)] for one side at Vince's venues, cheapest first"""
+    """[(cost, book, name, am)] for one side at Vince's venues, cheapest first (prices we pulled recently only)"""
     out = []
+    # how long ago WE pulled this market: main game lines come with the sport's pull, alternates and props with the game's
+    # event pull (a book's own last_update can be hours old on a quiet market that's still live, so it isn't the test)
+    main = (line.get("market") or "") in C.GAME_MARKETS
+    age = _CUR[0][0] if main else _CUR[0][1]
+    # older than one and a half of its normal refresh cycles (5 min near the start, hours for tomorrow's props) means
+    # the engine hasn't been refreshing it: often a pulled prop or a moved price, so it's left out
+    hrs = _CUR[0][2]
+    cyc = next((m for h, m in (C.LINES_STALE if main else C.PROPS_STALE) if hrs is not None and hrs <= h), 240)
+    if age is not None and age > max(MAX_AGE_MIN, 1.5 * cyc):
+        return out
     for q in line.get("quotes") or []:
         if not q.get("venue") or q.get("stale"):
             continue
         pe = (q.get("prices") or {}).get(side) or {}
         c = pe.get("cost")
         if c and 0 < c < 1:
-            out.append((c, q["book"], q["name"], pe.get("allInAm", pe.get("am"))))
+            am = pe.get("allInAm", pe.get("am"))
+            _META[(q["book"], c)] = {"age": None if age is None else round(age, 1), "exch": q.get("kind") == "exchange"}
+            out.append((c, q["book"], q["name"], am))
     return sorted(out)
 
 
-def _leg(book, name, am, cost, label, fair=None, spec=None):
+def _am_of_cost(c):
+    """American odds for an all-in cost (implied probability)"""
+    if not c or c <= 0 or c >= 1:
+        return None
+    d = 1 / c
+    return round((d - 1) * 100) if d >= 2 else round(-100 / (d - 1))
+
+
+def _leg(book, name, am, cost, label, fair=None, spec=None, limit=None):
     """spec: what the ledger grades from (market, side, that side's own point, team for team totals), so a logged
     arb or middle settles itself leg by leg"""
+    m = _META.get((book, cost)) or {}
+    # holdTo: the worst price this leg can take (the other leg's price as it is) before the arb, the risk-free middle
+    # or the middle's edge is gone. Exchanges (ProphetX, Novig, Kalshi, Polymarket) can move against you with size.
     return dict({"book": book, "name": name, "am": am, "dec": round(1 / cost, 4), "label": label,
-                 "fair": fair, "off": None if fair is None else round(fair - cost, 4)}, **(spec or {}))
+                 "fair": fair, "off": None if fair is None else round(fair - cost, 4),
+                 "age": m.get("age"), "exch": bool(m.get("exch")), "holdTo": _am_of_cost(limit) if limit else None}, **(spec or {}))
 
 
 def _spec(l, side, home=None, mk=None):
@@ -63,8 +105,8 @@ def _arbs_in(lines, meta, labels, home=None):
         if best and best[0] < 0.995:
             s, (ca, ba, na, aa), (cb, bb, nb, ab) = best
             out.append(dict(meta, kind="arb", market=l.get("market") or meta.get("market"), point=l.get("point"), profit=round(1 / s - 1, 4),
-                            legs=[_leg(ba, na, aa, ca, labels(l, outs[0]), (l.get("fair") or {}).get(outs[0]), _spec(l, outs[0], home, meta.get("market"))),
-                                  _leg(bb, nb, ab, cb, labels(l, outs[1]), (l.get("fair") or {}).get(outs[1]), _spec(l, outs[1], home, meta.get("market")))],
+                            legs=[_leg(ba, na, aa, ca, labels(l, outs[0]), (l.get("fair") or {}).get(outs[0]), _spec(l, outs[0], home, meta.get("market")), 1 - cb),
+                                  _leg(bb, nb, ab, cb, labels(l, outs[1]), (l.get("fair") or {}).get(outs[1]), _spec(l, outs[1], home, meta.get("market")), 1 - ca)],
                             stakes=[round(ca / s, 4), round(cb / s, 4)]))
     return out
 
@@ -96,21 +138,32 @@ def _middles_in(lines, meta, labels, up, down, fair_up, key, home=None):
                 continue
             ev = (1 - S) + pm
             if ev >= 0.005 and 1 - S >= -0.06:
-                out.append(dict(meta, kind="middle", market=l1.get("market") or meta.get("market"), window=[key(l1), key(l2)], pMiddle=round(pm, 4),
+                free = 1 - S >= 0           # no loss whichever side wins, and both win in the window
+                lim1, lim2 = ((1 - c2), (1 - c1)) if free else ((1 + pm - c2), (1 + pm - c1))
+                out.append(dict(meta, kind="middle", free=free, market=l1.get("market") or meta.get("market"), window=[key(l1), key(l2)], pMiddle=round(pm, 4),
                                 ev=round(ev, 4), worst=round(1 - S, 4),
-                                legs=[_leg(b1, n1, a1, c1, labels(l1, up(l1)), (l1.get("fair") or {}).get(up(l1)), _spec(l1, up(l1), home, meta.get("market"))),
-                                      _leg(b2, n2, a2, c2, labels(l2, down(l2)), (l2.get("fair") or {}).get(down(l2)), _spec(l2, down(l2), home, meta.get("market")))],
+                                legs=[_leg(b1, n1, a1, c1, labels(l1, up(l1)), (l1.get("fair") or {}).get(up(l1)), _spec(l1, up(l1), home, meta.get("market")), min(lim1, 0.999)),
+                                      _leg(b2, n2, a2, c2, labels(l2, down(l2)), (l2.get("fair") or {}).get(down(l2)), _spec(l2, down(l2), home, meta.get("market")), min(lim2, 0.999))],
                                 stakes=[round(c1 / S, 4), round(c2 / S, 4)]))
     out.sort(key=lambda x: -x["ev"])
     return out[:3]          # the best few windows per market
 
 
-def find(game_docs, prop_docs, now_iso=None):
+def find(game_docs, prop_docs, now_iso=None, pulled=None):
+    """pulled: the engine's refresh_state ({lines: {sport: at}, events: {gameId: at}}) for how fresh each price is"""
     out = []
+    _NOW[0] = datetime.fromisoformat(now_iso.replace("Z", "+00:00")) if now_iso else datetime.now(timezone.utc)
+    _META.clear()
+    pulled = pulled or {}
+    sport_of = {g["id"]: g.get("sport") for g in game_docs}
+    def ages(gid, sport, commence):
+        hrs = (datetime.fromisoformat(commence.replace("Z", "+00:00")) - _NOW[0]).total_seconds() / 3600
+        return (_age((pulled.get("lines") or {}).get(sport)), _age((pulled.get("events") or {}).get(gid)), hrs)
     for g in game_docs:
         if now_iso and g["commence"] <= now_iso:
             continue
         meta = {"gameId": g["id"], "league": g["league"], "commence": g["commence"], "matchup": f"{g['away']} @ {g['home']}"}
+        _CUR[0] = ages(g["id"], g.get("sport"), g["commence"])
 
         def lab(l, o, g=g):
             mk = l.get("market") or ""
@@ -134,6 +187,7 @@ def find(game_docs, prop_docs, now_iso=None):
         if now_iso and p["commence"] <= now_iso:
             continue
         meta = {"gameId": p["id"], "league": p["league"], "commence": p["commence"], "matchup": f"{p['away']} @ {p['home']}"}
+        _CUR[0] = ages(p["id"], p.get("sport") or sport_of.get(p["id"]), p["commence"])
         mname = p["market"].split("_", 1)[-1].replace("_", " ")
         by = {}
         for r in p.get("rows") or []:
@@ -151,5 +205,8 @@ def find(game_docs, prop_docs, now_iso=None):
         # flagged so it is checked before anything is placed, and never alerted
         o["suspect"] = (o.get("profit") or 0) > 0.08 or any(abs(x.get("off") or 0) > 0.12 for x in o["legs"])
         o["score"] = o["profit"] if o["kind"] == "arb" else o["ev"]
+        if o.get("free") and not o["suspect"]:
+            o["score"] += 1         # a middle that can't lose goes first
+        o["oldest"] = max((x.get("age") or 0) for x in o["legs"])
     out.sort(key=lambda x: -x["score"])
     return out[:150]

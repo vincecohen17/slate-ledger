@@ -3,7 +3,7 @@
 // but every stat treats the pair as ONE result: net profit, total staked, expected profit from the fairs. That keeps
 // a guaranteed loser leg out of the record, the venue tables, CLV, calibration and Kelly sizing.
 import { S, saveBet, savePromo } from "./store.js";
-import { esc, am, prob, money, sheet, toast, uid, decFromAm, todayPT, bookLogo, $, $$ } from "./util.js";
+import { esc, am, prob, money, sheet, toast, uid, decFromAm, todayPT, bookLogo, oddsFromInput, centsTag, $, $$ } from "./util.js";
 import { VENUES } from "./lab.js";
 import { settleProfit, isBoost, promoOpen, singleUse } from "./promo.js";
 
@@ -85,12 +85,12 @@ export function arbSheet(pre = {}) {
       <div class="row" style="gap:8px;align-items:center">${l.book ? bookLogo(l.book, l.name, 22) : `<b class="tiny muted">Leg ${i + 1}</b>`}<input class="ab-label grow" value="${esc(l.label || "")}" placeholder="${i ? "e.g. Under 224.5" : "e.g. Over 224.5"}"></div>
       <div class="fgrid" style="margin-top:8px">
         <label class="f">Venue<select class="ab-venue">${venues.map((v) => `<option value="${v.key}" ${v.key === l.book ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></label>
-        <label class="f">Odds<input class="ab-odds" inputmode="numeric" value="${l.am ?? ""}" placeholder="-110"></label>
+        <label class="f">Odds<input class="ab-odds" inputmode="decimal" value="${l.am ?? ""}" placeholder="-110 or 52c"></label>
         <label class="f">Stake $<input class="ab-stake" inputmode="decimal" value="${fromBoard ? Math.round(total * pre.stakes[i] * 100) / 100 : ""}" placeholder="50"></label>
         <label class="f">Promo<select class="ab-promo">${promoOpts("")}</select></label>
       </div>
       <label class="row lb-boost ab-bst" style="gap:8px;align-items:center;margin-top:6px" hidden><input type="checkbox" class="ab-boostin"><span class="tiny">odds above already include the boost</span></label>
-      ${l.fair != null ? `<div class="tiny muted" style="margin-top:4px">fair ${prob(l.fair)} when found · ${esc(l.name || "")} ${am(l.am)}</div>` : ""}
+      ${l.fair != null ? `<div class="tiny muted" style="margin-top:4px">fair ${prob(l.fair)} when found · ${esc(l.name || "")} ${am(l.am)}${centsTag(l.am, l.book) ? ` (${centsTag(l.am, l.book)} in app)` : ""}${l.holdTo != null ? ` · still works down to ${am(l.holdTo)}${centsTag(l.holdTo, l.book) ? ` (${centsTag(l.holdTo, l.book)})` : ""}` : ""}</div>` : ""}
     </div>`;
   sheet(`<h3>Log ${fromBoard ? (kind === "arb" ? "this arb" : "this middle") : "an arb or middle"}</h3>
     <div class="col" style="gap:10px">
@@ -103,7 +103,7 @@ export function arbSheet(pre = {}) {
     </div>`, (el, close) => {
     const rows = $$(".ab-leg", el);
     const read = () => rows.map((r) => {
-      const odds = parseFloat($(".ab-odds", r).value), stake = parseFloat($(".ab-stake", r).value), promoId = $(".ab-promo", r).value || null;
+      const odds = oddsFromInput($(".ab-odds", r).value, $(".ab-venue", r).value), stake = parseFloat($(".ab-stake", r).value), promoId = $(".ab-promo", r).value || null;
       return { odds, stake, promoId, dec: isNaN(odds) ? null : decFromAm(odds), boostIn: !!$(".ab-boostin", r).checked, label: $(".ab-label", r).value.trim(), venue: $(".ab-venue", r).value };
     });
     const calc = () => {
@@ -130,6 +130,7 @@ export function arbSheet(pre = {}) {
       $(".ab-stake", r).oninput = () => { anchor = i; calc(); };
       $(".ab-odds", r).oninput = calc;
       $(".ab-promo", r).onchange = calc;
+      $(".ab-venue", r).onchange = calc;
       $(".ab-boostin", r).onchange = calc;
     });
     $("#ab-auto", el).onchange = calc;

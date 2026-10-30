@@ -188,3 +188,35 @@ export function kellyStake(p, dec, set) {
   const st = Math.min(set.bankroll * (set.maxPct ?? 0.05), set.bankroll * (set.kelly ?? 0.25) * f);
   return st >= 10 ? Math.round(st) : Math.round(st * 2) / 2;
 }
+
+// ---------- prediction-market prices: Kalshi, Polymarket and the DraftKings / FanDuel prediction apps quote a contract
+// price in cents (the chance). Prices here are all-in (ask + fee); these show the app's own number and read it back.
+export const PRED = new Set(["kalshi", "polymarket_us", "polymarket", "draftkings", "fanduel"]);
+export function predFee(venue, p) {
+  if (venue === "kalshi") return Math.ceil(0.07 * p * (1 - p) * 100 - 1e-9) / 100;
+  if (venue === "polymarket_us" || venue === "polymarket") return 0.05 * p * (1 - p);
+  return 0;
+}
+// the ask in cents behind an all-in American price
+export function askCents(amAllIn, venue) {
+  if (amAllIn == null || isNaN(amAllIn)) return null;
+  const cost = 1 / decFromAm(+amAllIn);
+  let lo = 0.005, hi = 0.995;
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; m + predFee(venue, m) > cost ? (hi = m) : (lo = m); }
+  return Math.round(lo * 1000) / 10;
+}
+export const centsTag = (amAllIn, venue) => { if (!PRED.has(venue)) return ""; const c = askCents(amAllIn, venue); return c == null ? "" : `${+c.toFixed(1)}¢`; };
+// "-110", "+150", "52c", "52¢", "52%", ".52" -> American odds, all-in (the venue's fee added to a cents price)
+export function oddsFromInput(s, venue) {
+  const t = String(s ?? "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!t) return NaN;
+  let m = t.match(/^(\d{1,2}(?:\.\d+)?)(?:c|¢|%|cents?)$/), p = null;
+  if (m) p = +m[1] / 100;
+  else if ((m = t.match(/^0?\.(\d+)$/))) p = +("0." + m[1]);
+  if (p != null) {
+    if (!(p > 0 && p < 1)) return NaN;
+    const cost = p + predFee(venue || "", p), d = 1 / cost;
+    return Math.round(d >= 2 ? (d - 1) * 100 : -100 / (d - 1));
+  }
+  return parseFloat(t.replace(/^\+/, ""));
+}

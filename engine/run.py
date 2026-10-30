@@ -1061,9 +1061,14 @@ def publish(game_docs, prop_docs, status, stamp):
     try:            # arbs and middles across Vince's venues, then phone alerts for the strong new ones
         import opps as OP
         import alerts
-        opp_list = OP.find(game_docs, prop_docs, iso(NOW))
+        opp_list = OP.find(game_docs, prop_docs, iso(NOW), pulled=load_state())
         status["opps"] = len(opp_list)
         n_al = alerts.send(DATA_DIR, NOW, edges=edge_list[:60], opps=opp_list, log=log)
+        try:
+            if firestore_db() and alerts.share_topic(firestore_db(), DATA_DIR):
+                log("alerts: topic shared with the site")
+        except Exception as e:
+            log(f"alerts: could not share the topic ({type(e).__name__})")
         log(f"opportunities: {sum(o['kind'] == 'arb' for o in opp_list)} arbs, {sum(o['kind'] == 'middle' for o in opp_list)} middles; {n_al} alerts sent")
     except Exception as e:
         log(f"opportunities failed: {type(e).__name__}: {str(e)[:120]}")

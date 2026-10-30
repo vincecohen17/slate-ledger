@@ -1,5 +1,6 @@
 import { S } from "../store.js";
 import { esc, am, pct, prob, fmtTime, fmtShortDay, units, todayPT, bookTag, $$ } from "../util.js";
+import { centsTag } from "../util.js";
 import { betImage, bindLog } from "./common.js";
 
 const PILLARS = [["model", "Model"], ["advanced", "Adv stats"], ["matchup", "Matchup"], ["role", "Role"], ["context", "Context"], ["market", "Market"]];
@@ -35,7 +36,7 @@ export function pickCard(p) {
   const vrows = lv ? lv.venues : (p.playTo || []).map((v) => ({ ...v, now: typeof v.price === "number" ? v.price : null, listed: true }));
   const venues = vrows.map((v) => `<div class="lrow" style="grid-template-columns:1fr auto auto">
       <span>${bookTag(v.venue, v.name || v.venue, 15)}${v.line != null ? ` <span class="tiny muted">${esc(v.line)}</span>` : ""}${v.note ? ` <span class="tiny muted">· ${esc(v.note)}</span>` : ""}</span>
-      <span class="px">${v.listed === false ? `<span class="faint">not listed</span>` : esc(v.now != null ? am(v.now) : "–")}</span>
+      <span class="px">${v.listed === false ? `<span class="faint">not listed</span>` : esc(v.now != null ? am(v.now) : "–")}${v.listed !== false && v.now != null && centsTag(v.now, v.venue) ? ` <span class="tiny muted">${centsTag(v.now, v.venue)}</span>` : ""}</span>
       <span class="${v.inRange ? "pos" : "faint"}">${v.inRange ? "✓ in range" : v.listed === false ? "–" : "wait"}</span></div>`).join("")
     + (lv ? `<div class="tiny muted" style="margin-top:4px">Checked ${fmtTime(lv.at)}${lv.fairNow != null ? ` · sharp fair now ${prob(lv.fairNow, 1)}` : ""}${lv.anyInRange ? "" : ` · <span class="neg">no venue in range right now</span>`}</div>` : "");
   return `<div class="card col ${st === "void" ? "pk-void" : ""}" style="gap:10px">

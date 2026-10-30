@@ -63,11 +63,17 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   grades the model against itself. rerank uses gap (a kind 5 pts under its fair drops ~25%).
 - `engine/opps.py` arbs and middles across Vince's venues (all-in prices; middles priced with the alt-line fairs: EV = 1 - S +
   P(middle)); suspect ones (8%+ or a leg 12+ pts off fair) are flagged. Published as RTDB `pre/opps`, Edges > Arbs & middles.
+  Freshness is our pull time (refresh_state lines/events), not the book's last_update: a market older than 1.5 refresh
+  cycles (min 45 min) is left out; each leg has age, exch (price moves with size) and holdTo (worst price that still works).
+  free: a middle with no loss either way; ranked first, always alerted (priority 5).
   Each leg carries market/side/point/team so a logged pair grades itself. `site/js/arbs.js`: "Log both legs" (or Ledger >
   Log arb / middle, or pairing two bets in a bet's Edit sheet) saves both legs as normal bets sharing `group` {id, kind, i,
   window?, pMiddle?}; `unify()` folds each pair into one row (net profit, total stake, expected profit from the legs' fairs)
   for every ledger stat and the Analysis tab, so the losing leg never counts as a lost bet or skews venues, CLV or Kelly.
-- `engine/alerts.py` phone alerts via ntfy (topic only in the private data repo config/alerts.json): arbs/middles, strong new
+- Prediction-market prices (Kalshi, Polymarket, DK Predictions, FanDuel Predicts) also show the app's cents (util centsTag,
+  fee backed out); odds inputs accept 52c / 52% / .52 (oddsFromInput adds the fee).
+- `engine/alerts.py` phone alerts via ntfy (topic only in the private data repo config/alerts.json; shared to the owner-only
+  Firestore private/alerts so the site's Phone alerts card can show setup and send a test): arbs/middles, strong new
   edges (logic agrees, outside quiet hours), optional bet results; each item once (latest/alerts_state.json).
 - Site sizing: Firestore `settings/owner` {bankroll, kelly, maxPct, unit} (Ledger > Analysis) drives the suggested stake on
   edges (half for model/estimated fairs), the log sheet's default stake and units in dollars; parlays down to one leg show a

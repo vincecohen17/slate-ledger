@@ -249,6 +249,15 @@ let beat = null;
 let dispatchToken = null, lastDispatch = 0;
 onSnapshot(doc(db, "private", "dispatch"), (d) => { dispatchToken = d.exists() ? (d.data().token || "").trim() : null; S.instant = !!dispatchToken; if (dispatchToken) kick(); changed(); },
   () => { S.instant = false; });
+// phone alerts: the engine shares the ntfy topic here (owner-only), so the site can show how to subscribe and test it
+onSnapshot(doc(db, "private", "alerts"), (d) => { S.alerts = d.exists() ? d.data() : null; changed(); }, () => { S.alerts = null; });
+export function testAlert() {
+  if (!S.alerts?.topic) return Promise.reject(new Error("no topic yet"));
+  return fetch(`https://ntfy.sh/${encodeURIComponent(S.alerts.topic)}`, { method: "POST",
+    headers: { Title: "Slate Ledger test alert", Tags: "white_check_mark", Priority: "4", Click: "https://slate-ledger.web.app/#/edges" },
+    body: "Alerts are on. You'll get arbs, middles (no-risk ones first, loudest) and strong new edges here." })
+    .then((r) => { if (!r.ok) throw new Error(`ntfy said ${r.status}`); });
+}
 function dispatch(mode) {
   return fetch("https://api.github.com/repos/vincecohen17/slate-ledger/actions/workflows/pull.yml/dispatches", {
     method: "POST", headers: { Authorization: `Bearer ${dispatchToken}`, Accept: "application/vnd.github+json" },

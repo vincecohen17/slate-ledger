@@ -1,5 +1,5 @@
 import { S, saveBet, savePromo } from "../store.js";
-import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, $ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, centsTag, oddsFromInput, PRED, $ } from "../util.js";
 import { VENUES } from "../lab.js";
 import { settleProfit, isBoost, promoOpen, singleUse } from "../promo.js";
 import { money } from "../util.js";
@@ -31,7 +31,7 @@ export function edgeCard(e) {
       ${betImage(e)}
       <div class="col"><a class="what" href="${e.live ? `#/game/${e.gameId}/live` : href}" style="text-decoration:none">${e.live ? `<span class="pill live">● LIVE</span> ` : ""}${esc(e.label)}</a>
         <span class="sub ellip">${esc(e.matchup)} · ${fmtTime(e.commence)}</span></div>
-      <div class="price"><div class="big">${e.pickem ? "pick'em" : am(e.am)}</div><div class="tiny muted">${e.pickem ? (e.flex && e.minMult ? `${e.estMult ? `~${e.estMult.toFixed(2)}x est. · ` : ""}take at ≥ ${e.minMult.toFixed(2)}x` : `needs ${prob(e.be ?? 0.5774, 1)}`) : prob(1 / decFromAm(e.am), 1)}</div><div class="tiny muted" style="margin-top:3px">${bookTag(e.book, e.bookName, 14)}</div></div>
+      <div class="price"><div class="big">${e.pickem ? "pick'em" : am(e.am)}</div>${!e.pickem && centsTag(e.am, e.book) ? `<div class="tiny" title="what ${esc(e.bookName)} shows: the contract price${e.book === "kalshi" || /polymarket/.test(e.book) ? " before its fee (the American price includes it)" : ""}">${centsTag(e.am, e.book)} in app</div>` : ""}<div class="tiny muted">${e.pickem ? (e.flex && e.minMult ? `${e.estMult ? `~${e.estMult.toFixed(2)}x est. · ` : ""}take at ≥ ${e.minMult.toFixed(2)}x` : `needs ${prob(e.be ?? 0.5774, 1)}`) : prob(1 / decFromAm(e.am), 1)}</div><div class="tiny muted" style="margin-top:3px">${bookTag(e.book, e.bookName, 14)}</div></div>
     </div>
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
@@ -60,7 +60,7 @@ export function ladder(line, side, limit = 8, showAll = false) {
     const e = p.edge;
     h += `<div class="lrow ${q.stale ? "stale" : ""}" data-tip="${esc(q.name)}: ${am(p.allInAm ?? p.am)}${p.allInAm ? " all-in (fee)" : ""} · edge ${pct(e)}${q.stale ? " · stale" : ""}">
       <span class="row ellip" style="gap:6px">${bookTag(q.book, q.name, 16)} ${bookPill(q)}</span>
-      <span class="px">${am(p.allInAm ?? p.am)}</span>${edgeBar(e, max)}<span class="ed ${e > 0.005 ? "pos" : e < -0.04 ? "neg" : ""}">${pct(e)}</span></div>`;
+      <span class="px">${am(p.allInAm ?? p.am)}${centsTag(p.allInAm ?? p.am, q.book) ? ` <span class="tiny muted">${centsTag(p.allInAm ?? p.am, q.book)}</span>` : ""}</span>${edgeBar(e, max)}<span class="ed ${e > 0.005 ? "pos" : e < -0.04 ? "neg" : ""}">${pct(e)}</span></div>`;
   }
   return h + `</div>`;
 }
@@ -81,7 +81,7 @@ export function logSheet(pre = {}) {
       <label class="f">Bet<input id="lb-label" value="${esc(pre.label || "")}" placeholder="e.g. Knicks -3.5"></label>
       <div class="fgrid">
         <label class="f">Venue<select id="lb-venue">${venues.map((v) => `<option value="${v.key}" ${v.key === pre.venue ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></label>
-        <label class="f">Odds (American)<input id="lb-odds" inputmode="numeric" value="${pre.am ?? ""}" placeholder="-110"></label>
+        <label class="f">Odds<input id="lb-odds" inputmode="decimal" value="${pre.am ?? ""}" placeholder="-110 or 52c"><span class="tiny muted lb-conv"></span></label>
         <label class="f">Stake $<input id="lb-stake" inputmode="decimal" value="${pre.stake ?? (!edit && pre.fair != null && pre.am != null ? kellyStake(pre.fair, decFromAm(pre.am), S.settings) || "" : "")}" placeholder="10"></label>
         <label class="f">Promo<select id="lb-promo"><option value="">None</option>${[...S.promos.values()].filter((p) => promoOpen(p) || p.id === pre.promoId).map((p) => `<option value="${p.id}" ${p.id === pre.promoId ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}</select></label>
         ${settled ? `<label class="f">Result<select id="lb-status">${["won", "lost", "push", "void"].map((s) => `<option ${s === pre.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
@@ -101,11 +101,13 @@ export function logSheet(pre = {}) {
     </div>`, (el, close) => {
     $("#lb-cancel", el).onclick = close;
     const read = () => {
-      const odds = parseFloat($("#lb-odds", el).value), stake = parseFloat($("#lb-stake", el).value), promo = S.promos.get($("#lb-promo", el).value) || null;
+      const odds = oddsFromInput($("#lb-odds", el).value, $("#lb-venue", el).value), stake = parseFloat($("#lb-stake", el).value), promo = S.promos.get($("#lb-promo", el).value) || null;
       return { odds, stake, promo, boostIn: !!$("#lb-boostin", el).checked };
     };
     const preview = () => {          // what it pays, so a double-counted boost is easy to spot
       const { odds, stake, promo, boostIn } = read(), boost = isBoost(promo);
+      const raw = $("#lb-odds", el).value.trim(), ven = $("#lb-venue", el).value, cv = $(".lb-conv", el);
+      if (cv) cv.textContent = /[c¢%]$|^0?\./i.test(raw) && !isNaN(odds) ? `= ${am(odds)}${PRED.has(ven) && (ven === "kalshi" || /polymarket/.test(ven)) ? " after the fee" : ""}` : PRED.has(ven) && !isNaN(odds) ? `≈ ${centsTag(odds, ven)} in the app` : "";
       $(".lb-bst", el).hidden = !boost;
       const ur = $(".lb-usedrow", el);
       if (ur) { ur.hidden = !promo || promo.used || promo.wallet; if (promo && ur.dataset.for !== promo.id) { ur.dataset.for = promo.id; $("#lb-used", el).checked = singleUse(promo); } }
@@ -117,6 +119,7 @@ export function logSheet(pre = {}) {
         <span class="small">If it loses: <b class="neg num">${money(l)}</b></span></div>`;
     };
     ["lb-odds", "lb-stake"].forEach((id) => $("#" + id, el).oninput = preview);
+    $("#lb-venue", el).onchange = preview;
     ["lb-promo", "lb-boostin"].forEach((id) => $("#" + id, el).onchange = preview);
     preview();
     $("#lb-save", el).onclick = async () => {

@@ -70,17 +70,22 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
                 continue
             if o["kind"] == "arb" and o["profit"] < cfg.get("minArb", 0.01):
                 continue
-            if o["kind"] == "middle" and o["ev"] < cfg.get("minMiddle", 0.02):
-                continue
+            if o["kind"] == "middle" and not o.get("free") and o["ev"] < cfg.get("minMiddle", 0.02):
+                continue           # a no-risk middle always goes out, whatever its EV
             fresh.append((k, o))
+        fresh.sort(key=lambda x: (not x[1].get("free"), -(x[1].get("score") or 0)))
         if fresh:
             lines = []
             for k, o in fresh[:5]:
-                head = f"ARB +{o['profit'] * 100:.1f}%" if o["kind"] == "arb" else f"MIDDLE EV +{o['ev'] * 100:.1f}% ({o['pMiddle'] * 100:.0f}% to hit)"
+                head = (f"ARB +{o['profit'] * 100:.1f}%" if o["kind"] == "arb"
+                        else f"NO-RISK MIDDLE: +{o['worst'] * 100:.1f}% either way, both win {o['pMiddle'] * 100:.0f}% of the time" if o.get("free")
+                        else f"MIDDLE EV +{o['ev'] * 100:.1f}% ({o['pMiddle'] * 100:.0f}% to hit)")
                 legs = " | ".join(f"{l['label']} {_am(l['am'])} @ {l['name']} ({s * 100:.0f}%)" for l, s in zip(o["legs"], o["stakes"]))
                 lines.append(f"{head} · {o['league']} {o['matchup']}\n{legs}")
-            _post(cfg, f"{len(fresh)} arb/middle{'s' if len(fresh) > 1 else ''} open", "\n\n".join(lines) + "\n\n(% = share of the total stake per leg)",
-                  tags="moneybag", priority=4, click=click + "/#/edges")
+            nf = sum(1 for _, o in fresh[:5] if o.get("free"))
+            _post(cfg, f"{nf} no-risk middle{'s' if nf > 1 else ''} open" if nf else f"{len(fresh)} arb/middle{'s' if len(fresh) > 1 else ''} open",
+                  "\n\n".join(lines) + "\n\n(% = share of the total stake per leg; exchange prices can move with size)",
+                  tags="rotating_light,moneybag" if nf else "moneybag", priority=5 if nf else 4, click=click + "/#/edges")
             for k, o in fresh[:5]:
                 st["sent"][k] = t
             n += 1
@@ -112,3 +117,19 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
         log(f"alerts: send failed ({type(e).__name__})")
     _save(data_dir, st, now)
     return n
+
+
+def share_topic(db, data_dir):
+    """the topic, readable only by the owner's signed-in site (Firestore private/alerts), so the site can show how to
+    subscribe and send a test alert. Written only when it changes; the topic never goes to this public repo or the logs."""
+    cfg = _cfg(data_dir)
+    if not cfg or not cfg.get("topic") or db is None:
+        return False
+    st = _state(data_dir)
+    want = {"topic": cfg["topic"], "quietStart": cfg.get("quietStart", 23), "quietEnd": cfg.get("quietEnd", 7)}
+    if st.get("shared") == want:
+        return False
+    db.document("private/alerts").set(want)
+    st["shared"] = want
+    json.dump(st, open(os.path.join(data_dir, "latest", "alerts_state.json"), "w"), separators=(",", ":"))
+    return True
