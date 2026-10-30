@@ -821,6 +821,9 @@ def main():
     if MODE == "probe":
         import probe  # noqa: F401  (runs on import)
         return
+    if MODE == "depthprobe":
+        import depthprobe  # noqa: F401  (runs on import: where order-book depth can come from)
+        return
     if MODE == "stats":
         return run_stats(backfill="backfill" in open(os.path.join(os.path.dirname(__file__), "run-request")).read())
     if MODE == "rebuild":
