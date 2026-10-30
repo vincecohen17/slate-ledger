@@ -262,13 +262,14 @@ def live(watch=False, full=True, pres=None):
     bet_legs, bet_games = {}, set()
     # open bets are read every 5 minutes (Firestore reads are on a daily quota), the legs kept in live_state between reads
     # ... and right away when the site says a bet was just saved (presence.betsAt)
-    if _age_min(ls.get("betsAt")) >= 5 or "betLegs" not in ls or (pres.get("betsAt") or "") > (ls.get("betsAt") or ""):
+    if _age_min(ls.get("betsAt")) >= 5 or "betLegs" not in ls or "betGames" not in ls or (pres.get("betsAt") or "") > (ls.get("betsAt") or ""):
         try:
             _db = firestore_db()
             if _db:
-                found, live_open = {}, []
+                found, live_open, open_games = {}, [], set()
                 for snap in _db.collection("bets").where("status", "==", "pending").stream():
                     b = snap.to_dict() or {}
+                    open_games |= {x["gameId"] for x in (b.get("legs") or [b]) if x.get("gameId")}
                     if b.get("live") and not b.get("liveCheck") and b.get("dec"):
                         legs = [{k: x.get(k) for k in ("gameId", "market", "side", "point", "player", "team", "label")}
                                 for x in (b.get("legs") or [b]) if x.get("gameId")]
@@ -282,6 +283,7 @@ def live(watch=False, full=True, pres=None):
                             found.setdefault(leg["gameId"], {})[f"{snap.id}#{i}"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")} \
                                 | {k: leg.get(k) or b.get(k) for k in ("matchup", "league", "commence")}
                 ls["betLegs"], ls["betsAt"], ls["liveBets"] = found, iso(NOW), live_open
+                ls["betGames"] = sorted(open_games)      # every game with an open leg, team bets included
         except Exception as e:
             log(f"open bets read failed: {type(e).__name__}")
     bet_legs = {g: dict(v) for g, v in (ls.get("betLegs") or {}).items()}
@@ -298,6 +300,8 @@ def live(watch=False, full=True, pres=None):
     except Exception as e:
         log(f"open picks read failed: {type(e).__name__}")
     bet_games = set(bet_legs)
+    # the games the watcher keeps current: any open bet leg (moneylines, spreads and totals too) or open prop pick
+    watch_ids = bet_games | set(ls.get("betGames") or [])
     for s in sports:
         if full:
             try:
@@ -308,7 +312,7 @@ def live(watch=False, full=True, pres=None):
             gl = [build.build_game(ev, C.label(s)) for ev in data
                   if datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00")) <= NOW and ev.get("bookmakers")]
         else:       # free pass: the games with open legs, from the pre-game cache (no prices)
-            gl = [dict(x, lines=[]) for x in started if x["sport"] == s and x["id"] in bet_legs]
+            gl = [dict(x, lines=[]) for x in started if x["sport"] == s and x["id"] in watch_ids]
         Rf = refs.load(s, DATA_DIR)
         for g in gl:
             refs.decorate_game(g, Rf)
@@ -381,7 +385,7 @@ def live(watch=False, full=True, pres=None):
     for k in [k for k, v in meta.items() if datetime.fromisoformat(v["commence"].replace("Z", "+00:00")) < NOW - timedelta(hours=16)]:
         del meta[k]
     have = {d["id"] for d in docs}
-    missing = [gid for gid in bet_games if gid not in have]
+    missing = [gid for gid in watch_ids if gid not in have]
     if missing:
         gm = {**meta, **{g["id"]: g for g in games}}
         # a game that ended before live mode saw it in play: rebuild it from the bet itself (matchup, league, start)
@@ -396,7 +400,7 @@ def live(watch=False, full=True, pres=None):
                 continue
             except Exception:
                 pass
-            info = next((v for v in bet_legs[gid].values() if v.get("matchup") and " @ " in v["matchup"] and lg2s.get(v.get("league"))), None)
+            info = next((v for v in bet_legs.get(gid, {}).values() if v.get("matchup") and " @ " in v["matchup"] and lg2s.get(v.get("league"))), None)
             if not info:
                 continue
             away, home = info["matchup"].split(" @ ", 1)
@@ -421,7 +425,7 @@ def live(watch=False, full=True, pres=None):
             if not st:
                 continue
             try:
-                bl = LB.compute(DATA_DIR, s, g["id"], st, bet_legs[g["id"]], log)
+                bl = LB.compute(DATA_DIR, s, g["id"], st, bet_legs[g["id"]], log) if bet_legs.get(g["id"]) else {}
             except Exception as e:
                 log(f"bet legs (final) failed: {type(e).__name__}")
                 bl = {}
@@ -502,9 +506,9 @@ def live(watch=False, full=True, pres=None):
     if full:
         log(f"live: {len(docs)} games, {len(edges_all)} edges, credits {api.used_run} (today {ls['used']})")
     # still worth watching: an open leg on a game in play, or one starting within 15 minutes
-    soon = any(NOW - timedelta(minutes=20) <= datetime.fromisoformat(v["commence"].replace("Z", "+00:00")) <= NOW + timedelta(minutes=15)
-               for legs in bet_legs.values() for v in legs.values() if v.get("commence"))
-    return {"need": soon or any(d.get("betLegs") and not d.get("final") for d in docs)}
+    starts = {g["id"]: g["commence"] for g in games}
+    soon = any(iso(NOW - timedelta(minutes=20)) <= (starts.get(gid) or "") <= iso(NOW + timedelta(minutes=15)) for gid in watch_ids)
+    return {"need": soon or any(d["id"] in watch_ids and not d.get("final") for d in docs)}
 
 
 def watch():
