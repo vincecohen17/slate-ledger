@@ -544,11 +544,18 @@ def _watch_wanted():
     if not db or not os.environ.get("GITHUB_TOKEN"):
         return False
     lo, hi = iso(NOW - timedelta(hours=5)), iso(NOW + timedelta(minutes=15))
+    import glob
+    starts = {}             # every cached game's start, for legs saved without one
+    for f in glob.glob(RAW("lines_*.json")):
+        try:
+            starts.update({ev["id"]: ev.get("commence_time") for ev in json.load(open(f))})
+        except Exception:
+            pass
     want = False
     try:
         for snap in db.collection("bets").where("status", "==", "pending").stream():
             b = snap.to_dict() or {}
-            if any(lo <= (x.get("commence") or b.get("commence") or "") <= hi for x in (b.get("legs") or [b])):
+            if any(lo <= (x.get("commence") or starts.get(x.get("gameId")) or b.get("commence") or "") <= hi for x in (b.get("legs") or [b])):
                 want = True
                 break
     except Exception as e:
