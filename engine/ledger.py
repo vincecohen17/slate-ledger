@@ -345,6 +345,49 @@ def debug_bets(db, data_dir, fin_by_gid):
 # league from its game's pre-game snapshot or the finals, else from a player or team name in the label. Written once
 # per bet as leagues [..] + leaguesAt, at most hourly (it reads every bet).
 
+def apply_fixes(db, data_dir, log=print):
+    """corrections Vince asked for on bets he logged (the wrong side of a leg, say), kept in the private data repo
+    fixes/bets.json: [{id, leg (the leg's label as logged), side, label (the leg's corrected label)}]. Each runs once,
+    and only on a bet that is still pending (latest/fixes_state.json). Changes only the named leg and the bet's label."""
+    fn, st_fn = os.path.join(data_dir, "fixes", "bets.json"), os.path.join(data_dir, "latest", "fixes_state.json")
+    try:
+        fixes = json.load(open(fn))
+    except Exception:
+        return 0
+    try:
+        done = set(json.load(open(st_fn)))
+    except Exception:
+        done = set()
+    n = 0
+    for f in fixes:
+        key = f"{f['id']}|{f['leg']}|{f['side']}"
+        if key in done:
+            continue
+        ref = db.document(f"bets/{f['id']}")
+        b = ref.get().to_dict() or {}
+        if b.get("status") != "pending":
+            done.add(key)
+            continue
+        legs = b.get("legs") or []
+        hit = [x for x in legs if x.get("label") == f["leg"]]
+        if not hit and b.get("label") == f["leg"] and not legs:      # a single bet: the bet itself is the leg
+            ref.update({"side": f["side"], "label": f["label"]})
+        elif hit:
+            for x in hit:
+                x["side"], x["label"] = f["side"], f["label"]
+            ref.update({"legs": legs, "label": (b.get("label") or "").replace(f["leg"], f["label"])})
+        else:
+            log("ledger: a bet fix found no matching leg")
+            done.add(key)
+            continue
+        done.add(key)
+        n += 1
+    json.dump(sorted(done), open(st_fn, "w"))
+    if n:
+        log(f"ledger: {n} bet fixes applied")
+    return n
+
+
 def backfill_leagues(db, data_dir, now, log=print):
     import config as C
     import refs as R
