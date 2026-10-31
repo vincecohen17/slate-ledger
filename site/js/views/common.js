@@ -1,5 +1,5 @@
 import { S, saveBet, savePromo } from "../store.js";
-import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, centsTag, oddsFromInput, PRED, kUsd, $ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, centsTag, oddsFromInput, PRED, kUsd, $, $$ } from "../util.js";
 import { VENUES } from "../lab.js";
 import { settleProfit, isBoost, promoOpen, singleUse } from "../promo.js";
 import { money } from "../util.js";
@@ -94,6 +94,11 @@ export function logSheet(pre = {}) {
         const cands = [...S.bets.values()].filter((b) => b.id !== pre.id && !b.group && ((pre.gameId && b.gameId === pre.gameId) || (b.date && b.date === pre.date)));
         return cands.length ? `<div class="fgrid"><label class="f" style="grid-column:span 2">Other leg of an arb or middle<select id="lb-pair"><option value="">Not paired</option>${cands.map((b) => `<option value="${b.id}">${esc(b.label)} · ${esc(b.venueName || b.venue || "")} ${am(b.am)}</option>`).join("")}</select></label>
           <label class="f">Kind<select id="lb-pairk"><option value="arb">Arb</option><option value="middle">Middle</option></select></label></div>` : ""; })() : ""}
+      ${edit && pre.status === "pending" ? (() => {      // logged the wrong side of an over/under leg: switch it here
+        const ls = (pre.legs?.length ? pre.legs : [pre]).map((l, i) => [l, i]).filter(([l]) => l.side === "Over" || l.side === "Under");
+        return ls.length ? `<div class="col" style="gap:4px"><span class="tiny muted">Wrong side logged? Tick a leg to switch it</span>${ls.map(([l, i]) =>
+          `<label class="row lb-boost" style="gap:8px;align-items:center"><input type="checkbox" data-flip="${i}"><span class="small">${esc(l.label || pre.label || "")} <span class="tiny muted">→ ${l.side === "Over" ? "Under" : "Over"}</span></span></label>`).join("")}</div>` : "";
+      })() : ""}
       ${edit ? "" : `<label class="row lb-boost lb-usedrow" style="gap:8px;align-items:center" hidden><input type="checkbox" id="lb-used"><span class="small">Mark this promo used (it leaves the Promos page)</span></label>`}
       <div class="lb-pay card" style="padding:10px 12px"></div>
       <p class="note">Our fair at logging: ${(pre.fairAtLog ?? pre.fair) != null ? prob(pre.fairAtLog ?? pre.fair, 1) : "none"}. Closing line value fills in automatically once grading runs.</p>
@@ -133,6 +138,16 @@ export function logSheet(pre = {}) {
       let bet;
       if (edit) {
         bet = { ...pre, ...common, checkedAt: new Date().toISOString() };
+        // switched legs: Over <-> Under on the leg (what grading and the live tracker read) and in the labels
+        const flips = $$("[data-flip]", el).filter((x) => x.checked).map((x) => +x.dataset.flip);
+        if (flips.length) {
+          const sw = (t) => String(t || "").replace(/\b(Over|Under)\b/, (w) => (w === "Over" ? "Under" : "Over"));
+          if (pre.legs?.length) {
+            bet.legs = pre.legs.map((l, i) => flips.includes(i) ? { ...l, side: l.side === "Over" ? "Under" : "Over", label: sw(l.label) } : l);
+            flips.forEach((i) => { bet.label = bet.label.replace(pre.legs[i].label, bet.legs[i].label); });
+          } else { bet.side = pre.side === "Over" ? "Under" : "Over"; bet.label = sw(bet.label); }
+          bet.fairAtLog = null;          // the chance logged was for the other side
+        }
         const st = $("#lb-status", el)?.value || pre.status;
         if (settled) { bet.status = st; bet.profit = settleProfit(bet, promoId ? S.promos.get(promoId) : null, st); }
       } else {
