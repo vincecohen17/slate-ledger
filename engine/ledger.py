@@ -360,6 +360,24 @@ def apply_fixes(db, data_dir, log=print):
         done = set()
     n = 0
     for f in fixes:
+        if f.get("add"):        # a leg left out when the bet was logged: {id, add: {label, gameId, market, side, point, player, ...}}
+            key = f"{f['id']}|add|{f['add'].get('label')}"
+            if key in done:
+                continue
+            ref = db.document(f"bets/{f['id']}")
+            b = ref.get().to_dict() or {}
+            done.add(key)
+            if b.get("status") != "pending":
+                continue
+            legs = b.get("legs") or [{k: b.get(k) for k in ("label", "gameId", "market", "side", "point", "player", "team", "league",
+                                                            "matchup", "commence") if b.get(k) is not None}]
+            if len(legs) == 1 and legs[0].get("label") == b.get("label") and f.get("firstLabel"):
+                legs[0]["label"] = f["firstLabel"]          # the single bet's label named both legs
+            if any(x.get("label") == f["add"].get("label") for x in legs):
+                continue
+            ref.update({"legs": legs + [f["add"]], "fairAtLog": None})
+            n += 1
+            continue
         key = f"{f['id']}|{f['leg']}|{f['side']}"
         if key in done:
             continue
