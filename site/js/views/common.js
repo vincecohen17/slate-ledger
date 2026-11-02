@@ -1,7 +1,7 @@
-import { S, saveBet, savePromo } from "../store.js";
+import { S, loadAllProps, saveBet, savePromo } from "../store.js";
 import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, centsTag, oddsFromInput, PRED, kUsd, $, $$ } from "../util.js";
 import { VENUES } from "../lab.js";
-import { settleProfit, isBoost, promoOpen, singleUse } from "../promo.js";
+import { settleProfit, isBoost, promoOpen, singleUse, legs as boardLegs } from "../promo.js";
 import { money } from "../util.js";
 
 // image for a bet: player headshot for props, team logo for team sides, league logo otherwise
@@ -99,6 +99,8 @@ export function logSheet(pre = {}) {
         return ls.length ? `<div class="col" style="gap:4px"><span class="tiny muted">Wrong side logged? Tick a leg to switch it</span>${ls.map(([l, i]) =>
           `<label class="row lb-boost" style="gap:8px;align-items:center"><input type="checkbox" data-flip="${i}"><span class="small">${esc(l.label || pre.label || "")} <span class="tiny muted">→ ${l.side === "Over" ? "Under" : "Over"}</span></span></label>`).join("")}</div>` : "";
       })() : ""}
+      ${edit && pre.status === "pending" ? `<div class="col" style="gap:4px"><label class="f">Left a leg out? Find it to add it<input id="lb-addq" placeholder="e.g. Jadarian Price receiving"></label>
+        <div id="lb-addhits" class="col" style="gap:4px"></div><div id="lb-added" class="col" style="gap:4px"></div></div>` : ""}
       ${edit ? "" : `<label class="row lb-boost lb-usedrow" style="gap:8px;align-items:center" hidden><input type="checkbox" id="lb-used"><span class="small">Mark this promo used (it leaves the Promos page)</span></label>`}
       <div class="lb-pay card" style="padding:10px 12px"></div>
       <p class="note">Our fair at logging: ${(pre.fairAtLog ?? pre.fair) != null ? prob(pre.fairAtLog ?? pre.fair, 1) : "none"}. Closing line value fills in automatically once grading runs.</p>
@@ -123,6 +125,31 @@ export function logSheet(pre = {}) {
         <span class="small">If it wins: <b class="pos num">${money(w)}</b>${boost && w !== base ? ` <span class="tiny muted">(${money(base)} at ${am(odds)} + ${money(w - base)} boost)</span>` : boost ? ` <span class="tiny muted">(boost already in the odds)</span>` : ""}</span>
         <span class="small">If it loses: <b class="neg num">${money(l)}</b></span></div>`;
     };
+    // adding a leg that was left out: search the board (every game's lines and props), tap to add; saved with the bet
+    const added = [];
+    const aq = $("#lb-addq", el);
+    if (aq) {
+      loadAllProps();
+      const showAdded = () => { $("#lb-added", el).innerHTML = added.map((l, i) => `<div class="row" style="gap:8px;align-items:center"><span class="pill pos">+ leg</span><span class="small grow">${esc(l.label)}</span><button class="x" data-unadd="${i}">×</button></div>`).join("");
+        $$("[data-unadd]", el).forEach((x) => x.onclick = () => { added.splice(+x.dataset.unadd, 1); showAdded(); }); };
+      aq.oninput = () => {
+        const toks = aq.value.toLowerCase().split(/\s+/).filter(Boolean), out = [];
+        if (toks.length) for (const l of boardLegs()) {
+          if (l.pickem || new Date(l.commence) < new Date() - 4 * 3600e3) continue;
+          if (toks.every((t) => `${l.label} ${l.matchup} ${l.league}`.toLowerCase().includes(t))) out.push(l);
+          if (out.length > 300) break;
+        }
+        out.sort((a, b) => (b.main ? 1 : 0) - (a.main ? 1 : 0));
+        const hits = out.slice(0, 6);
+        $("#lb-addhits", el).innerHTML = hits.map((l, i) => `<button class="pr-hit" data-addleg="${i}"><span class="grow ellip">${esc(l.label)}</span><span class="tiny muted">${esc(l.league || "")} · ${fmtTime(l.commence)}</span></button>`).join("");
+        $$("[data-addleg]", el).forEach((x) => x.onclick = () => {
+          const l = hits[+x.dataset.addleg];
+          added.push({ label: l.label, gameId: l.gameId, market: l.market, side: l.side, point: l.point ?? null, player: l.player || null, team: l.team || null,
+            league: l.league || null, matchup: l.matchup || null, commence: l.commence || null, fair: l.fair ?? null });
+          aq.value = ""; $("#lb-addhits", el).innerHTML = ""; showAdded();
+        });
+      };
+    }
     ["lb-odds", "lb-stake"].forEach((id) => $("#" + id, el).oninput = preview);
     $("#lb-venue", el).onchange = preview;
     ["lb-promo", "lb-boostin"].forEach((id) => $("#" + id, el).onchange = preview);
@@ -147,6 +174,12 @@ export function logSheet(pre = {}) {
             flips.forEach((i) => { bet.label = bet.label.replace(pre.legs[i].label, bet.legs[i].label); });
           } else { bet.side = pre.side === "Over" ? "Under" : "Over"; bet.label = sw(bet.label); }
           bet.fairAtLog = null;          // the chance logged was for the other side
+        }
+        if (added.length) {             // legs left out: the bet becomes (or stays) a multi-leg entry; label and price stay as typed
+          const base = pre.legs?.length ? (bet.legs || pre.legs) : [{ label: String(bet.label).split(" + ")[0], gameId: pre.gameId, market: pre.market, side: bet.side ?? pre.side,
+            point: pre.point ?? null, player: pre.player || null, team: pre.team || null, league: pre.league || null, matchup: pre.matchup || null, commence: pre.commence || null }];
+          bet.legs = [...base, ...added.filter((a) => !base.some((x) => x.label === a.label))];
+          bet.fairAtLog = null;
         }
         const st = $("#lb-status", el)?.value || pre.status;
         if (settled) { bet.status = st; bet.profit = settleProfit(bet, promoId ? S.promos.get(promoId) : null, st); }
