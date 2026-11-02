@@ -400,7 +400,10 @@ SKEWED_YDS = ("player_reception_yds", "player_rush_yds", "player_rush_reception_
 
 
 def p_over(market, mean, line, sport=""):
-    """Fair P(over) at `line`, pushes removed on whole-number lines."""
+    """Fair P(over) at `line`, pushes removed on whole-number lines. A period yardage market (player_pass_yds_q1) takes its
+    full-game market's shape (normal or skewed) at the period's own mean, not the count model (keep site/js/dist.js in sync)."""
+    if "_yds" in market:
+        market = re.sub(r"_(q[1-4]|1h|2h|h[12]|p[1-3])$", "", market)
     if market in SKEWED_YDS and mean > 0:
         sd = _sd_normal(market, mean)
         shape, scale = (mean / sd) ** 2, sd * sd / mean

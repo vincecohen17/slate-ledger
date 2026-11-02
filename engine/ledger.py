@@ -128,7 +128,11 @@ def grade_leg(data_dir, leg, fin_by_gid):
             return None
         if p.get("dnp"):
             return {"y": None, "close": close, "void": True}
-        v = LB.stat(snap["sport"], mk, p) if res.get("espn") else T.stat(snap["sport"], mk, p)
+        if LB.first_period(mk):            # a first-period prop: the value locked live at the period break (exact only)
+            lk = LB.period_lock(data_dir, leg.get("gameId"), mk, leg["player"])
+            v = lk["v"] if lk and lk.get("exact") else None
+        else:
+            v = LB.stat(snap["sport"], mk, p) if res.get("espn") else T.stat(snap["sport"], mk, p)
         if v is None:
             return None
         pt = leg.get("point")

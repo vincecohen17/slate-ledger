@@ -162,6 +162,45 @@ def left_frac(sport, st):
     return 0.5
 
 
+# first-period player props (player_pass_yds_q1, player_points_q1, first half): until the period ends the box score's game
+# total IS the period total, so the leg tracks live like any prop; at the end of the period the value is locked
+# (latest/period_locks.json). A lock read during the break (clock 0:00 / "End of 1st") is exact and grades the leg;
+# one read in the last minute of play is close but not exact, so that leg is left for Vince to settle.
+_FIRST = {"_q1": 1, "_p1": 1, "_h1": 2, "_1h": 2}
+
+
+def first_period(market):
+    """(full-game market, last period of the window) for a first-period market, else None"""
+    for suf, e in _FIRST.items():
+        if market.endswith(suf):
+            return market[: -len(suf)], e
+    return None
+
+
+def _locks(data_dir):
+    try:
+        return json.load(open(os.path.join(data_dir, "latest", "period_locks.json")))
+    except Exception:
+        return {}
+
+
+def period_lock(data_dir, gid, market, player):
+    """the locked first-period value {v, exact} or None"""
+    return _locks(data_dir).get(f"{gid}|{market}|{R.norm(player)}")
+
+
+def _window(sport, st, end):
+    """(fraction of the first-period window left, exact break reading, window over)"""
+    n, per_min, _ = LV.GAME.get(sport, (4, 12, 5))
+    p, clock = st.get("period") or 1, LV._clock_min(st.get("clock"))
+    det = str(st.get("detail") or "").lower()
+    if st.get("final") or p > end:
+        return 0.0, False, True
+    at_break = p == end and (clock <= 0.001 or det.startswith(("end", "half")))
+    left = ((end - p) * per_min + clock) / (end * per_min)
+    return max(0.0, left), at_break, False
+
+
 def compute(data_dir, sport, gid, st, legs, log=print):
     """legs: {key: leg} for this game -> {key: {cur, proj, p, market, player, point, side}}"""
     if not st or not st.get("espnId"):
@@ -173,14 +212,35 @@ def compute(data_dir, sport, gid, st, legs, log=print):
     if not bx:
         return {}
     idx, _ = _index(data_dir)
-    left = left_frac(sport, st)
-    out = {}
+    left0 = left_frac(sport, st)
+    out, locks, lock_changed = {}, None, False
     for key, leg0 in legs.items():
         leg = resolve(leg0, data_dir)
         if not leg or not leg.get("player"):
             continue
         p = bx.get(R.norm(leg["player"]))
-        cur = stat(sport, leg["market"], p) if p else 0.0
+        left = left0
+        fp = first_period(leg["market"])
+        if fp and sport in LV.GAME:
+            base, end = fp
+            left, at_break, over = _window(sport, st, end)
+            if locks is None:
+                locks = _locks(data_dir)
+            lk = f"{gid}|{leg['market']}|{R.norm(leg['player'])}"
+            if over:                                   # the window is done: its locked value, if one was read
+                if lk not in locks:
+                    continue
+                cur = locks[lk]["v"]
+            else:
+                cur = stat(sport, base, p) if p else 0.0
+                if cur is None:
+                    continue
+                old = locks.get(lk)
+                if not (old and old.get("exact")) or at_break:   # keep the latest in-window reading; an exact one stays
+                    locks[lk] = {"v": cur, "exact": bool(at_break)}
+                    lock_changed = True
+        else:
+            cur = stat(sport, leg["market"], p) if p else 0.0
         if cur is None:
             continue
         mean = idx.get((gid, leg["market"], R.norm(leg["player"])))
@@ -196,6 +256,9 @@ def compute(data_dir, sport, gid, st, legs, log=print):
         out[key] = {"cur": cur, "proj": round(cur + rem, 1) if mean is not None else None, "p": None if p_side is None else round(p_side, 4),
                     "market": leg["market"], "player": leg["player"], "point": pt, "side": leg["side"], "left": round(left, 3),
                     "dnp": bool(p and p.get("dnp"))}
+    if lock_changed:
+        os.makedirs(os.path.join(data_dir, "latest"), exist_ok=True)
+        json.dump(locks, open(os.path.join(data_dir, "latest", "period_locks.json"), "w"), separators=(",", ":"))
     return out
 
 

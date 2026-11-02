@@ -67,6 +67,7 @@ function nbTail(mean, k, t) {   // P(X >= t), negative binomial with variance k 
 // P(over `line`) for a prop with sharp mean `mean`; pushes removed on whole-number lines (matches the engine)
 export function pOver(market, mean, line, sport = "") {
   if (mean == null || line == null) return null;
+  if (market.includes("_yds")) market = market.replace(/_(q[1-4]|1h|2h|h[12]|p[1-3])$/, "");   // period yardage: the full-game shape (as build.p_over)
   if (SKEWED.has(market) && mean > 0) {
     const sd = sdNormal(market, mean), shape = (mean / sd) ** 2, scale = sd * sd / mean;
     return gammaQ(shape, Math.max(line, 0) / scale);

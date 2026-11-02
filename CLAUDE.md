@@ -46,6 +46,11 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   Open prop picks get betLegs too ("<pickId>#0"). A game that has ended but still has open bets or picks stays in the live
   feed (doc final: true, ESPN's final state via scoreboards(post=...), final stats with no time left) until they grade; its
   teams come from live_state liveMeta, else the pre-game snapshot track/open/<gameId>.json, else the bet's matchup.
+  First-period player props (_q1, _p1, _h1/_1h): the box score's total is the period total until the window ends, then the
+  value is locked (latest/period_locks.json); a lock read at the break is exact and grades the leg, else it's left to settle.
+  Period yardage markets are priced with the full-game yardage shape (build.p_over / dist.js pOver). Bet corrections Vince
+  asks for go in the private data repo fixes/bets.json (switch a leg's side, or add a leg), applied once by ledger.apply_fixes.
+  On the site, a leg on a line no book prices (a pick'em app's own number) is estimated from the player's sharp mean.
 - Watcher (`run.py watch()`, mode watch, the live lane, up to 50 min a job): every minute until Vince's open bets and prop
   picks are done, app open or not. Each pass is a full live pull while the site is on a live screen (presence.live within
   3 min; the site dispatches "watch" every minute there) and otherwise free: ESPN only, the bet games' small live/g/<id>/m

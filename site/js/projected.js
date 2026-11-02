@@ -8,6 +8,7 @@ import { S } from "./store.js";
 import { esc, money, prob, am, fmtTime, mktName, bookLogo, headshot, teamLogo } from "./util.js";
 import { settleProfit } from "./promo.js";
 import { sitText } from "./views/live.js";
+import { pOver } from "./dist.js";
 
 const N = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const phi = (x) => 0.5 * (1 + erf(x / Math.SQRT2));
@@ -39,6 +40,18 @@ function findProp(docs, leg) {
       if (N(r.player) !== N(leg.player) || (leg.point != null && r.point != null && Math.abs(r.point - leg.point) > 1e-6)) continue;
       return r;
     }
+  }
+  return null;
+}
+
+function propEst(docs, leg) {
+  if (leg.point == null || !["Over", "Under"].includes(leg.side)) return null;
+  for (const d of docs || []) {
+    if (d.market !== leg.market) continue;
+    const r = (d.rows || []).find((x) => N(x.player) === N(leg.player) && x.mean != null);
+    if (!r) continue;
+    const po = pOver(leg.market, r.mean, leg.point, S.games.get(leg.gameId)?.sport || d.sport || "");
+    return po == null ? null : leg.side === "Over" ? po : 1 - po;
   }
   return null;
 }
@@ -170,6 +183,9 @@ function legRaw(leg) {
     const docs = [...S.props.values()].filter((x) => x.id === leg.gameId);
     const r = findProp(docs, leg), k = r && sideKey(r.fair, leg.side);
     if (k) return { p: r.fair[k], src: "now" };
+    // a line no book prices (a pick'em app's own number): the player's sharp mean from his priced line, at this number
+    const e = propEst(docs, leg);
+    if (e != null) return { p: e, src: "now" };
   }
   return { p: leg.fair ?? null, src: "when logged" };
 }
