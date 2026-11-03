@@ -5,7 +5,10 @@
 // bonus-funded bets take bonus) and every bet settled (a cash bet returns stake + profit; a bonus bet's winnings come back
 // as cash; a push or void returns the stake to where it came from). So it always knows what each app should hold.
 // The next check-in that differs is "unaccounted": an unlogged bet, a typo in odds or a stake, a credit not entered.
-// Real profit since you started tracking = cash now + cash in open bets + withdrawn - deposited - what was there at the start.
+// Money in = what was in the app at the first check-in (the baseline) + deposits; money out = withdrawals; profit =
+// out + what's in the app now - in. So every check-in counts: a difference from what the ledger expected is part of
+// the profit, shown as a check-in adjustment. Bonus funds count as money only at apps where they work like cash
+// (settings.bonusCash[app], set per app on the Wallet); elsewhere they count once they turn into cash.
 import { S, savePromo } from "./store.js";
 import { settleProfit, kindOf, normalize, fundsOf } from "./promo.js";
 import { venueName } from "./lab.js";
@@ -46,9 +49,10 @@ export function venueState(venue0, now = Date.now()) {
     if (DONE.includes(b.status)) ev.push({ at: t(b.settledAt || b.createdAt) + 1, settle: b });
   }
   ev.sort((a, b) => a.at - b.at || (a.e?.type === "balance" ? 1 : 0) - (b.e?.type === "balance" ? 1 : 0));
-  let cash = 0, bonus = 0, started = start == null, dep = 0, wd = 0, opening = null, unacc = 0, unaccBonus = 0, bonusIn = 0;
+  const cashLike = !!S.settings?.bonusCash?.[venue];
+  let cash = 0, bonus = 0, started = start == null, dep = 0, wd = 0, opening = null, unacc = 0, unaccBonus = 0, bonusIn = 0, bonusAll = 0, bonusStaked = 0;
   const log = [];
-  const openAt = (at) => bets.filter((b) => !noCash(b) && t(b.createdAt) <= at && (!DONE.includes(b.status) || t(b.settledAt || b.createdAt) + 1 > at)).reduce((x, b) => x + b.stake, 0);
+  const openAt = (at, f = (b) => !noCash(b)) => bets.filter((b) => f(b) && t(b.createdAt) <= at && (!DONE.includes(b.status) || t(b.settledAt || b.createdAt) + 1 > at)).reduce((x, b) => x + b.stake, 0);
   for (const x of ev) {
     if (x.at > now) break;
     if (x.e) {
@@ -56,7 +60,7 @@ export function venueState(venue0, now = Date.now()) {
       if (e.type === "balance") {
         const first = opening == null;
         const dc = first ? null : (+e.cash || 0) - cash, db = first ? null : (+e.bonus || 0) - bonus;
-        if (first) { opening = (+e.cash || 0) + openAt(x.at); started = true; }
+        if (first) { opening = (+e.cash || 0) + openAt(x.at) + (cashLike ? (+e.bonus || 0) + openAt(x.at, bonusFunded) : 0); started = true; }
         else { unacc += dc; unaccBonus += db; }
         log.push({ ...e, first, diffCash: dc, diffBonus: db, expCash: first ? null : cash, expBonus: first ? null : bonus });
         cash = +e.cash || 0; bonus = +e.bonus || 0;
@@ -64,11 +68,15 @@ export function venueState(venue0, now = Date.now()) {
       }
       if (e.type === "deposit") { cash += +e.amount || 0; if (opening != null) dep += +e.amount || 0; }
       if (e.type === "withdrawal") { cash -= +e.amount || 0; if (opening != null) wd += +e.amount || 0; }
-      if (e.type === "bonus") { bonus += +e.amount || 0; bonusIn += +e.amount || 0; }
+      if (e.type === "bonus") { bonus += +e.amount || 0; bonusAll += +e.amount || 0; if (opening != null) bonusIn += +e.amount || 0; }
       log.push(e);
       continue;
     }
-    if (x.place) { if (freeFunded(x.place)) continue; if (bonusFunded(x.place)) bonus -= x.place.stake; else cash -= x.place.stake; continue; }
+    if (x.place) {
+      if (freeFunded(x.place)) continue;
+      if (bonusFunded(x.place)) { bonus -= x.place.stake; if (opening != null) bonusStaked += x.place.stake; } else cash -= x.place.stake;
+      continue;
+    }
     if (x.settle) {
       const b = x.settle, pr = profitOf(b) || 0;
       if (freeFunded(b)) { if (b.status !== "push" && b.status !== "void") cash += Math.max(0, pr); }
@@ -80,8 +88,14 @@ export function venueState(venue0, now = Date.now()) {
   const openBonus = bets.filter((b) => b.status === "pending" && bonusFunded(b)).reduce((x, b) => x + b.stake, 0);
   // what the ledger says you made here since tracking started (settled bets)
   const ledger = bets.filter((b) => DONE.includes(b.status) && start != null && t(b.settledAt || b.createdAt) >= start).reduce((x, b) => x + (profitOf(b) || 0), 0);
-  const real = opening != null ? cash + openCash + wd - dep - opening : null;
-  return { venue, cash, bonus, openCash, openBonus, dep, wd, opening, real, ledger, unacc, unaccBonus, bonusIn, start,
+  const now0 = cash + openCash + (cashLike ? bonus + openBonus : 0);           // what the app holds that counts as money
+  const real = opening != null ? wd + now0 - opening - dep : null;
+  // where the profit came from: settled bets, check-ins that differed from the ledger, and (bonus-as-cash apps) bonus
+  // credited minus bonus staked; "other" is whatever's left (bets placed before tracking that settled after, etc.)
+  const adj = unacc + (cashLike ? unaccBonus : 0), bonusNet = cashLike ? bonusIn - bonusStaked : 0;
+  const other = real != null ? real - ledger - adj - bonusNet : null;
+  return { venue, cash, bonus, openCash, openBonus, dep, wd, opening, real, ledger, unacc, unaccBonus, bonusIn, start, cashLike, now: now0,
+    moneyIn: opening != null ? opening + dep : null, adj, bonusNet, other, bonusAll,
     checkedAt: checks.length ? checks.at(-1).at : null, tracked: opening != null, log: log.reverse(),
     nBets: bets.filter((b) => start != null && t(b.createdAt) >= start).length };
 }
@@ -98,7 +112,7 @@ export function syncWalletPromos() {
   if (syncing) return;
   const todo = [];
   for (const w of walletAll()) {
-    if (!w.tracked && !w.bonusIn) continue;
+    if (!w.tracked && !w.bonusAll) continue;
     const id = `wb-${w.venue}`, cur = S.promos.get(id), amt = Math.round(Math.max(0, w.bonus) * 100) / 100, used = amt < 0.5;
     if (!cur && used) continue;
     if (cur && Math.abs((cur.amount || 0) - amt) < 0.01 && !!cur.used === used) continue;

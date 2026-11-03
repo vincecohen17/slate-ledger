@@ -84,10 +84,17 @@ export function renderEdges(el) {
   el.innerHTML = tabs + `<div class="bar">${chips("league", leagues)}<span class="spacer"></span>${chips("type", ["All", "Lines", "Props", "Pick'em"])}</div>
     <div class="bar" style="margin-top:0">${chips("logic", ["All", "Logic agrees"])}<span class="spacer"></span>${chips("venue", venues)}<span class="spacer"></span>
       ${[0.015, 0.03, 0.05].map((m) => `<button class="chip ${F.min === m ? "on" : ""}" data-min="${m}">${(m * 100).toFixed(1)}%+</button>`).join("")}</div>
-    <p class="note">Prices at your venues that beat the sharp no-vig fair. Ranked by edge, boosted when our sports model agrees and cut when it disagrees; alt and pick'em lines count half until backtests prove them. "Logic agrees" is the shortlist.</p>
-    ${items.length ? `<div class="grid tight">${items.slice(0, 150).map(edgeCard).join("")}</div>` : `<div class="empty"><h3>Nothing at this threshold</h3>Lower the minimum edge or check back after the next pull.</div>`}`;
+    <p class="note">Prices at your venues that beat the sharp no-vig fair, ranked by edge and by how that kind of edge has actually done (the report card on Reports). Kinds that keep losing to their fair go to the bottom section until their record recovers.</p>
+    ${(() => { const live = items.filter((e) => !e.muted), muted = items.filter((e) => e.muted);
+      const kinds = [...new Set(muted.map((e) => e.muted))];
+      return `${live.length ? `<div class="grid tight">${live.slice(0, 150).map(edgeCard).join("")}</div>` : `<div class="empty"><h3>Nothing at this threshold</h3>Lower the minimum edge or check back after the next pull.</div>`}
+      ${muted.length ? `<div class="sec-title">Losing so far (${muted.length})<span class="line"></span></div>
+        <p class="note">These kinds have won less than their fair said by 2.5+ standard errors over 300+ graded edges (${esc(kinds.join(", "))}), so they're left out of alerts and picks. They come back on their own if the record turns.</p>
+        <button class="btn sm ghost" id="ed-muted">${F.showMuted ? "Hide them" : "Show them"}</button>
+        ${F.showMuted ? `<div class="grid tight" style="margin-top:10px;opacity:.75">${muted.slice(0, 100).map(edgeCard).join("")}</div>` : ""}` : ""}`; })()}`;
   $$("[data-tab]", el).forEach((b) => b.onclick = () => { F.tab = b.dataset.tab; renderEdges(el); });
   $$("[data-f]", el).forEach((b) => b.onclick = () => { F[b.dataset.f] = b.dataset.v; renderEdges(el); });
   $$("[data-min]", el).forEach((b) => b.onclick = () => { F.min = +b.dataset.min; renderEdges(el); });
+  const mb = el.querySelector("#ed-muted"); if (mb) mb.onclick = () => { F.showMuted = !F.showMuted; renderEdges(el); };
   bindLog(el);
 }
