@@ -1202,7 +1202,7 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"snapshot failed: {type(e).__name__}")
     # the edges' report card: log new edges, refresh their fairs to the close, grade finished ones, re-rank by history
     import edgecard
-    ecard = None
+    ecard, pbook = None, None
     try:
         n_moved = edgecard.opens(DATA_DIR, game_docs, prop_docs, NOW)
         try:            # steam: fair moved toward the edge's side in the last hour (graded by the report card)
@@ -1214,6 +1214,12 @@ def publish(game_docs, prop_docs, status, stamp):
         ecard = edgecard.summarize(DATA_DIR, now=NOW)
         edgecard.rerank(edge_list, ecard)
         edgecard.annotate_moves(edge_list, game_docs, prop_docs)
+        try:        # what the record says to lean on and avoid right now (Edges page, pick runs), stamped on each edge
+            import playbook
+            pbook = playbook.build(DATA_DIR, ecard, params)
+            playbook.tag(edge_list, pbook, NOW)
+        except Exception as e:
+            log(f"playbook failed: {type(e).__name__}: {str(e)[:80]}")
         status["moved"] = n_moved
         log(f"edge card: {n_new} new edges logged, {n_eg} graded, {ecard.get('n', 0)} in the card; {n_moved} lines moved since first seen")
     except Exception as e:
@@ -1248,6 +1254,8 @@ def publish(game_docs, prop_docs, status, stamp):
         rep["backtest"] = _backtest_summary()
         if ecard:
             rep["edgecard"] = ecard
+            if pbook:
+                rep["playbook"] = pbook
     picks = load_picks()
     previews = load_previews()
     try:            # where each open pick can be played right now (prices drift, pick'em lines get pulled)

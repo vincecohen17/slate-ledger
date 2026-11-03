@@ -57,11 +57,23 @@ function oppsHtml() {
 }
 const isLine = (e) => !/^(player|batter|pitcher)_/.test(e.market || "");
 
+// the playbook (engine/playbook.py): what the graded record says to lean on and skip right now, rebuilt every run
+function playbookCard() {
+  const P = S.reports?.playbook;
+  if (!P || !(P.lean?.length || P.avoid?.length)) return "";
+  const cell = (c, good) => `<span class="pill ${good ? "pos" : "neg"}" title="${esc(`${c.dimName}: ${c.k} · ${c.n} graded · ROI ${pct(c.roi)}${c.roiR != null ? `, lately ${pct(c.roiR)}` : ""}`)}">${esc(c.k)} <b>${pct(c.roiR ?? c.roi)}</b></span>`;
+  const rules = P.rules || [];
+  return `<div class="card pb-card" style="margin:6px 0 10px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>What's working now</b><span class="tiny muted">rebuilt every pull from ${S.reports?.edgecard?.n?.toLocaleString?.() || "the"} graded edges · ROI shown is lately (recent days weighted most)</span></div>
+    <div class="tiny muted" style="margin-top:6px">Lean on</div><div class="row" style="gap:6px;flex-wrap:wrap;margin-top:3px">${(P.lean || []).slice(0, 8).map((c) => cell(c, true)).join("")}</div>
+    <div class="tiny muted" style="margin-top:8px">Skip</div><div class="row" style="gap:6px;flex-wrap:wrap;margin-top:3px">${(P.avoid || []).slice(0, 8).map((c) => cell(c, false)).join("")}</div>
+    ${rules.length ? `<ul class="pb-rules small">${rules.slice(0, F.pbMore ? 20 : 2).map((r) => `<li>${esc(r.text)}</li>`).join("")}</ul>${rules.length > 2 ? `<button class="btn sm ghost" id="pb-more">${F.pbMore ? "Fewer" : `All ${rules.length} rules`}</button>` : ""}` : ""}</div>`;
+}
+
 export function renderEdges(el) {
   const leagues = ["All", ...new Set(S.edges.map((e) => e.league))];
   const venues = ["All", ...new Set(S.edges.map((e) => e.bookName))];
   const items = S.edges.filter((e) =>
-    (F.logic === "All" || (F.logic === "Logic agrees" && e.logic === "agrees")) && (F.league === "All" || e.league === F.league) && (F.venue === "All" || e.bookName === F.venue) && e.edge >= F.min &&
+    (F.logic === "All" || (F.logic === "On the playbook" && e.lean && !e.avoid) || (F.logic === "Model backs it" && (e.supBand ? ["between", "near"].includes(e.supBand) : e.logic === "agrees"))) && (F.league === "All" || e.league === F.league) && (F.venue === "All" || e.bookName === F.venue) && e.edge >= F.min &&
     (F.type === "All" || (F.type === "Lines" && isLine(e)) || (F.type === "Props" && !isLine(e) && !e.pickem) || (F.type === "Pick'em" && e.pickem)) &&
     new Date(e.commence) > new Date(Date.now() - 5 * 60000));
   const bookOf = Object.fromEntries(S.edges.map((e) => [e.bookName, e.book]));
@@ -82,19 +94,26 @@ export function renderEdges(el) {
     return;
   }
   el.innerHTML = tabs + `<div class="bar">${chips("league", leagues)}<span class="spacer"></span>${chips("type", ["All", "Lines", "Props", "Pick'em"])}</div>
-    <div class="bar" style="margin-top:0">${chips("logic", ["All", "Logic agrees"])}<span class="spacer"></span>${chips("venue", venues)}<span class="spacer"></span>
+    ${playbookCard()}
+    <div class="bar" style="margin-top:0">${chips("logic", ["All", "On the playbook", "Model backs it"])}<span class="spacer"></span>${chips("venue", venues)}<span class="spacer"></span>
       ${[0.015, 0.03, 0.05].map((m) => `<button class="chip ${F.min === m ? "on" : ""}" data-min="${m}">${(m * 100).toFixed(1)}%+</button>`).join("")}</div>
-    <p class="note">Prices at your venues that beat the sharp no-vig fair, ranked by edge and by how that kind of edge has actually done (the report card on Reports). Kinds that keep losing to their fair go to the bottom section until their record recovers.</p>
-    ${(() => { const live = items.filter((e) => !e.muted), muted = items.filter((e) => e.muted);
+    <p class="note">Prices at your venues that beat the sharp no-vig fair, ranked by edge and by how that kind of edge has actually done, half on its whole record and half on the last few days. Edges in a cell the record says to skip get their own section; kinds that keep losing to their fair go to the bottom until their record recovers.</p>
+    ${(() => { const live = items.filter((e) => !e.muted && !e.avoid), skip = items.filter((e) => !e.muted && e.avoid), muted = items.filter((e) => e.muted);
       const kinds = [...new Set(muted.map((e) => e.muted))];
       return `${live.length ? `<div class="grid tight">${live.slice(0, 150).map(edgeCard).join("")}</div>` : `<div class="empty"><h3>Nothing at this threshold</h3>Lower the minimum edge or check back after the next pull.</div>`}
+      ${skip.length ? `<div class="sec-title">The record says skip (${skip.length})<span class="line"></span></div>
+        <p class="note">Real price gaps, but in a cell that has lost money by 2.5+ standard errors (each card says which). Not alerted.</p>
+        <button class="btn sm ghost" id="ed-skip">${F.showSkip ? "Hide them" : "Show them"}</button>
+        ${F.showSkip ? `<div class="grid tight" style="margin-top:10px;opacity:.85">${skip.slice(0, 100).map(edgeCard).join("")}</div>` : ""}` : ""}
       ${muted.length ? `<div class="sec-title">Losing so far (${muted.length})<span class="line"></span></div>
-        <p class="note">These kinds have won less than their fair said by 2.5+ standard errors over 300+ graded edges (${esc(kinds.join(", "))}), so they're left out of alerts and picks. They come back on their own if the record turns.</p>
+        <p class="note">These kinds have won less than their fair said by 2+ standard errors over 100+ graded edges (${esc(kinds.join(", "))}), so they're left out of alerts and picks. They come back on their own if the record turns.</p>
         <button class="btn sm ghost" id="ed-muted">${F.showMuted ? "Hide them" : "Show them"}</button>
         ${F.showMuted ? `<div class="grid tight" style="margin-top:10px;opacity:.75">${muted.slice(0, 100).map(edgeCard).join("")}</div>` : ""}` : ""}`; })()}`;
   $$("[data-tab]", el).forEach((b) => b.onclick = () => { F.tab = b.dataset.tab; renderEdges(el); });
   $$("[data-f]", el).forEach((b) => b.onclick = () => { F[b.dataset.f] = b.dataset.v; renderEdges(el); });
   $$("[data-min]", el).forEach((b) => b.onclick = () => { F.min = +b.dataset.min; renderEdges(el); });
   const mb = el.querySelector("#ed-muted"); if (mb) mb.onclick = () => { F.showMuted = !F.showMuted; renderEdges(el); };
+  const sb = el.querySelector("#ed-skip"); if (sb) sb.onclick = () => { F.showSkip = !F.showSkip; renderEdges(el); };
+  const pb = el.querySelector("#pb-more"); if (pb) pb.onclick = () => { F.pbMore = !F.pbMore; renderEdges(el); };
   bindLog(el);
 }

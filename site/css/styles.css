@@ -637,3 +637,5 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 .wl-part b { margin-left: 2px; }
 .lnk { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
 .nowrap { white-space: nowrap; }
+.pb-rules { margin: 8px 0 4px; padding-left: 18px; display: grid; gap: 3px; }
+.pb-card .pill { font-size: 11px; }
