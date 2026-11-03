@@ -108,7 +108,7 @@ def observe(data_dir, game_docs, prop_docs, edges, now, log=print):
             continue
         v = ent["obs"].get(e["book"])
         if v is None:
-            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"), "mp": e.get("modelP"),
+            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"), "mp": e.get("modelP"), "steam": e.get("fairMove"),
                                      "model": e.get("model"), "est": e.get("est"), "pickem": bool(e.get("pickem")),
                                      "best": round(dec, 4), "bestT": t, "last": round(dec, 4), "lastT": t}
             new += 1
@@ -188,7 +188,7 @@ def grade(data_dir, fin_by_gid, now, log=print):
             kind = ("pick'em" if v.get("pickem") else "prop" if ent.get("player") else "line")
             row = {"d": ent["commence"][:10], "sport": ent.get("sport"), "league": ent.get("league"), "venue": venue,
                    "mk": ent["market"], "kind": kind, "main": ent.get("main", False), "est": bool(v.get("est")), "model": bool(v.get("model")),
-                   "logic": v.get("logic"), "mp": v.get("mp"), "edge": v["edge"], "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
+                   "logic": v.get("logic"), "mp": v.get("mp"), "steam": v.get("steam"), "edge": v["edge"], "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
                    "clv": round(close * v["dec"] - 1, 4), "clvLast": round(close * v["last"] - 1, 4), "clvBest": round(close * v["best"] - 1, 4),
                    "y": y, "pnl": None if y is None else round(y * (v["dec"] - 1) - (1 - y), 4)}
             out.setdefault(ent.get("sport") or "other", []).append(row)
@@ -253,6 +253,7 @@ DIMS = {
     "venueLeague": lambda r: f"{r['venue']} · {r['league']}",
     # league x model logic x price-edge size: where the logic flag carries signal (big edges the model backs vs fights)
     "logicSize": lambda r: _logic_size(r.get("league"), r.get("logic"), r.get("edge")),
+    "steam": lambda r: "No fair history" if r.get("steam") is None else "Fair moved 2+ pts toward it" if r["steam"] >= 0.02 else "Fair moved away" if r["steam"] <= -0.01 else "Static gap",
 }
 
 
@@ -412,4 +413,46 @@ def annotate_moves(edges, game_docs, prop_docs):
                 pt = -pt        # away side: its own handicap
             e["open"], e["openPt"], e["openAt"] = line["open"][o], pt, line.get("openAt")
             n += 1
+    return n
+
+
+# ---------------------------------------------------------------------------
+# steam: the sharp fair moved toward an edge's side in the last ~75 minutes (the venue hasn't followed, or there'd be no
+# edge). A short fair history of every main line and main prop row (track/fairhist.json, 90 minutes) gives the move.
+# Edges carry steam (points moved); the edge log keeps it so the report card grades steam vs static gaps by results.
+STEAM_MIN, STEAM_PTS = 75, 0.02
+
+
+def steam(data_dir, edges, game_docs, prop_docs, now):
+    fn = os.path.join(data_dir, "track", "fairhist.json")
+    try:
+        hist = json.load(open(fn))
+    except Exception:
+        hist = {}
+    m = int(now.timestamp() // 60)
+    idx = _index(game_docs, prop_docs)
+    for k, (line, o) in idx.items():
+        if not (line.get("isMain") or line.get("market") == "h2h"):
+            continue
+        f = (line.get("fair") or {}).get(o)
+        if f is None:
+            continue
+        h = hist.setdefault(k, [])
+        if not h or h[-1][0] != m:
+            h.append([m, round(f, 4)])
+    hist = {k: [x for x in v if m - x[0] <= 90] for k, v in hist.items()}
+    hist = {k: v for k, v in hist.items() if v}
+    n = 0
+    for e in edges:
+        k = _key(e["gameId"], e["market"], e["side"], e.get("point"), e.get("player"), e.get("team") if not e.get("player") else None)
+        h = hist.get(k) or []
+        old = [x for x in h if m - x[0] >= 20 and m - x[0] <= STEAM_MIN]
+        if not old:
+            continue
+        mv = round(h[-1][1] - old[0][1], 4)
+        e["fairMove"] = mv
+        if mv >= STEAM_PTS:
+            e["steam"] = True
+            n += 1
+    json.dump(hist, open(fn, "w"), separators=(",", ":"))
     return n

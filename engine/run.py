@@ -940,6 +940,9 @@ def main():
         return live()
     if MODE == "watch":
         return watch()
+    if MODE == "leadlag":
+        import leadlag
+        return leadlag.run(DATA_DIR, log)
     if MODE == "policytest":
         import policytest
         return policytest.run(DATA_DIR, log)
@@ -1183,6 +1186,10 @@ def publish(game_docs, prop_docs, status, stamp):
     ecard = None
     try:
         n_moved = edgecard.opens(DATA_DIR, game_docs, prop_docs, NOW)
+        try:            # steam: fair moved toward the edge's side in the last hour (graded by the report card)
+            edgecard.steam(DATA_DIR, edge_list, game_docs, prop_docs, NOW)
+        except Exception as e:
+            log(f"steam failed: {type(e).__name__}")
         n_new = edgecard.observe(DATA_DIR, game_docs, prop_docs, edge_list, NOW)
         n_eg = edgecard.grade(DATA_DIR, {d["gameId"]: d for d in (fin or {}).values() if d.get("gameId")}, NOW)
         ecard = edgecard.summarize(DATA_DIR, now=NOW)
