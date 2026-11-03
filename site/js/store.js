@@ -170,6 +170,7 @@ export function start() {
   watchCol("wallet", S.wallet, (d) => d.data());
   subs.push(onSnapshot(doc(db, "settings", "owner"), (d) => { S.settings = { ...SETTINGS0, ...(d.exists() ? d.data() : {}) }; changed(); }, onErr));
   listen("pre/opps", async (v) => { S.opps = v ? (await dec("pre/opps", v)).items || [] : []; });
+  mstatsOn = false;
   listen("pre/pickslive", async (v) => { S.picksLive = v ? await dec("pre/pickslive", v) : null; });
 }
 
@@ -177,6 +178,14 @@ export function stop() {
   subs.splice(0).forEach((u) => u()); zc.clear(); finalSubs.clear();
   S.games = new Map(); S.props = new Map(); S.matchups = new Map(); S.propsLoadedFor.clear(); S.allProps = false; S.allAlt = false;
   Object.assign(PRE, { games: new Map(), altLines: new Map(), propDocs: new Map(), altRows: new Map(), altGames: new Set(), allAlt: false });
+}
+
+// deep model statistics (pre/mstats, ~150 KB): only when the Reports page asks
+let mstatsOn = false;
+export function loadMstats() {
+  if (mstatsOn) return;
+  mstatsOn = true;
+  listen("pre/mstats", async (v) => { S.mstats = v ? await dec("pre/mstats", v) : null; });
 }
 
 const finalSubs = new Set();

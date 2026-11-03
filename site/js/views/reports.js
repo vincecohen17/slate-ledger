@@ -1,6 +1,8 @@
 import { S } from "../store.js";
 import { esc, pct, ago, bindTips, bookLogo, $$ } from "../util.js";
 import { lineChart, legend } from "./charts.js";
+import { modelsDeep, bindModels } from "./models.js";
+import { bindSort } from "./deep.js";
 
 let span = "total", focus = null, ecDim = "venue";
 
@@ -121,12 +123,16 @@ export function renderReports(el) {
     <div class="sec-title">Best price share<span class="line"></span></div>
     <div class="card">${rows.length ? seqBars([...rows].sort((a, b) => b.bestRate - a.bestRate).slice(0, 15), (r) => r.bestRate, (v) => Math.round(v * 100) + "%") : ""}
       <p class="note">How often each book has the best price on the board for a side. A book you can bet with a high share is where to look first.</p></div>
-    <div class="sec-title">Model report card<span class="line"></span></div>
+    <div class="sec-title">Models in depth<span class="line"></span></div>
+    ${modelsDeep()}
+    <div class="sec-title">Model report card (in-sample fit)<span class="line"></span></div>
     ${modelCard(R)}
     <div class="sec-title">Backtests<span class="line"></span></div>
     ${backtestCard(R?.backtest)}`;
   $$("[data-span]", el).forEach((b) => b.onclick = () => { span = b.dataset.span; renderReports(el); });
   $$("[data-ec]", el).forEach((b) => b.onclick = () => { ecDim = b.dataset.ec; renderReports(el); });
   $$("[data-book]", el).forEach((b) => b.onclick = () => { focus = focus === b.dataset.book ? null : b.dataset.book; renderReports(el); });
+  bindModels(el, () => renderReports(el));
+  bindSort(el);
   bindTips(el);
 }

@@ -625,7 +625,7 @@ table.st th[data-si] { cursor: pointer; user-select: none; }
 table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st th[data-dir="d"]::after { content: " ▼"; font-size: 9px; }
 .an-stats td:first-child { text-align: left; }
 .an-grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-@media (max-width: 760px) { .an-grid2 { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .an-grid2 { grid-template-columns: minmax(0, 1fr); } }
 .an-filter { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; }
 .an-filter select { max-width: 170px; }
 .ver { font-size: 10px; padding: 1px 6px; border-radius: 9px; border: 1px solid var(--line); white-space: nowrap; }
