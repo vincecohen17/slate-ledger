@@ -69,6 +69,40 @@ def _canon_line(g, l):
 # ---------------------------------------------------------------------------
 # snapshot
 
+def _feat(l, side):
+    """market-anchored features kept with each graded row for the residual model (does the model's gap to the market,
+    the move since open, how much the books disagree or how deep the market is say anything about the result?)"""
+    x = {}
+    if l.get("mean") is not None:
+        x["mm"] = l["mean"]                                    # market-implied mean at this line
+    m = l.get("model") or {}
+    if m.get("mean") is not None:
+        x["md"] = m["mean"]                                    # model mean (after its shift to the market level)
+    if m.get("raw") is not None:
+        x["mr"] = m["raw"]                                     # model mean before the shift
+    o = (l.get("open") or {}).get(side)
+    if o is not None:
+        x["op"] = o
+        if l.get("openPt") is not None and l.get("openPt") != l.get("point"):
+            x["opPt"] = l["openPt"]
+    if l.get("nBooks"):
+        x["nb"] = l["nBooks"]
+    if l.get("fairWeight"):
+        x["fw"] = l["fairWeight"]
+    nv = []
+    other = next((o_ for o_ in (l.get("outcomes") or []) if o_ != side), None)
+    for q in l.get("quotes") or []:
+        if not isinstance(q, dict):
+            continue
+        a_, b_ = (q.get("prices") or {}).get(side) or {}, (q.get("prices") or {}).get(other) or {}
+        if a_.get("cost") and b_.get("cost"):
+            nv.append(a_["cost"] / (a_["cost"] + b_["cost"]))
+    if len(nv) >= 3:
+        mu = sum(nv) / len(nv)
+        x["disp"] = round((sum((v - mu) ** 2 for v in nv) / (len(nv) - 1)) ** 0.5, 4)   # books' no-vig spread
+    return x or None
+
+
 def snapshot(data_dir, game_docs, prop_docs, now):
     d = os.path.join(data_dir, "track", "open")
     os.makedirs(d, exist_ok=True)
@@ -87,7 +121,7 @@ def snapshot(data_dir, game_docs, prop_docs, now):
             # main lines are kept even without a model number: the ledger needs every closing fair
             if side and f.get(side) is not None and (pm is not None or l.get("isMain")):
                 rows.append({"g": group(g["sport"], "line", l["market"]), "mk": l["market"], "pt": l.get("point"), "team": l.get("team"),
-                             "side": side, "p": round(pm, 4) if pm is not None else None, "f": f[side], "w": l.get("fairWeight")})
+                             "side": side, "p": round(pm, 4) if pm is not None else None, "f": f[side], "w": l.get("fairWeight"), "x": _feat(l, side)})
         for doc in props.get(g["id"], []):
             for r in doc["rows"]:
                 m, f = r.get("model") or {}, r.get("fair") or {}
@@ -97,7 +131,8 @@ def snapshot(data_dir, game_docs, prop_docs, now):
                 pm = (m.get("_raw") or {}).get(side, m.get(side)) if side else None
                 if side and f.get(side) is not None and (pm is not None or r.get("isMain")):
                     rows.append({"g": group(g["sport"], "prop", doc["market"]), "mk": doc["market"], "pt": r.get("point"),
-                                 "player": r["player"], "side": side, "p": round(pm, 4) if pm is not None else None, "f": f[side], "w": r.get("fairWeight")})
+                                 "player": r["player"], "side": side, "p": round(pm, 4) if pm is not None else None, "f": f[side], "w": r.get("fairWeight"),
+                                 "x": _feat(r, side)})
         if not rows:
             continue
         snap = {"id": g["id"], "sport": g["sport"], "commence": g["commence"], "home": g["home"], "away": g["away"],
@@ -282,7 +317,14 @@ def grade(data_dir, now):
                     continue
                 if r["side"] not in ("Over", "Yes") and r["side"] != snap["home"]:
                     continue
-            out.append({"d": snap["commence"][:10], "g": r["g"], "p": r["p"], "f": r["f"], "y": y, "gid": snap["id"][:12]})
+            o_ = {"d": snap["commence"][:10], "g": r["g"], "p": r["p"], "f": r["f"], "y": y, "gid": snap["id"][:12]}
+            if r.get("x"):
+                o_["x"] = r["x"]
+            if r.get("pt") is not None:
+                o_["pt"] = r["pt"]
+            if "player" in r and v is not None:
+                o_["v"] = v
+            out.append(o_)
         if out:
             gd = os.path.join(data_dir, "track", "graded")
             os.makedirs(gd, exist_ok=True)

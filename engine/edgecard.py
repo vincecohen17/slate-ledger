@@ -454,5 +454,6 @@ def steam(data_dir, edges, game_docs, prop_docs, now):
         if mv >= STEAM_PTS:
             e["steam"] = True
             n += 1
-    json.dump(hist, open(fn, "w"), separators=(",", ":"))
+    with open(fn, "w") as f:      # one line per key so git stores small deltas run to run
+        f.write("{\n" + ",\n".join(f"{json.dumps(k)}:{json.dumps(v, separators=(',', ':'))}" for k, v in sorted(hist.items())) + "\n}\n")
     return n

@@ -6,8 +6,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - `engine/` Python. `run.py` pulls The Odds API, `build.py` computes sharp no-vig fair per line/prop,
   all-in venue costs (Kalshi/Polymarket fees), edges, stale flags, pick'em line judgments.
   `config.py` holds sports, markets, book weights, venues, budgets. Tests: `python engine/tests/test_build.py`.
-- Models: `model_nba.py`, `model_nhl.py` (MoneyPuck + goalie GSAx), `model_nfl.py` (nflverse EPA + player shares),
-  `model_cfb.py` (opponent-adjusted ridge ratings), `model_extra.py` (soccer Poisson, tennis Elo), `model_mlb.py` (Statcast per-PA odds-ratio model: platoon,
+  Backtests: mode backtest (env BT_SPORTS=comma list reruns only those sports; the rest keep their saved rows).
+- Models: `model_nba.py`, `model_nhl.py` (MoneyPuck + goalie GSAx), `model_nfl.py` (nflverse EPA + player shares; QB passing from
+  the passer's own last-10 volume x efficiency), `model_cfb.py` (opponent-adjusted ridge ratings shrunk to FBS/FCS tiers), `model_extra.py` (soccer Poisson, tennis Elo), `model_mlb.py` (Statcast per-PA odds-ratio model: platoon,
   park, weather, lineups; exact batter/pitcher prop distributions; F5 and team totals).
   `matchup.py` builds matchup docs, stamps model probabilities on lines/props, calibrates prop levels to market,
   and builds projected lineups. `stats.py` collects ESPN box scores/injuries (NBA, WNBA, NHL, NFL, CFB, nine soccer leagues), MoneyPuck, nflverse,
@@ -32,7 +33,15 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   unless the walk-forward blend gain is 2+ SE (keeps the in-sample w as wInSample): the pick runs read that w.
 - `engine/policytest.py` walk-forward test of the decision rules on the live record: edge muting (kept vs muted by results)
   and gated vs in-sample blend weights (log loss by sport, day-clustered SE); stored in mstats.policy and stats/policytest.json.
-  Mode policytest runs it alone.
+  Mode policytest runs it alone. Also the logic override (mutingLogic: a 5%+ edge the model agrees with is un-muted where its
+  league x agrees x 5%+ cell has held its fair over 100+ graded, e.logicBacked; one it disagrees with is muted where that cell
+  has z <= -2; edgecard dim logicSize) and residual: a walk-forward residual model logit(close) + b . features per sport|kind
+  on live rows that carry tracker features x {mm market mean, md/mr model mean, op open fair, opPt, nb, fw, disp books' no-vig
+  sd}; reported only (Reports > Models), wired into fairs only if it beats the close with t >= 2.
+- Steam (`edgecard.steam`, each run): track/fairhist.json keeps 90 minutes of sharp fair per main line/prop row; an edge whose
+  fair moved toward its side 20-75 min ago gets fairMove (and steam: true at 2+ pts). The edge log keeps it ("steam") and the
+  report card grades it (dim steam). No boost until it's proven. `leadlag.py` (mode leadlag -> stats/leadlag.json): which books
+  move first and stale-after-steam vs static gaps from the raw snapshots (Nov 2026: too sparse to say).
 - `engine/pickprices.py` real prices for picks: the first real price seen at each play-to venue (picklive each run ->
   latest/pick_first_prices.json), else the first raw pull after posting (snapshots/, posting time from git history), else
   goodAt; grade_picks stores gradedAt, gradeSrc, gradeVenue. Pick6 multipliers are estimated from DraftKings' vigged price

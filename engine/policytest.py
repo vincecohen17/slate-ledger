@@ -163,10 +163,76 @@ def blending(data_dir, ms):
     return {"all": summ(out_rows), "gated": sorted({r[0] for r in out_rows if r[5]}), "bySport": {k: summ(v) for k, v in sports.items()}}
 
 
+FEATS = ("gap", "move", "disp", "depth", "meangap")
+
+
+def _xrow(r):
+    """features on the logit scale relative to the closing fair: the model's gap, the move since open (toward this side
+    > 0), books' disagreement, market depth (books x weight) and the model-vs-market mean gap in market sd units"""
+    x = r.get("x") or {}
+    f = min(max(r["f"], 1e-4), 1 - 1e-4)
+    lf = math.log(f / (1 - f))
+    p = min(max(r["p"], 1e-4), 1 - 1e-4)
+    op = x.get("op")
+    mv = 0.0 if op is None or x.get("opPt") is not None else lf - math.log(min(max(op, 1e-4), 1 - 1e-4) / (1 - min(max(op, 1e-4), 1 - 1e-4)))
+    mg = 0.0
+    if x.get("mm") and x.get("mr") is not None:
+        mg = max(-3.0, min(3.0, (x["mr"] - x["mm"]) / max(0.5, abs(x["mm"]) ** 0.5)))
+    return lf, [math.log(p / (1 - p)) - lf, mv, x.get("disp") or 0.0, math.log(1 + (x.get("nb") or 0) * (x.get("fw") or 0)) / 5, mg]
+
+
+def residual(data_dir, min_rows=1500):
+    """walk-forward residual model on live rows that carry features: logit(P) = logit(close) + b . features, fit on
+    earlier days per sport|kind, scored on each new day against the close alone (log loss, day-clustered SE).
+    Wired into fairs only if it beats the close (t >= 2)."""
+    live, _ = MS._load(data_dir)
+    rows = [r for r in live if r.get("x")]
+    by = defaultdict(list)
+    for r in rows:
+        sp, kind, _ = r["g"].split("|")
+        by[f"{sp}|{kind}"].append(r)
+    out = {"rows": len(rows), "groups": {}}
+    for g, rs in by.items():
+        if len(rs) < min_rows:
+            out["groups"][g] = {"n": len(rs), "status": f"collecting ({len(rs)} of {min_rows} rows)"}
+            continue
+        days = sorted({r["d"] for r in rs})
+        X = [_xrow(r) for r in rs]
+        lf = np.array([a for a, _ in X]); F = np.array([b for _, b in X]); y = np.array([r["y"] for r in rs], float)
+        dd = np.array([r["d"] for r in rs])
+        gains, cl, coefs = [], [], None
+        for d in days[3:]:
+            tr, te = dd < d, dd == d
+            if tr.sum() < 500 or not te.sum():
+                continue
+            b = np.zeros(F.shape[1])
+            for _ in range(25):        # Newton with a small ridge, offset = logit(close)
+                z = lf[tr] + F[tr] @ b
+                pz = 1 / (1 + np.exp(-np.clip(z, -30, 30)))
+                gr = F[tr].T @ (y[tr] - pz) - 2.0 * b
+                Hs = (F[tr] * (pz * (1 - pz))[:, None]).T @ F[tr] + 2.0 * np.eye(F.shape[1])
+                b = b + np.linalg.solve(Hs, gr)
+            coefs = b
+            pm = 1 / (1 + np.exp(-lf[te])); pn = 1 / (1 + np.exp(-np.clip(lf[te] + F[te] @ b, -30, 30)))
+            gains += list(MS._ll_rows(pm, y[te]) - MS._ll_rows(pn, y[te]))
+            cl += [d] * int(te.sum())
+        if not gains:
+            continue
+        gv = np.array(gains)
+        se = MS._cluster_se(gv, np.array([days.index(c) for c in cl]))
+        out["groups"][g] = {"n": len(rs), "scored": len(gv), "gain": round(float(gv.mean()), 6), "se": None if se is None else round(se, 6),
+                            "t": None if not se else round(float(gv.mean()) / se, 2), "coef": dict(zip(FEATS, [round(float(c), 4) for c in coefs]))}
+    return out
+
+
 def run(data_dir, log=print, ms=None):
     if ms is None:
         ms, _ = MS.compute(data_dir, log=log)
     res = {"muting": muting(data_dir), "mutingLogic": muting(data_dir, logic=True), "blending": blending(data_dir, ms)}
+    try:
+        res["residual"] = residual(data_dir)
+    except Exception as e:
+        log(f"residual study failed: {type(e).__name__}")
     os.makedirs(os.path.join(data_dir, "stats"), exist_ok=True)
     json.dump(res, open(os.path.join(data_dir, "stats", "policytest.json"), "w"), indent=1)
     m, b = res["muting"], res["blending"].get("all") or {}
