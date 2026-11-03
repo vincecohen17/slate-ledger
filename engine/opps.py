@@ -50,7 +50,9 @@ def _side_quotes(line, side):
         c = pe.get("cost")
         if c and 0 < c < 1:
             am = pe.get("allInAm", pe.get("am"))
-            _META[(q["book"], c)] = {"age": None if age is None else round(age, 1), "exch": q.get("kind") == "exchange", "avail": pe.get("avail")}
+            bage = _age(q.get("updated"))
+            _META[(q["book"], c)] = {"age": None if age is None else round(age, 1), "exch": q.get("kind") == "exchange", "avail": pe.get("avail"),
+                                     "bookAge": None if bage is None else round(bage, 1)}
             out.append((c, q["book"], q["name"], am))
     return sorted(out)
 
@@ -71,10 +73,14 @@ def _leg(book, name, am, cost, label, fair=None, spec=None, limit=None):
     # or the middle's edge is gone. Exchanges (ProphetX, Novig, Kalshi, Polymarket) can move against you with size.
     return dict({"book": book, "name": name, "am": am, "dec": round(1 / cost, 4), "label": label,
                  "fair": fair, "off": None if fair is None else round(fair - cost, 4),
-                 "age": m.get("age"), "exch": bool(m.get("exch")), "avail": m.get("avail"),
+                 "age": m.get("age"), "exch": bool(m.get("exch")), "avail": m.get("avail"), "bookAge": m.get("bookAge"),
+                 "proxy": book in PROXY,
                  "holdTo": _am_of_cost(limit) if limit else None}, **(spec or {}))
 
 
+# venues whose prices come from a sister sportsbook's feed (DK Predictions <- DraftKings, FanDuel Predicts <- FanDuel): the
+# app may not list that market, or may price it differently, so an opp leaning on one is never "confirmed" on our data alone
+PROXY = {"draftkings", "fanduel"}
 THIN = 25      # dollars: a pair that can't take $50 in total (about $25 a leg) at these prices isn't worth chasing
 
 
@@ -239,3 +245,97 @@ def find(game_docs, prop_docs, now_iso=None, pulled=None):
                 o["score"] -= 0.5
     out.sort(key=lambda x: -x["score"])
     return out[:150]
+
+
+
+# ---------------------------------------------------------------------------
+# reliability: which arbs and middles are real. Most flagged in a week were never there to take (6 days, Oct 28-Nov 3:
+# 3,100 arbs flagged, about one confirmed by hand). Three tests stack up:
+#   1. it survived a second pull (a quote that vanishes on the next pull was a momentary or stale price),
+#   2. every sportsbook leg's own price was updated recently and no leg is a proxy venue's borrowed price,
+#   3. what Vince reported when he checked one (Firestore oppcheck/{id}: verdict real / fake + why), pooled per venue
+#      and market type into a "real" rate (beta prior 1:1), so venues and markets that keep failing drop out.
+def okey(o):
+    return "|".join([o.get("gameId") or "", o.get("player") or "", o.get("market") or "", o["kind"]] +
+                    [f"{l['book']}:{l.get('side')}:{l.get('point')}" for l in o["legs"]])
+
+
+def _kind_of(o):
+    return "prop" if o.get("player") else "line"
+
+
+def checks(db):
+    """{(book, kind): [real, fake]} from Vince's reports"""
+    out = {}
+    if db is None:
+        return out
+    try:
+        for d in db.collection("oppcheck").stream():
+            x = d.to_dict() or {}
+            v = x.get("verdict")
+            if v not in ("real", "fake"):
+                continue
+            bad = set(x.get("badLegs") or [])        # which leg(s) failed, when he said; else every leg shares the blame
+            for l in x.get("legs") or []:
+                k = (l.get("book"), x.get("kind") or "line")
+                r = out.setdefault(k, [0, 0])
+                if v == "real":
+                    r[0] += 1
+                elif not bad or l.get("book") in bad:
+                    r[1] += 1
+    except Exception:
+        pass
+    return out
+
+
+def annotate(opps, data_dir, now, db=None, log=print):
+    import json
+    import os
+    fn = os.path.join(data_dir, "latest", "opps_seen.json")
+    try:
+        seen = json.load(open(fn))
+    except Exception:
+        seen = {}
+    rep = checks(db)
+    t = now.isoformat()
+    cur = {}
+    for o in opps:
+        k = okey(o)
+        prev = seen.get(k)
+        ent = {"first": prev["first"] if prev else t, "pulls": (prev["pulls"] + 1) if prev else 1, "last": t}
+        cur[k] = ent
+        o["key"] = k
+        o["pulls"] = ent["pulls"]
+        o["seenMin"] = round((now - datetime.fromisoformat(ent["first"])).total_seconds() / 60, 1)
+        why = []
+        if ent["pulls"] < 2:
+            why.append("seen on one pull so far")
+        prox = [l["name"] for l in o["legs"] if l.get("proxy")]
+        if prox:
+            why.append(f"{', '.join(prox)} price is borrowed from its sportsbook: check the app lists it")
+        old = [l["name"] for l in o["legs"] if not l.get("exch") and (l.get("bookAge") or 0) > 30]
+        if old:
+            why.append(f"{', '.join(old)} hasn't updated this price in {max(l.get('bookAge') or 0 for l in o['legs'] if not l.get('exch')):.0f} min")
+        if o.get("suspect"):
+            why.append("too good to be true (8%+, or a leg 12+ pts off fair)")
+        if o.get("thin"):
+            why.append("thin: under $50 fills in all")
+        trust = 1.0
+        for l in o["legs"]:
+            r = rep.get((l["book"], _kind_of(o)))
+            if r:
+                rate = (r[0] + 1) / (r[0] + r[1] + 2)
+                trust *= rate
+                if r[0] + r[1] >= 3 and rate < 0.35:
+                    why.append(f"{l['name']} {_kind_of(o)}s: {r[0]} of {r[0] + r[1]} you checked were real")
+        o["trust"] = round(trust, 3)
+        o["why"] = why
+        o["confirmed"] = not why
+        if o["confirmed"]:
+            o["score"] = (o.get("score") or 0) + 2
+    out = sorted(opps, key=lambda x: -(x.get("score") or 0))
+    # keep only what's still open (a key that vanished starts over if it comes back)
+    json.dump(cur, open(fn, "w"), separators=(",", ":"))
+    n = sum(1 for o in out if o.get("confirmed"))
+    log(f"opps: {len(out)} found, {n} confirmed; reports on {sum(sum(v) for v in rep.values())} legs")
+    return out

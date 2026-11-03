@@ -65,8 +65,8 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
         # arbs and middles: go out any time
         fresh = []
         for o in opps:
-            if o.get("suspect") or o.get("thin"):
-                continue           # thin: the exchanges only fill a few dollars at these prices
+            if o.get("suspect") or o.get("thin") or not o.get("confirmed", True):
+                continue           # thin: the exchanges only fill a few dollars; unconfirmed: one pull, a proxy venue or an old price
             k = "o|" + o["kind"] + "|" + "|".join(l["book"] + l["label"] for l in o["legs"])
             if k in st["sent"]:
                 continue

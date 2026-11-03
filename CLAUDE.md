@@ -131,7 +131,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   avail (dollars on offer at that price) on prices, best, edges, opps legs and pickslive venues. Opps get maxPay / maxStake /
   maxProfit (what both legs fill at their prices) and thin (under $50 in all): arbs prefer a pair with real size, thin ones
   rank lower and never alert; edges with avail under $25 don't alert. Sportsbooks don't publish limits (avail absent).
-  Each leg carries market/side/point/team so a logged pair grades itself. `site/js/arbs.js`: "Log both legs" (or Ledger >
+  Each leg carries market/side/point/team so a logged pair grades itself. Reliability (`opps.annotate`, each run): opps keep
+  key, pulls / seenMin (latest/opps_seen.json, consecutive pulls), legs carry bookAge (the book's own last update) and proxy
+  (DK Predictions / FanDuel Predicts prices borrowed from their sportsbooks); Vince's check-ins (Firestore oppcheck/{id}:
+  verdict real / fake, badLegs) pool into a real rate per venue x prop/line. confirmed = 2+ pulls, no proxy leg, book prices
+  under 30 min old, not suspect or thin, no venue-kind with 3+ checks under 35% real; o.why lists what failed. Only confirmed
+  opps rank first and alert; the Arbs tab shows the rest under "Unverified" with check-in buttons. `site/js/arbs.js`: "Log both legs" (or Ledger >
   Log arb / middle, or pairing two bets in a bet's Edit sheet) saves both legs as normal bets sharing `group` {id, kind, i,
   window?, pMiddle?}; `unify()` folds each pair into one row (net profit, total stake, expected profit from the legs' fairs)
   for every ledger stat and the Analysis tab, so the losing leg never counts as a lost bet or skews venues, CLV or Kelly.
@@ -172,6 +177,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   lines, props, pick), Edges, Picks, Bet Lab (parlays to 20 legs, same-game correlation), Promos (plain-words
   parser + optimizer), Ledger (bets; Analysis: skill vs luck, rolling CLV, calibration, venue x type heatmaps, timing,
   sizing vs Kelly, promo value, swings; Our picks incl. by pillars/model gap), Reports (edge report card, books, models). Math for the lab/promos lives in `site/js/lab.js`.
+  Bet Lab links: `addToLab(spec, opts)` (views/lab.js) takes a bet named like the ledger (gameId, market, side, own point, player,
+  team, pickem app) from any screen ("+ Lab" on edge cards, game sides and prop chips, "Open in Bet Lab" on picks, "Lab" on promo
+  suggestions with the promo, boost and stake attached); the slip persists in sessionStorage (sl.labslip). The Lab lists our open
+  picks, best bets (S.edges minus muted / skip / below-beyond / model or estimated fairs / quotes 15%+ or 1.5x past fair) and
+  suggested builds per venue (best single, 2- and 3-leg across games) ranked by full-Kelly log growth, and shows the chance
+  today's open bets finish up with and without the slip (projected.summary) plus a parlay-vs-straights comparison.
 - Picks: Claude writes `picks/<YYYY-MM-DD>.json` (a list) to the data repo; every engine run syncs them to
   Firestore `picks/{id}`. Fields: id, date, gameId, league, matchup, commence, selection, player?, tier
   (bet|floor|likely), units, status, fair, fairAm, goodAt, greatAt, playTo[{venue,name,price,line?,inRange}],

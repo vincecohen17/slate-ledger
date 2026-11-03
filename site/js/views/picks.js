@@ -1,7 +1,7 @@
 import { S } from "../store.js";
 import { esc, am, pct, prob, fmtTime, fmtShortDay, units, todayPT, bookTag, $$ } from "../util.js";
 import { centsTag, kUsd } from "../util.js";
-import { betImage, bindLog } from "./common.js";
+import { betImage, bindLog, labBtn } from "./common.js";
 
 const PILLARS = [["model", "Model"], ["advanced", "Adv stats"], ["matchup", "Matchup"], ["role", "Role"], ["context", "Context"], ["market", "Market"]];
 const ICON = { support: "▲", neutral: "•", against: "▼" };
@@ -69,7 +69,8 @@ export function pickCard(p) {
     ${p.risk ? `<div class="pcase risk"><div class="pc-h neg">▼ What could go wrong</div>${paras(p.risk)}</div>` : ""}
     ${venues ? `<div><div class="tiny muted" style="margin-bottom:4px">Play-to by venue</div><div class="ladder">${venues}</div></div>` : ""}
     ${(p.confirm || []).length ? `<div class="note"><b>Confirm before start:</b> ${p.confirm.map(esc).join(" · ")}</div>` : ""}
-    <div><button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: p.selection, gameId: p.gameId, league: p.league, matchup: p.matchup, commence: p.commence, market: p.market, side: p.side, point: p.point, player: p.player, team: p.team, pickId: p.id, am: p.playTo?.find((v) => v.inRange)?.price ?? p.goodAt, venue: p.playTo?.find((v) => v.inRange)?.venue, fair: p.fair, source: "pick" }))}'>Log this bet</button></div>
+    <div><button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: p.selection, gameId: p.gameId, league: p.league, matchup: p.matchup, commence: p.commence, market: p.market, side: p.side, point: p.point, player: p.player, team: p.team, pickId: p.id, am: p.playTo?.find((v) => v.inRange)?.price ?? p.goodAt, venue: p.playTo?.find((v) => v.inRange)?.venue, fair: p.fair, source: "pick" }))}'>Log this bet</button>
+      ${new Date(p.commence) > new Date() && p.status === "open" ? labBtn({ gameId: p.gameId, market: p.market, side: p.side, point: p.point, player: p.player, team: p.team }, { venue: p.playTo?.find((v) => v.inRange)?.venue }, "Open in Bet Lab") : ""}</div>
   </div>`;
 }
 

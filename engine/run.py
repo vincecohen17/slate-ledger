@@ -1229,6 +1229,10 @@ def publish(game_docs, prop_docs, status, stamp):
         import opps as OP
         import alerts
         opp_list = OP.find(game_docs, prop_docs, iso(NOW), pulled=load_state())
+        try:        # which ones are real: survived a second pull, fresh book prices, no proxy venue, Vince's own checks
+            opp_list = OP.annotate(opp_list, DATA_DIR, NOW, db=firestore_db(), log=log)
+        except Exception as e:
+            log(f"opps annotate failed: {type(e).__name__}: {str(e)[:80]}")
         status["opps"] = len(opp_list)
         n_al = alerts.send(DATA_DIR, NOW, edges=edge_list[:60], opps=opp_list, log=log)
         try:

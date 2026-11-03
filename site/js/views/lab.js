@@ -1,10 +1,141 @@
 import { S, loadAllProps, loadAllAlt } from "../store.js";
-import { esc, am, pct, prob, fmtTime, amFromDec, decFromAm, amFromProb, both, bothP, spark, hitRate, bookLogo, $, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, amFromDec, decFromAm, amFromProb, both, bothP, spark, hitRate, bookLogo, money, $, $$ } from "../util.js";
 import { catalog, parlay, priceAt, evPerDollar, legSpec, venueName } from "../lab.js";
 import { betImage, logSheet } from "./common.js";
 import { normalize, findTarget, pAtLine, promoOpen, payoutFor } from "../promo.js";
+import { project, summary } from "../projected.js";
 
-const L = { q: "", league: "All", legs: [], customAm: "", boost: 0, stake: 10, compare: [] };
+const L = { q: "", league: "All", legs: [], customAm: "", boost: 0, stake: 10, compare: [], promoId: null, note: "" };
+
+// ---------- the slip survives leaving the Lab (and a reload): saved by leg key, rebuilt from the live catalog
+const SKEY = "sl.labslip";
+let pending = [];          // legs sent from other screens that weren't in the catalog yet (props still loading)
+function saveSlip() {
+  try { sessionStorage.setItem(SKEY, JSON.stringify({ legs: L.legs.map((x) => ({ key: x.leg.key, venue: x.venue, mult: x.mult, am: x.am, promoId: x.leg.promoId || null })),
+    boost: L.boost, stake: L.stake, promoId: L.promoId, customAm: L.customAm, pending })); } catch (e) { /* storage blocked */ }
+}
+let restored = false;
+function restoreSlip(cat) {
+  if (restored) return;
+  restored = true;
+  try {
+    const d = JSON.parse(sessionStorage.getItem(SKEY) || "null");
+    if (!d) return;
+    const byKey = new Map(cat.map((l) => [l.key, l]));
+    const promos = promoLegs();
+    L.legs = (d.legs || []).map((x) => ({ leg: x.promoId ? promos.find((p) => p.promoId === x.promoId) : byKey.get(x.key), venue: x.venue, mult: x.mult, am: x.am })).filter((x) => x.leg);
+    Object.assign(L, { boost: d.boost || 0, stake: d.stake || 10, promoId: d.promoId || null, customAm: d.customAm || "" });
+    pending = d.pending || [];
+  } catch (e) { /* ignore */ }
+}
+
+// find the catalog leg for a bet named the way the ledger names it (game, market, side, that side's own line, player);
+// a pick'em leg also names its app
+function findLeg(cat, spec) {
+  const N = (x) => (x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return cat.find((l) => l.gameId === spec.gameId && l.market === spec.market && l.side === spec.side &&
+    N(l.player) === N(spec.player) && (spec.pickem ? l.pickem === spec.pickem : !l.pickem) &&
+    (spec.point == null || legSpec(l).point == null || Math.abs(+legSpec(l).point - +spec.point) < 1e-6) &&
+    (!spec.team || !l.team || N(l.team) === N(spec.team)));
+}
+function placeLeg(cat, spec, opts = {}) {
+  const leg = findLeg(cat, spec);
+  if (!leg) return false;
+  if (!L.legs.some((x) => x.leg.key === leg.key) && L.legs.length < 20) {
+    const ven = opts.venue && leg.venues.some((v) => v.book === opts.venue && !v.stale) ? opts.venue : "any";
+    L.legs.push({ leg, venue: ven });
+  }
+  return true;
+}
+// send a bet to the Lab from anywhere (edges, picks, game pages, promos): adds it to the slip and opens the Lab
+export function addToLab(spec, opts = {}) {
+  loadAllProps();
+  const cat = catalog();
+  restoreSlip(cat);
+  if (opts.replace) { L.legs = []; L.promoId = null; L.boost = 0; L.customAm = ""; pending = []; }
+  if (opts.promoLeg) labWithPromo(opts.promoLeg);
+  if (opts.boost != null) L.boost = opts.boost;
+  if (opts.stake) L.stake = opts.stake;
+  if (opts.promoId) L.promoId = opts.promoId;
+  if (opts.note) L.note = opts.note;
+  for (const sp of Array.isArray(spec) ? spec : [spec]) if (!placeLeg(cat, sp, opts)) pending.push({ spec: sp, opts: { venue: opts.venue } });
+  saveSlip();
+  if (location.hash !== "#/lab") location.hash = "#/lab";
+}
+
+// ---------- the best bets right now: the board's edges (ranked by edge, the report card and the playbook), skipping kinds
+// the record mutes or says to skip, as Lab legs priced at the edge's venue
+function bestBets(cat) {
+  const now = Date.now(), out = [], seen = new Set();
+  for (const e of S.edges || []) {
+    if (e.live || e.muted || e.avoid || new Date(e.commence) <= now) continue;
+    if (["below", "beyond"].includes(e.supBand)) continue;
+    // a price far past the fair is almost always a stale or wrong quote, and alt lines priced by our model or one-sided
+    // estimated fairs are kinds the record says to distrust: none of them belong in "best"
+    if (e.edge > 0.15 || e.model || e.est || (e.am != null && e.fair * (e.am > 0 ? 1 + e.am / 100 : 1 + 100 / -e.am) > 1.5)) continue;
+    const leg = findLeg(cat, { gameId: e.gameId, market: e.market, side: e.side, point: e.point, player: e.player, team: e.team, pickem: e.pickem ? e.book : null });
+    if (!leg || seen.has(leg.key + e.book)) continue;
+    seen.add(leg.key + e.book);
+    out.push({ e, leg: { ...leg, label: e.label || leg.label } });
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
+// suggested builds at one venue from the best bets: the best single, and the best 2- and 3-leg parlays across different
+// games (a parlay of +EV legs multiplies their edges: higher expected ROI, much lower chance to cash)
+// long-run bankroll growth per bet at full Kelly: the right way to rank bets for ROI that compounds (a +49% EV long shot
+// that cashes 18% grows a bankroll slower than a +6% EV bet that cashes 55%)
+function growth(p, dec, boost = 0) {
+  const bb = (dec - 1) * (1 + boost), f = (bb * p - (1 - p)) / bb;
+  if (!(f > 0) || f >= 1) return 0;
+  return p * Math.log(1 + f * bb) + (1 - p) * Math.log(1 - f);
+}
+
+function builds(best) {
+  const byVenue = new Map();
+  for (const x of best) {
+    if (x.e.pickem || !x.leg.venues.some((v) => v.book === x.e.book)) continue;
+    const pr = priceAt(x.leg, x.e.book);
+    if (!pr) continue;
+    const r = { ...x, dec: 1 / pr.cost, p: x.leg.fair, venue: x.e.book };
+    r.ev = r.p * r.dec - 1;
+    r.g = growth(r.p, r.dec);
+    if (r.ev <= 0) continue;
+    if (!byVenue.has(r.venue)) byVenue.set(r.venue, []);
+    byVenue.get(r.venue).push(r);
+  }
+  const boost = L.boost / 100, out = [];
+  for (const [venue, rs] of byVenue) {
+    rs.sort((a, b) => b.g - a.g);
+    out.push({ venue, legs: [rs[0]] });
+    for (const n of [2, 3]) {
+      const pick = [];
+      for (const r of rs) { if (pick.length < n && !pick.some((q) => q.leg.gameId === r.leg.gameId)) pick.push(r); }
+      if (pick.length === n) out.push({ venue, legs: pick });
+    }
+  }
+  for (const o of out) {
+    o.p = o.legs.reduce((a, r) => a * r.p, 1);
+    o.dec = o.legs.reduce((a, r) => a * r.dec, 1);
+    o.ev = evPerDollar(o.p, o.dec, boost);
+    o.g = growth(o.p, o.dec, boost);
+    const bb = (o.dec - 1) * (1 + boost);
+    o.kelly = Math.max(0, (bb * o.p - (1 - o.p)) / bb);
+  }
+  const top = (n) => out.filter((o) => o.legs.length === n && o.g > 0).sort((a, b) => b.g - a.g)[0];
+  return [top(1), top(2), top(3)].filter(Boolean);
+}
+
+// today's open bets as one distribution (the same math as Projected profit), with and without the bet in the slip
+function dayOdds(extra) {
+  const pend = [...S.bets.values()].filter((b) => b.status === "pending");
+  const rows = pend.map((b) => project(b, b.promoId ? S.promos.get(b.promoId) : null)).filter(Boolean);
+  const base = rows.length ? summary(rows) : null;
+  let withIt = null;
+  if (extra) withIt = summary([...rows.map((r) => ({ ...r })), { b: {}, p: extra.p, win: extra.win, lose: extra.lose, srcs: [], ev: extra.p * extra.win + (1 - extra.p) * extra.lose }]);
+  return { n: rows.length, base, withIt };
+}
 let bankroll = 500;
 try { bankroll = +localStorage.getItem("sl.bankroll") || 500; } catch (e) { /* storage blocked */ }
 
@@ -107,6 +238,7 @@ function result() {
       <div class="kpi"><div class="k">Kelly ¼</div><div class="v">$${(kelly / 4 * bankroll).toFixed(0)}</div><div class="s">of $${bankroll} bankroll</div></div>
     </div>
     ${pairs ? `<div class="corr">${pairs}</div><p class="note">Same-game legs move together; the fair chance above already adjusts for it (estimated coefficients).</p>` : ""}
+    ${dec ? riskHtml(r, dec, prices) : ""}
     <div class="fgrid" style="margin-top:12px">
       <label class="f">Venue's parlay odds (optional)<input id="lab-custom" inputmode="numeric" value="${esc(L.customAm)}" placeholder="${dec ? am(amFromDec(r.dec || dec)) : "+250"}"></label>
       <label class="f">Profit boost %<input id="lab-boost" inputmode="numeric" value="${L.boost || ""}" placeholder="0"></label>
@@ -116,6 +248,29 @@ function result() {
     <div class="row" style="margin-top:12px;flex-wrap:wrap"><button class="btn" id="lab-log">Log this bet</button><button class="btn ghost" id="lab-cmp">Save to compare</button><button class="btn ghost" id="lab-clear">Clear</button></div>`;
 }
 
+// how this bet changes today's chance to finish up, and (for a parlay) the same legs played as straight bets
+function riskHtml(r, dec, prices) {
+  const stake = L.stake || 0, boost = L.boost / 100;
+  const win = stake * (dec - 1) * (1 + boost), lose = -stake;
+  const D = dayOdds({ p: r.joint, win, lose });
+  const pc = (x) => `${Math.round(x * 100)}%`;
+  let h = `<div class="lab-risk"><div class="row" style="gap:14px;flex-wrap:wrap">
+    <div><div class="tiny muted">Chance this bet cashes</div><b>${prob(r.joint, 1)}</b></div>
+    ${D.base ? `<div><div class="tiny muted">Your ${D.n} open bet${D.n === 1 ? "" : "s"} finish up</div><b>${pc(D.base.up)}</b> <span class="tiny muted">EV ${money(D.base.ev)}</span></div>` : ""}
+    <div><div class="tiny muted">${D.base ? "With this bet added" : "Finish up with this bet"}</div><b class="${D.base && D.withIt.up >= D.base.up ? "pos" : D.base ? "neg" : ""}">${pc(D.withIt.up)}</b> <span class="tiny muted">EV ${money(D.withIt.ev)}</span></div></div>`;
+  const legs = L.legs.map((x) => x.leg);
+  if (legs.length > 1 && prices.every(Boolean) && !L.customAm) {
+    const each = stake / legs.length;
+    const rows = legs.map((l, i) => ({ b: {}, p: l.fair, win: each * (1 / prices[i].cost - 1), lose: -each, srcs: [] }));
+    const st = summary(rows), evS = rows.reduce((a, x) => a + x.p * x.win + (1 - x.p) * x.lose, 0);
+    const evP = r.joint * win + (1 - r.joint) * lose;
+    h += `<div class="small" style="margin-top:8px">As a parlay: EV <b class="${evP >= 0 ? "pos" : "neg"}">${money(evP)}</b>, cashes ${prob(r.joint, 1)}.
+      The same legs as ${legs.length} straight bets of ${money(each)}: EV <b class="${evS >= 0 ? "pos" : "neg"}">${money(evS)}</b>, finish up ${pc(st.up)}.
+      ${evP > evS && evS > 0 ? "The parlay earns more on average but cashes far less often." : evS >= evP ? "Straights earn as much or more and finish up more often." : ""}</div>`;
+  }
+  return h + `<p class="note" style="margin:6px 0 0">Open bets use their live chances (Projected profit math). More separate +EV bets, at shorter odds and smaller stakes each, raise the chance of a winning day; parlays and long shots lower it.</p></div>`;
+}
+
 function compareHtml() {
   if (!L.compare.length) return "";
   return `<div class="sec-title">Compare<span class="line"></span></div><div class="panel scroll"><table><thead><tr><th>Bet</th><th>Legs</th><th>Fair</th><th>Price</th><th>Boost</th><th>EV</th><th></th></tr></thead><tbody>
@@ -123,9 +278,33 @@ function compareHtml() {
       <td class="num ${c.ev > 0 ? "pos" : "neg"}">${pct(c.ev)}</td><td><button class="x" data-rmc="${i}">×</button></td></tr>`).join("")}</tbody></table></div>`;
 }
 
+function bestHtml(cat) {
+  if (L.q) return "";
+  const best = bestBets(cat).filter((x) => L.league === "All" || x.leg.league === L.league);
+  const picks = [...S.picks.values()].filter((p) => p.status === "open" && new Date(p.commence) > new Date() && p.tier !== "likely");
+  const pk = picks.map((p) => ({ p, leg: findLeg(cat, { gameId: p.gameId, market: p.market, side: p.side, point: p.point, player: p.player, team: p.team }) })).filter((x) => x.leg);
+  const B = builds(best);
+  const tag = (e) => [...(e.lean || []).slice(0, 1).map((c) => `<span class="pill pos" title="on the playbook">▲ ${esc(c.k)}</span>`),
+    e.supBand && ["between", "near"].includes(e.supBand) ? `<span class="pill pos" title="our model sits between the price and the fair">model backs it</span>` : ""].join("");
+  return `${pk.length ? `<div class="tiny muted" style="margin-top:10px">Our picks today</div><div class="results">${pk.map(({ p, leg }) => { const v = (p.playTo || []).find((x) => x.inRange);
+      return `<button class="res" data-pick="${esc(p.id)}">${betImage({ gameId: leg.gameId, label: leg.label, player: leg.player, headshot: leg.headshot, league: leg.league }, 30)}
+      <span class="col"><span class="ellip" style="font-weight:500">${esc(p.selection)}</span><span class="tiny muted ellip">${esc(p.tier)} · ${p.units}u · ${fmtTime(p.commence)}</span></span>
+      <span class="col" style="align-items:flex-end"><span class="num small">${v ? am(v.price) : "–"}</span><span class="tiny muted">${v ? esc(v.name || venueName(v.venue)) : "not in range"}</span></span></button>`; }).join("")}</div>` : ""}
+    ${B.length ? `<div class="tiny muted" style="margin-top:10px">Suggested builds ${L.boost ? `(with your ${L.boost}% boost)` : "(best bets at one venue, different games)"} · ranked by long-run bankroll growth, not raw EV</div><div class="results">${B.map((o, i) => `<button class="res" data-build="${i}">
+      <span class="col" style="min-width:0"><span class="ellip" style="font-weight:500">${o.legs.length === 1 ? "Best single" : `Best ${o.legs.length}-leg parlay`}: ${esc(o.legs.map((x) => x.leg.label).join(" + "))}</span>
+      <span class="tiny muted">${bookLogo(o.venue, venueName(o.venue), 13)} ${esc(venueName(o.venue))} · cashes ${prob(o.p, 1)} · ¼ Kelly $${(o.kelly / 4 * bankroll).toFixed(0)}</span></span>
+      <span class="col" style="align-items:flex-end"><span class="num small">${am(amFromDec(o.dec))}</span><span class="tiny ${o.ev > 0 ? "pos" : "neg"}">EV ${pct(o.ev)}</span></span></button>`).join("")}</div>` : ""}
+    ${best.length ? `<div class="tiny muted" style="margin-top:10px">Best bets now · ranked by edge and what has actually won (muted and skip kinds left out)</div><div class="results">${best.slice(0, 25).map(({ e, leg }) => `<button class="res" data-best="${esc(leg.key)}|${esc(e.book)}">${betImage({ gameId: leg.gameId, label: leg.label, player: leg.player, headshot: leg.headshot, league: leg.league }, 30)}
+      <span class="col"><span class="ellip" style="font-weight:500">${esc(leg.label)}</span><span class="tiny muted ellip">${esc(leg.matchup)} · ${fmtTime(leg.commence)}</span><span class="row" style="gap:4px;flex-wrap:wrap">${tag(e)}</span></span>
+      <span class="col" style="align-items:flex-end"><span class="num small">${e.pickem ? "pick'em" : am(e.am)}</span><span class="tiny muted">${bookLogo(e.book, e.bookName, 12)} ${esc(e.bookName)}</span><span class="tiny pos">+${(e.edge * 100).toFixed(1)}%</span></span></button>`).join("")}</div>` : ""}`;
+}
+
 export function renderLab(el) {
   loadAllProps();
   const cat = catalog();
+  restoreSlip(cat);
+  if (pending.length) pending = pending.filter((x) => !placeLeg(cat, x.spec, x.opts));      // props that arrived since
+  saveSlip();
   const leagues = ["All", ...new Set(cat.map((l) => l.league))];
   const res = search(cat), promos = promoLegs().filter((l) => !L.legs.some((x) => x.leg.key === l.key));
   el.innerHTML = `<div class="lab" style="margin-top:18px">
@@ -137,12 +316,16 @@ export function renderLab(el) {
       ${promos.length ? `<div class="tiny muted" style="margin-top:10px">Your promo picks (unused)</div><div class="results lab-promos">${promos.map((l) => `<button class="res" data-addp="${esc(l.promoId)}">${betImage({ gameId: l.gameId, label: l.label, player: l.player, headshot: l.headshot, league: l.league }, 30)}
         <span class="col"><span class="ellip" style="font-weight:500">${esc(l.label)}</span><span class="tiny muted ellip">${esc(l.matchup)} · ${fmtTime(l.commence)}</span></span>
         <span class="col" style="align-items:flex-end"><span class="pill pos">${esc(l.promoTag)}</span><span class="tiny muted">fair ${prob(l.fair)}</span></span></button>`).join("")}</div>` : ""}
+      ${bestHtml(cat)}
+      ${L.q ? "" : `<div class="tiny muted" style="margin-top:10px">Everything else by edge</div>`}
       <div class="results">${res.map((l) => `<button class="res" data-add="${esc(l.key)}">${betImage({ gameId: l.gameId, label: l.label, player: l.player, headshot: l.headshot, league: l.league }, 30)}
         <span class="col"><span class="ellip" style="font-weight:500">${esc(l.label)}</span><span class="tiny muted ellip">${esc(l.matchup)} · ${fmtTime(l.commence)}${l.model ? " · model fair" : ""}</span></span>
         <span class="col" style="align-items:flex-end"><span class="num small">${l.pickem ? "pick'em" : both(l.best?.am)}</span><span class="tiny ${l.best?.edge > 0.005 ? "pos" : "muted"}">fair ${bothP(l.fair)}</span></span></button>`).join("")}</div>
     </div>
     <div class="card">
       <div class="row" style="justify-content:space-between"><b>Your bet</b><span class="tiny muted">${L.legs.length} leg${L.legs.length === 1 ? "" : "s"} · up to 20</span></div>
+      ${L.promoId && S.promos.get(L.promoId) ? `<div class="tiny" style="margin:4px 0"><span class="pill pos">promo: ${esc(S.promos.get(L.promoId).title || "attached")}</span> logs with this promo attached</div>` : ""}
+      ${pending.length ? `<div class="tiny muted" style="margin:4px 0">${pending.length} leg${pending.length > 1 ? "s" : ""} still loading from the board…</div>` : ""}
       <div>${L.legs.map((x, i) => {
         const E = entry();
         if (E) {
@@ -180,6 +363,22 @@ export function renderLab(el) {
   const num = (id, fn) => { const i = $(id, el); if (i) i.onchange = () => { fn(i.value); rerender(); }; };
   $$("[data-rm]", el).forEach((b) => b.onclick = () => { L.legs.splice(+b.dataset.rm, 1); rerender(); });
   $$("[data-addp]", el).forEach((b) => b.onclick = () => { labWithPromo(b.dataset.addp); rerender(); });
+  $$("[data-best]", el).forEach((b) => b.onclick = () => {
+    const [key, book] = b.dataset.best.split("|"), leg = cat.find((l) => l.key === key);
+    if (leg && !L.legs.some((x) => x.leg.key === key) && L.legs.length < 20) L.legs.push({ leg, venue: leg.venues.some((v) => v.book === book && !v.stale) ? book : "any" });
+    rerender();
+  });
+  $$("[data-pick]", el).forEach((b) => b.onclick = () => {
+    const p = S.picks.get(b.dataset.pick); if (!p) return;
+    const v = (p.playTo || []).find((x) => x.inRange);
+    placeLeg(cat, { gameId: p.gameId, market: p.market, side: p.side, point: p.point, player: p.player, team: p.team }, { venue: v?.venue });
+    rerender();
+  });
+  $$("[data-build]", el).forEach((b) => b.onclick = () => {
+    const o = builds(bestBets(cat))[+b.dataset.build]; if (!o) return;
+    L.legs = o.legs.map((x) => ({ leg: x.leg, venue: o.venue })); L.customAm = "";
+    rerender();
+  });
   $$("[data-mx]", el).forEach((i) => i.onchange = () => { L.legs[+i.dataset.mx].mult = i.value.replace(/x/i, "").trim(); rerender(); });
   num("#lab-entryx", (v) => { L.entryX = v.replace(/x/i, "").trim(); });
   $$("[data-ven]", el).forEach((s) => s.onchange = () => { L.legs[+s.dataset.ven].venue = s.value; rerender(); });
@@ -193,7 +392,7 @@ export function renderLab(el) {
   const r = legs.length ? parlay(legs, prices) : null;
   const custom = parseFloat(L.customAm), dec = r ? (!isNaN(custom) ? decFromAm(custom) : r.dec) : null;
   const label = legs.map((l) => l.label).join(" + ");
-  if ($("#lab-clear", el)) $("#lab-clear", el).onclick = () => { L.legs = []; L.customAm = ""; L.boost = 0; L.entryX = ""; rerender(); };
+  if ($("#lab-clear", el)) $("#lab-clear", el).onclick = () => { L.legs = []; L.customAm = ""; L.boost = 0; L.entryX = ""; L.promoId = null; pending = []; saveSlip(); rerender(); };
   if ($("#lab-cmp", el)) $("#lab-cmp", el).onclick = () => {
     if (!dec) return;
     L.compare.push({ label, n: legs.length, p: r.joint, am: amFromDec(dec), boost: L.boost, ev: evPerDollar(r.joint, dec, L.boost / 100) });
@@ -210,6 +409,6 @@ export function renderLab(el) {
     logSheet({ label, am: dec ? amFromDec(dec) : "", stake: L.stake, fair: r?.joint, gameId: one?.gameId, league: one?.league,
                matchup: one?.matchup, commence: one?.commence, ...(one ? legSpec(one) : {}), label,
                venue: L.legs[0]?.venue !== "any" && L.legs[0]?.venue !== "custom" ? L.legs[0]?.venue : undefined,
-               legs: legs.map(legSpec), source: "lab" });
+               legs: legs.map(legSpec), source: "lab", ...(L.promoId ? { promoId: L.promoId } : {}) });
   };
 }

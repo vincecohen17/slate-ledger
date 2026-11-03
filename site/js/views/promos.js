@@ -5,7 +5,7 @@ const draftLine = (p, c) => p.promoLine ?? legSpec(c.leg).point;
 import { KINDS, FIELDS, SPORTS, BET_TYPES, PICKEM, FEE_VENUES, kindOf, blank, normalize, parsePromo, describe, optimize, legs,
   bonusConv, convCurve, findTarget, pAtLine, autoTarget, decOf, amOf, payoutFor, venueHasFeed, fundsOf } from "../promo.js";
 import { betImage, logSheet } from "./common.js";
-import { labWithPromo } from "./lab.js";
+import { labWithPromo, addToLab } from "./lab.js";
 import { syncWalletPromos } from "../wallet.js";
 
 let draft = null, open = new Set(), checker = { q: "", key: null, odds: "", line: "", boost: "", mult: "" }, targetQ = "";
@@ -176,7 +176,7 @@ function optRow(p, o, i, max) {
   const head = pick ? `<span>${o.legs.length}-pick · hits all ${prob(o.P, 1)}${p.flex ? " · flex" : o.perPick ? ` · pays ${o.payX.toFixed(2)}x (${o.legs.map((c) => (c.promo ? p.promoMult : c.perX ?? p.otherMult ?? 1.73).toFixed(2) + "x").join(" × ")})${o.assumed ? ` <span class="tiny muted" title="the feed doesn't carry this app's multipliers; type the other pick's real one in the promo">other pick assumed at 1.73x</span>` : ""}` : ` · pays ${o.payX ? `${(+o.payX).toFixed(2)}x` : `${p.mult || payoutFor(p.venue, o.legs.length) || "?"}x`}${k === "bonus_bet" ? " · bonus funds: only the winnings come back" : ""}`}</span>`
     : `<span>${o.legs.length > 1 ? `${o.legs.length}-leg parlay at ` : "Single at "}<b class="num">${am(amOf(o.D))}</b> · wins ${prob(o.P, 1)}${o.sgp ? " · same-game estimate" : ""}${o.est ? " · chance estimated from the original price" : ""}</span>`;
   return `<div class="pl pr-opt">${legsH}
-    <div class="pl-b" style="margin-top:4px;gap:8px;align-items:center">${head}<span class="row" style="gap:8px"><span class="${o.ev >= 0 ? "pos" : "neg"}"><b>${money(o.ev)}</b> EV</span><button class="btn sm ghost" data-take="${esc(p.id)}|${i}">Log</button></span></div>${bar}
+    <div class="pl-b" style="margin-top:4px;gap:8px;align-items:center">${head}<span class="row" style="gap:8px"><span class="${o.ev >= 0 ? "pos" : "neg"}"><b>${money(o.ev)}</b> EV</span><button class="btn sm ghost" data-takelab="${esc(p.id)}|${i}" title="open these legs in the Bet Lab with this promo attached">Lab</button><button class="btn sm ghost" data-take="${esc(p.id)}|${i}">Log</button></span></div>${bar}
     ${o.note ? `<div class="tiny muted">${esc(o.note)}</div>` : ""}</div>`;
 }
 function depSummary(d) {
@@ -350,6 +350,15 @@ function bind(el) {
   $$("[data-edit]", el).forEach((b) => b.onclick = () => { draft = normalize(S.promos.get(b.dataset.edit)); draft.titleSet = false; rerender(); scrollTo(0, 0); });
   $$("[data-used]", el).forEach((b) => b.onclick = () => { const p = S.promos.get(b.dataset.used); savePromo({ ...p, used: !p.used, usedAt: !p.used ? new Date().toISOString() : null }).then(() => toast(p.used ? "Back in your promos" : "Marked used: moved to Used and expired")); });
   $$("[data-lab]", el).forEach((b) => b.onclick = () => { labWithPromo(b.dataset.lab); location.hash = "#/lab"; });
+  $$("[data-takelab]", el).forEach((b) => b.onclick = () => {
+    const [id, i] = b.dataset.takelab.split("|");
+    const p = normalize(S.promos.get(id)), o = best(p)[+i], k = kindOf(p.kind).key;
+    if (!o) return;
+    const specs = o.legs.filter((c) => !c.promo).map((c) => ({ ...legSpec(c.leg), pickem: c.leg.pickem || null }));
+    const boost = ["profit_boost", "parlay_boost"].includes(k) && p.boost ? Math.round(p.boost * 100) : 0;
+    const stake = ["bonus_bet", "free_entry"].includes(k) ? p.amount : k === "bet_and_get" ? p.qualStake : p.stake;
+    addToLab(specs, { replace: true, promoLeg: o.legs.some((c) => c.promo) ? p.id : null, venue: p.venue !== "any" ? p.venue : undefined, promoId: p.id, boost, stake: stake || undefined });
+  });
   const po = $("#pr-old", el); if (po) po.onclick = () => { showOld = !showOld; rerender(); };
 
   $$("[data-del]", el).forEach((b) => b.onclick = () => { if (b.dataset.confirm) { deletePromo(b.dataset.del); open.delete(b.dataset.del); } else { b.dataset.confirm = 1; b.textContent = "Tap again to delete"; } });

@@ -1,4 +1,4 @@
-import { S, testAlert } from "../store.js";
+import { S, testAlert, saveOppCheck } from "../store.js";
 import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$ } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 import { arbSheet } from "../arbs.js";
@@ -28,6 +28,9 @@ function oppCard(o) {
       ? `Either way you get back about <b>${money(Math.min(...ret))}</b> on ${money(tot)}: <b class="pos">${money(Math.min(...ret) - tot)}</b> locked.`
       : `If one side wins: ${money(Math.min(...ret) - tot)}. If the result lands ${o.window[0]} to ${o.window[1]} (about ${prob(o.pMiddle)}): <b class="pos">${money(ret[0] + ret[1] - tot)}</b>. Expected <b class="${o.ev >= 0 ? "pos" : "neg"}">${money(o.ev * tot * o.stakes[0] * o.legs[0].dec)}</b>.`}</div>
     ${o.maxStake != null ? `<div class="tiny ${o.thin ? "neg" : "muted"}" style="margin-top:6px">${o.thin ? "Thin: " : ""}at these prices the exchanges fill about <b>${money(o.maxStake)}</b> in all${o.kind === "arb" ? ` (locks <b class="pos">${money(o.maxProfit)}</b>)` : ""}${tot > o.maxStake + 0.5 ? `; past that the price gets worse` : ""}.</div>` : ""}
+    ${o.why?.length ? `<div class="tiny op-why" style="margin-top:6px"><b>Check first:</b> ${o.why.map(esc).join(" · ")}</div>` : o.confirmed ? `<div class="tiny pos" style="margin-top:6px">✓ Confirmed: held for ${o.pulls} pulls (${Math.round(o.seenMin || 0)} min), fresh book prices, no borrowed venue prices${o.trust != null && o.trust < 1 ? `, ${Math.round(o.trust * 100)}% real on your checks` : ""}.</div>` : ""}
+    ${checked.has(o.key) ? `<div class="tiny muted" style="margin-top:6px">Thanks: your check (${esc(checked.get(o.key))}) trains which venues and markets to trust.</div>`
+      : o.key ? `<div class="row tiny" style="gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="muted">Did you check it?</span><button class="btn sm ghost" data-opreal="${OPPS.length - 1}">✓ Both legs were there</button>${o.legs.map((l) => `<button class="btn sm ghost" data-opfake="${OPPS.length - 1}|${esc(l.book)}">✗ ${esc(l.name)} wasn't</button>`).join("")}</div>` : ""}
     <div class="row" style="justify-content:flex-end;gap:6px;margin-top:8px">${o.maxStake != null && Math.abs(tot - o.maxStake) > 1 && o.maxStake >= 10 ? `<button class="btn sm ghost" data-opmax="${Math.floor(o.maxStake)}" title="split the most these prices fill">Size to ${money(Math.floor(o.maxStake))}</button>` : ""}<button class="btn sm ghost" data-arb="${OPPS.length - 1}" title="log both legs as one ${o.kind} in the ledger">Log both legs</button></div></div>`;
 }
 let alertsOpen = false;
@@ -46,14 +49,20 @@ function alertsCard() {
       <div class="tiny muted">The topic name is the only key, so keep it to yourself. On a computer you can also open <a href="https://ntfy.sh/${encodeURIComponent(a.topic)}" target="_blank" rel="noopener">ntfy.sh/${esc(a.topic.slice(0, 14))}…</a> in a browser.</div>` : ""}
   </div>`;
 }
+const checked = new Map();     // opp key -> what was reported this session
 function oppsHtml() {
-  const L = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && (F.league === "All" || o.league === F.league));
+  const all = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && (F.league === "All" || o.league === F.league));
+  const L = all.filter((o) => o.confirmed), U = all.filter((o) => !o.confirmed);
   const arbs = L.filter((o) => o.kind === "arb"), free = L.filter((o) => o.kind === "middle" && o.free && !o.suspect), mids = L.filter((o) => o.kind === "middle" && !(o.free && !o.suspect));
   return `${alertsCard()}<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 10px"><span class="small">Split a total of</span><input id="op-tot" inputmode="decimal" value="${oppTotal}" style="width:90px"><span class="tiny muted">stakes below are for this total; venues round to cents</span></div>
     <p class="note">An <b>arb</b> takes both sides at two venues for less than the payout: profit whatever happens. A <b>middle</b> takes both sides at different numbers: you lose a little if one side wins and win both if the result lands between; a <b>no-risk middle</b> can't lose either way. Prices move in seconds: place the leg on the exchange (or the one most likely to move) first, at your full size, and only then the other. "Works to" is the worst price each leg can get before the deal is gone.</p>
     ${free.length ? `<div class="sec-title">No-risk middles (${free.length})<span class="line"></span></div><div class="grid">${free.map(oppCard).join("")}</div>` : ""}
     <div class="sec-title">Arbs (${arbs.length})<span class="line"></span></div>${arbs.length ? `<div class="grid">${arbs.map(oppCard).join("")}</div>` : `<div class="card note">None open right now.</div>`}
-    <div class="sec-title">${free.length ? "Other middles" : "Middles"} (${mids.length})<span class="line"></span></div>${mids.length ? `<div class="grid">${mids.map(oppCard).join("")}</div>` : `<div class="card note">None open right now.</div>`}`;
+    <div class="sec-title">${free.length ? "Other middles" : "Middles"} (${mids.length})<span class="line"></span></div>${mids.length ? `<div class="grid">${mids.map(oppCard).join("")}</div>` : `<div class="card note">None open right now.</div>`}
+    ${U.length ? `<div class="sec-title">Unverified (${U.length})<span class="line"></span></div>
+      <p class="note">Found in the feed but not confirmed: seen on one pull only, a book price that hasn't updated in 30+ minutes, a DK Predictions or FanDuel Predicts price borrowed from its sportsbook (the app may not list the market), too good to be true, or thin. Each says why. These are what didn't pan out last week, so they're not alerted. When you check one, tap what you found: the engine learns which venues and markets to trust.</p>
+      <button class="btn sm ghost" id="op-unv">${F.showUnv ? "Hide them" : "Show them"}</button>
+      ${F.showUnv ? `<div class="grid" style="margin-top:10px;opacity:.9">${U.slice(0, 60).map(oppCard).join("")}</div>` : ""}` : ""}`;
 }
 const isLine = (e) => !/^(player|batter|pitcher)_/.test(e.market || "");
 
@@ -78,7 +87,7 @@ export function renderEdges(el) {
     new Date(e.commence) > new Date(Date.now() - 5 * 60000));
   const bookOf = Object.fromEntries(S.edges.map((e) => [e.bookName, e.book]));
   const chips = (key, vals, fmt = (v) => v) => vals.map((v) => `<button class="chip ${F[key] === v ? "on" : ""}" data-f="${key}" data-v="${esc(v)}">${key === "venue" && bookOf[v] ? bookLogo(bookOf[v], v, 14) : ""}${esc(fmt(v))}</button>`).join("");
-  const nOpp = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && !o.suspect).length;
+  const nOpp = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && !o.suspect && o.confirmed).length;
   const tabs = `<div class="bar"><button class="chip ${F.tab === "edges" ? "on" : ""}" data-tab="edges">Edges</button><button class="chip ${F.tab === "opps" ? "on" : ""}" data-tab="opps">Arbs & middles${nOpp ? ` <span class="pill pos">${nOpp}</span>` : ""}</button></div>`;
   if (F.tab === "opps") {
     OPPS = [];
@@ -88,6 +97,9 @@ export function renderEdges(el) {
     const t = el.querySelector("#op-tot"); if (t) t.onchange = () => { oppTotal = +t.value || 100; renderEdges(el); };
     $$("[data-opmax]", el).forEach((b) => b.onclick = () => { oppTotal = +b.dataset.opmax; renderEdges(el); toast(`Stakes split for ${money(oppTotal)}`); });
     $$("[data-arb]", el).forEach((b) => b.onclick = () => arbSheet({ ...OPPS[+b.dataset.arb], total: oppTotal }));
+    const uv = el.querySelector("#op-unv"); if (uv) uv.onclick = () => { F.showUnv = !F.showUnv; renderEdges(el); };
+    $$("[data-opreal]", el).forEach((b) => b.onclick = () => { const o = OPPS[+b.dataset.opreal]; saveOppCheck(o, "real").then(() => { checked.set(o.key, "real"); toast("Saved: real"); renderEdges(el); }).catch((e) => toast("Couldn't save: " + e.message)); });
+    $$("[data-opfake]", el).forEach((b) => b.onclick = () => { const [i, book] = b.dataset.opfake.split("|"), o = OPPS[+i]; saveOppCheck(o, "fake", [book]).then(() => { checked.set(o.key, `${o.legs.find((l) => l.book === book)?.name || book} wasn't there`); toast("Saved"); renderEdges(el); }).catch((e) => toast("Couldn't save: " + e.message)); });
     const at = el.querySelector("#al-test"); if (at) at.onclick = () => testAlert().then(() => toast("Test sent: check your phone")).catch((e) => toast("Couldn't send: " + e.message));
     const ah = el.querySelector("#al-how"); if (ah) ah.onclick = () => { alertsOpen = !alertsOpen; renderEdges(el); };
     const ac = el.querySelector("#al-copy"); if (ac) ac.onclick = () => navigator.clipboard?.writeText(S.alerts.topic).then(() => toast("Topic copied")).catch(() => toast("Select and copy the topic"));

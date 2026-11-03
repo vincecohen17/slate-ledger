@@ -248,6 +248,11 @@ export const savePromo = (p) => setDoc(doc(db, "promos", p.id), JSON.parse(JSON.
 export const deletePromo = (id) => deleteDoc(doc(db, "promos", id));
 // wallet entries: balance check-ins, deposits, withdrawals, bonus credits (see wallet.js)
 export const saveWallet = (w) => setDoc(doc(db, "wallet", w.id), JSON.parse(JSON.stringify(w)));
+// what Vince found when he checked an arb or middle at the venues: real (both legs there at the price) or which leg wasn't.
+// The engine pools these per venue and market type, so opps on venues that keep failing stop being confirmed.
+export const saveOppCheck = (o, verdict, badLegs = []) => setDoc(doc(db, "oppcheck", (o.key || "x").replace(/[^A-Za-z0-9]/g, "").slice(0, 120) + "-" + Date.now()),
+  { key: o.key || null, kind: o.player ? "prop" : "line", oppKind: o.kind, verdict, badLegs, at: new Date().toISOString(),
+    legs: o.legs.map((l) => ({ book: l.book, name: l.name, am: l.am, label: l.label, proxy: !!l.proxy })), league: o.league || null, market: o.market || null });
 export const deleteWallet = (id) => deleteDoc(doc(db, "wallet", id));
 
 // ---------- presence: tells the engine the site is open, so it refreshes prices only while you use it

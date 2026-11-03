@@ -3,6 +3,7 @@ import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, she
 import { VENUES } from "../lab.js";
 import { settleProfit, isBoost, promoOpen, singleUse, legs as boardLegs } from "../promo.js";
 import { money } from "../util.js";
+import { addToLab } from "./lab.js";
 
 // image for a bet: player headshot for props, team logo for team sides, league logo otherwise
 export function betImage(item, size = 42) {
@@ -45,7 +46,8 @@ export function edgeCard(e) {
         ${e.ctx?.length ? `<span class="tiny muted ellip" title="${esc(e.ctx.join(" · "))}">ⓘ ${esc(e.ctx[0])}${e.ctx.length > 1 ? ` +${e.ctx.length - 1}` : ""}</span>` : ""}
         ${e.last10?.length ? `<span class="l10">${spark(e.last10, e.point, { side: (e.label.match(/ (Over|Under) /) || [])[1] })}<span>last ${e.last10.length}: ${hitRate(e.last10, e.point, (e.label.match(/ (Over|Under) /) || [])[1])}</span></span>` : ""}
         ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model gives this ${prob(e.modelP, 1)}, a fair price of ${am(amFromProb(e.modelP))}${e.ctx?.length ? ". Context in the model: " + esc(e.ctx.join(" · ")) : ""}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · model ${bothP(e.modelP)}</span>` : ""}</div>
-      <button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair, source: e.live ? "live" : "edge", live: !!e.live }))}'>Log</button>
+      <span class="col" style="gap:4px"><button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair, source: e.live ? "live" : "edge", live: !!e.live }))}'>Log</button>
+      ${e.live ? "" : labBtn({ gameId: e.gameId, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, pickem: e.pickem ? e.book : null }, { venue: e.book })}</span>
     </div>
   </div>`;
 }
@@ -209,6 +211,10 @@ export function logSheet(pre = {}) {
   });
 }
 
+// a "+ Lab" button: sends the bet (game, market, side, that side's own line, player; pick'em app if any) to the Bet Lab
+export const labBtn = (spec, opts = {}, text = "+ Lab") => `<button class="btn sm ghost" title="Open in the Bet Lab" data-tolab='${esc(JSON.stringify({ spec, opts }))}'>${text}</button>`;
+
 export function bindLog(root) {
   root.querySelectorAll("[data-log]").forEach((b) => b.onclick = (ev) => { ev.preventDefault(); logSheet(JSON.parse(b.dataset.log)); });
+  root.querySelectorAll("[data-tolab]").forEach((b) => b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); const d = JSON.parse(b.dataset.tolab); addToLab(d.spec, d.opts || {}); toast("Added to the Bet Lab"); });
 }

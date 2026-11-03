@@ -1,6 +1,6 @@
 import { S, loadProps, propsFor } from "../store.js";
 import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wpBar, signPt, mktName, edgeCls, bindTips, spark, hitRate, both, marketInfo, bookLogo, $$ } from "../util.js";
-import { edgeCard, ladder, bindLog } from "./common.js";
+import { edgeCard, ladder, bindLog, labBtn } from "./common.js";
 import { pickCard } from "./picks.js";
 import { renderMatchup } from "./matchup.js";
 import { renderGameLive } from "./live.js";
@@ -34,7 +34,9 @@ function sidesBlock(g, l, limit, all) {
   const k = marketInfo(l.market).kind;
   const lab = (o) => k === "spreads" ? `${o} ${signPt(o === g.home ? l.point : -l.point)}` : k === "team_totals" ? `${l.team} ${o} ${l.point}` : k === "totals" ? `${o} ${l.point}` : o;
   const ref = (o) => o === g.home ? g.homeRef : o === g.away ? g.awayRef : null;
-  return `<div class="sides">${l.outcomes.map((o) => `<div><div class="side-h">${ref(o) || o === g.home || o === g.away ? teamLogo(ref(o), o, 22) : ""}<span>${esc(lab(o))}</span></div>${ladder(l, o, limit, all)}</div>`).join("")}</div>`;
+  const own = (o) => (l.point == null ? null : k === "spreads" && o !== g.home ? -l.point : l.point);
+  const live = new Date(g.commence) <= new Date();
+  return `<div class="sides">${l.outcomes.map((o) => `<div><div class="side-h">${ref(o) || o === g.home || o === g.away ? teamLogo(ref(o), o, 22) : ""}<span>${esc(lab(o))}</span>${!live && l.fair ? `<span class="spacer"></span>${labBtn({ gameId: g.id, market: l.market, side: o, point: own(o), team: l.team || null }, { venue: l.bestVenue?.[o]?.book })}` : ""}</div>${ladder(l, o, limit, all)}</div>`).join("")}</div>`;
 }
 
 function overview(g) {
@@ -82,7 +84,7 @@ function lines(g) {
   return out.join("");
 }
 
-function propCard(player, rows, market) {
+function propCard(player, rows, market, gid) {
   rows.sort((a, b) => (b.isMain ? 1 : 0) - (a.isMain ? 1 : 0) || a.point - b.point);
   const main = rows[0];
   const info = [main.team, main.pos].filter(Boolean).join(" · ");
@@ -111,8 +113,8 @@ function propCard(player, rows, market) {
       ${po != null && pu != null ? `<div class="ou"><i style="width:${po * 100}%"></i><i style="width:${pu * 100}%"></i></div>
       <div class="pl-b tiny muted"><span>Over ${prob(po)}</span><span>Under ${prob(pu)}</span></div>` : po != null ? `<div class="tiny muted">Yes ${prob(po)}</div>` : ""}
       <div class="pl-b" style="margin-top:4px">
-        <span class="mini ${edgeCls(bo?.edge)}">O ${bo ? `${both(bo.am)} <span class="tiny">${bookLogo(bo.book, bo.name, 13)} ${esc(bo.name)} ${pct(bo.edge)}</span>` : "–"}</span>
-        <span class="mini ${edgeCls(bu?.edge)}">U ${bu ? `${both(bu.am)} <span class="tiny">${bookLogo(bu.book, bu.name, 13)} ${esc(bu.name)} ${pct(bu.edge)}</span>` : "–"}</span>
+        <span class="mini ${edgeCls(bo?.edge)}">O ${bo ? `${both(bo.am)} <span class="tiny">${bookLogo(bo.book, bo.name, 13)} ${esc(bo.name)} ${pct(bo.edge)}</span>` : "–"}${gid && po != null ? labBtn({ gameId: gid, market, side: f.Over != null ? "Over" : "Yes", point: r.point, player }, { venue: bo?.book }, "+") : ""}</span>
+        <span class="mini ${edgeCls(bu?.edge)}">U ${bu ? `${both(bu.am)} <span class="tiny">${bookLogo(bu.book, bu.name, 13)} ${esc(bu.name)} ${pct(bu.edge)}</span>` : "–"}${gid && pu != null ? labBtn({ gameId: gid, market, side: f.Under != null ? "Under" : "No", point: r.point, player }, { venue: bu?.book }, "+") : ""}</span>
       </div>
       ${r.last10?.length ? `<div class="l10" style="margin-top:6px">${spark(r.last10, r.point)}<span>last ${r.last10.length}: ${hitRate(r.last10, r.point)} · avg ${(r.last10.reduce((a, b) => a + b, 0) / r.last10.length).toFixed(1)}</span></div>` : ""}${pk || gd ? `<div class="row" style="flex-wrap:wrap;gap:4px;margin-top:6px">${pk}${gd}</div>` : ""}</div>`;
   };
@@ -132,7 +134,7 @@ function props(g) {
   const players = [...byP.entries()].sort((a, b) => score(b[1]) - score(a[1]));
   return `<div class="bar">${markets.map((m) => `<button class="chip ${m === propMarket ? "on" : ""}" data-pm="${m}">${esc(mktName(m))}</button>`).join("")}
     <span class="spacer"></span><span class="tiny muted">Gold = chance of the over at the sharp fair</span></div>
-    <div class="grid tight">${players.map(([p, rows]) => propCard(p, rows, propMarket)).join("")}</div>`;
+    <div class="grid tight">${players.map(([p, rows]) => propCard(p, rows, propMarket, g.id)).join("")}</div>`;
 }
 
 export function renderGame(el, id, tab) {
