@@ -8,6 +8,7 @@ import { VENUES } from "../lab.js";
 import { projectedCard, betLegs } from "../projected.js";
 import { betImage } from "./common.js";
 import { analysis, bindAnalysis } from "./analysis.js";
+import { picksDeep, bindPicksDeep } from "./picksdeep.js";
 import { walletHtml, bindWallet } from "./wallet.js";
 import { unify, outcomes, arbSheet, unpair, findPairs, autoPair, pairBets } from "../arbs.js";
 
@@ -298,27 +299,10 @@ function ours() {
       <div class="kpi"><div class="k">Withdrawn</div><div class="v">${all.filter((p) => p.status === "void").length}</div><div class="s">before the game</div></div>
     </div>
     ${openPicks.length ? `<div class="sec-title">Open picks<span class="line"></span></div>${projectedCard({ items: openPicks, title: "Projected units on open picks", fmt: u, units: true })}` : ""}
-    <div class="sec-title">Units over time<span class="line"></span></div><div class="card">${plChart(graded.map(asBet), false, u)}</div>
-    <div class="sec-title">By tier and league<span class="line"></span></div>
-    <div class="card"><div style="overflow-x:auto"><table class="l10t lg-t"><thead><tr><th></th><th>Picks</th><th>Record</th><th>Units</th><th>ROI</th><th>Avg CLV</th><th>Beat close</th></tr></thead><tbody>
-      ${[...tiers.map((r) => [r.t === "bet" ? "Bet tier" : "Floor (0.25u)", r]), ...[...byLeague.entries()].map(([k, bs]) => [k, summarize(bs)])].filter(([, r]) => r.n).map(([k, r]) => `<tr><td>${esc(k)}</td><td class="num">${r.n}</td><td class="num">${r.w}-${r.l}${r.p ? "-" + r.p : ""}</td>
-        <td class="num ${r.pl >= 0 ? "pos" : "neg"}">${u(r.pl)}</td><td class="num">${r.roi != null ? pct(r.roi) : "–"}</td><td class="num ${r.clv > 0 ? "pos" : r.clv < 0 ? "neg" : ""}">${r.clv != null ? pct(r.clv) : "–"}</td><td class="num">${r.beat != null ? Math.round(r.beat * 100) + "%" : "–"}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">No graded picks yet: they grade themselves a few hours after each game.</td></tr>`}
-    </tbody></table></div></div>
+    <div class="sec-title">In depth<span class="line"></span></div>${picksDeep()}
     ${tailed.length ? `<div class="sec-title">You vs the picks<span class="line"></span></div><div class="pr-ck">
       <div class="kpi"><div class="k">Bets tailing our picks</div><div class="v ${ts.pl >= 0 ? "pos" : "neg"}">${money(ts.pl)}</div><div class="s">${ts.n} settled · ROI ${ts.roi != null ? pct(ts.roi) : "–"} · CLV ${ts.clv != null ? pct(ts.clv) : "–"}</div></div>
       <div class="kpi"><div class="k">Your own bets</div><div class="v ${own.pl >= 0 ? "pos" : "neg"}">${money(own.pl)}</div><div class="s">${own.n} settled · ROI ${own.roi != null ? pct(own.roi) : "–"} · CLV ${own.clv != null ? pct(own.clv) : "–"}</div></div></div>` : ""}
-    ${graded.length ? (() => {
-      const sup = (p) => Object.values(p.pillars || {}).filter((x) => x === "support").length;
-      const grp = (fn) => { const m = new Map(); graded.forEach((p) => { const k = fn(p); if (!m.has(k)) m.set(k, []); m.get(k).push(asBet(p)); }); return [...m.entries()].map(([k, bs]) => [k, summarize(bs)]); };
-      const edgeB = (p) => { const e = p.modelP != null && p.marketFair != null ? p.modelP - p.marketFair : null; return e == null ? "No model number" : e < 0.02 ? "Model +0-2 pts" : e < 0.05 ? "Model +2-5 pts" : "Model +5 pts or more"; };
-      const kindB = (p) => (p.player ? "Props" : /^h2h/.test(p.market || "") ? "Moneylines" : /spreads/.test(p.market || "") ? "Spreads" : /totals/.test(p.market || "") ? "Totals" : "Other");
-      const tbl = (title, rows) => `<div class="card" style="margin-top:10px"><b>${title}</b><div style="overflow-x:auto"><table class="l10t lg-t"><thead><tr><th></th><th>Picks</th><th>Record</th><th>Units</th><th>ROI</th><th>Avg CLV</th></tr></thead><tbody>
-        ${rows.filter(([, r]) => r.n).map(([k, r]) => `<tr><td>${esc(k)}</td><td class="num">${r.n}</td><td class="num">${r.w}-${r.l}${r.p ? "-" + r.p : ""}</td><td class="num ${r.pl >= 0 ? "pos" : "neg"}">${u(r.pl)}</td><td class="num">${r.roi != null ? pct(r.roi) : "–"}</td><td class="num ${r.clv > 0 ? "pos" : r.clv < 0 ? "neg" : ""}">${r.clv != null ? pct(r.clv) : "–"}</td></tr>`).join("")}</tbody></table></div></div>`;
-      return `<div class="sec-title">What makes a good pick<span class="line"></span></div>
-        ${tbl("By how many of the six pillars supported it", grp((p) => `${sup(p)} of 6 support`).sort((a, b) => b[0].localeCompare(a[0])))}
-        ${tbl("By how far our model was from the market", grp(edgeB))}
-        ${tbl("By bet type", grp(kindB))}
-        <p class="note">Once these fill in, they tell the pick runs which cases to trust: if 5-of-6 picks beat the close and 3-of-6 don't, the bar goes up.</p>`; })() : ""}
     <div class="sec-title">Recent picks<span class="line"></span></div>
     <div class="lt-list">${recent.map((p) => {
       const st = ["won", "lost", "push"].includes(p.status) ? p.status : p.status === "void" ? "void" : "pending";
@@ -344,6 +328,7 @@ export function renderLedger(el) {
       <div class="bar" style="margin:0"><button class="chip ${tab === "mine" ? "on" : ""}" data-tab="mine">My bets</button><button class="chip ${tab === "wallet" ? "on" : ""}" data-tab="wallet">Wallet</button><button class="chip ${tab === "analysis" ? "on" : ""}" data-tab="analysis">Analysis</button><button class="chip ${tab === "ours" ? "on" : ""}" data-tab="ours">Our picks</button></div></div>
     ${tab === "mine" ? mine(el) : tab === "wallet" ? walletHtml() : tab === "analysis" ? analysis() : ours()}`;
   if (tab === "analysis") bindAnalysis(el, () => renderLedger(el));
+  if (tab === "ours") bindPicksDeep(el, () => renderLedger(el));
   if (tab === "wallet") bindWallet(el, () => renderLedger(el));
   $$("[data-tab]", el).forEach((b) => b.onclick = () => { tab = b.dataset.tab; renderLedger(el); });
   const ab = $("#add-bet", el); if (ab) ab.onclick = () => logSheet({});
