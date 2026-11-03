@@ -194,7 +194,23 @@ class NFL:
             "int": rate("passing_interceptions", att, self.lg["int"], 150),
             "rectd": rate("receiving_tds", tg, self.lg["rectd"], 60), "rushtd": rate("rushing_tds", car, self.lg["rushtd"], 60),
             "lastWeek": (mine[-1]["season"], int(_f(mine[-1], "week"))),
+            **self._qb_rates(rows),
         }
+
+    def _qb_rates(self, rows):
+        """a passer's own volume and efficiency from his last 10 games with 15+ attempts (any team), recent-weighted and
+        shrunk to the league. Backtest (2025-26, 674 starts): the old team-pace x share x opponent-EPA projection of
+        passing yards correlated 0.06 with the result; the passer's own recent volume x efficiency 0.27 (the close: 0.40)."""
+        st = [r for r in rows if _f(r, "attempts") >= 15][-10:]
+        if not st:
+            return {}
+        w = [0.5 ** ((len(st) - 1 - i) / 4) for i in range(len(st))]
+        sw = sum(w)
+        att = (sum(wi * _f(r, "attempts") for wi, r in zip(w, st)) + 33.0 * 3) / (sw + 3)
+        A = sum(_f(r, "attempts") for r in st)
+        ypa = (sum(_f(r, "passing_yards") for r in st) + self.lg["ypa"] * 150) / (A + 150)
+        cmp = (sum(_f(r, "completions") for r in st) + self.lg["cmp"] * 150) / (A + 150)
+        return {"qbAtt": att, "qbYpa": ypa, "qbCmp": cmp, "qbN": len(st)}
 
     def status(self, team, name):
         for t in self.inj.values():
@@ -256,7 +272,13 @@ class NFL:
                 tg, cr = att * TGT_PER_ATT * p["tgtShare"], car * p["carShare"]
                 proj = {"targets": tg, "rec": tg * p["catch"], "rec_yds": tg * p["ypt"] * pf, "car": cr, "rush_yds": cr * p["ypc"] * rf}
                 if p["attShare"]:
-                    proj.update(att=att, cmp=att * p["cmp"], pass_yds=att * p["ypa"] * pf, ptd=att * p["ptd"] * pf, int=att * p["int"])
+                    if p.get("qbAtt"):       # the passer's own volume and efficiency; game script nudges (favorites throw for a bit more)
+                        qa = p["qbAtt"]
+                        mf = 1 + 0.003 * max(-14.0, min(14.0, m))
+                        proj.update(att=qa, cmp=qa * p["qbCmp"], pass_yds=qa * p["qbYpa"] * mf * (1 + (pf - 1) * 0.2),
+                                    ptd=qa * p["ptd"] * pf, int=qa * p["int"])
+                    else:
+                        proj.update(att=att, cmp=att * p["cmp"], pass_yds=att * p["ypa"] * pf, ptd=att * p["ptd"] * pf, int=att * p["int"])
                 proj["td"] = tg * p["rectd"] + cr * p["rushtd"]
                 proj["rectd"], proj["rushtd"] = tg * p["rectd"], cr * p["rushtd"]
                 if p["out"]:

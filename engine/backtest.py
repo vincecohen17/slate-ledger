@@ -261,10 +261,17 @@ def summarize(rows):
     return out
 
 
-def main(data_dir):
+def main(data_dir, sports=None):
+    """sports: rerun only these (env BT_SPORTS, comma list); the other sports keep their saved rows"""
     os.makedirs(os.path.join(data_dir, "track", "graded"), exist_ok=True)
+    sports = sports or [s for s in (os.environ.get("BT_SPORTS") or "").split(",") if s]
     allrows = []
     for sport in SEASONS:
+        if sports and sport not in sports:
+            fn = os.path.join(data_dir, "track", "graded", f"bt_{sport}.jsonl.gz")
+            if os.path.exists(fn):
+                allrows += [dict(json.loads(l), sport=sport) for l in gzip.open(fn, "rt") if l.strip()]
+            continue
         try:
             rows = run_sport(data_dir, sport)
         except Exception as e:

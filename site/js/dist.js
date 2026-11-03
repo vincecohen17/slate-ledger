@@ -19,7 +19,7 @@ const DISPERSION = {
 };
 const SKEWED = new Set(["player_reception_yds", "player_rush_yds", "player_rush_reception_yds"]);
 const isNormal = (m) => m.endsWith("_yds") || m.includes("longest");
-const sdNormal = (m, mean) => m === "player_pass_yds" ? 0.16 * mean + 18 : m === "player_rush_reception_yds" ? 0.42 * mean + 9 : 0.45 * mean + 8;
+const sdNormal = (m, mean) => m === "player_pass_yds" ? 0.19 * mean + 22 : m === "player_rush_reception_yds" ? 0.42 * mean + 9 : 0.45 * mean + 8;
 const phi = (x) => 0.5 * (1 + erf(x / Math.SQRT2));
 function erf(x) {   // Abramowitz-Stegun 7.1.26
   const s = Math.sign(x); x = Math.abs(x);

@@ -332,7 +332,7 @@ def _is_normal(market):
 
 def _sd_normal(market, m):
     if market == "player_pass_yds":
-        return 0.16 * m + 18
+        return 0.19 * m + 22      # 2025-26 NFL backtest: outcomes around the close spread 1.3x the old 0.16m+18; alt-line log loss best near 1.2x
     if market == "player_rush_reception_yds":
         return 0.42 * m + 9
     return 0.45 * m + 8
