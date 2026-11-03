@@ -14,6 +14,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 
+import build as B
 import livebets as LB
 import tracker as T
 
@@ -104,6 +105,28 @@ def _canon(snap, leg):
     return best, same
 
 
+def _close_est(snap, leg):
+    """closing chance for a prop leg on a number no book priced (a pick'em app's own line): the player's sharp mean at the
+    close, from his most balanced priced row, at this number"""
+    mk, side, pt = leg.get("market"), leg.get("side"), leg.get("point")
+    if side not in ("Over", "Under") or pt is None:
+        return None
+    rows = [r for r in snap.get("rows", []) if r["mk"] == mk and r.get("f") is not None and r.get("pt") is not None
+            and T._norm(r.get("player") or "") == T._norm(leg.get("player") or "")]
+    if not rows:
+        return None
+    r = min(rows, key=lambda x: abs(x["f"] - 0.5))
+    f_over = r["f"] if r.get("side") == "Over" else 1 - r["f"]
+    try:
+        mean = B.mean_from_line(mk, r["pt"], f_over, snap.get("sport") or "")
+        po = B.p_over(mk, mean, pt, snap.get("sport") or "")
+    except Exception:
+        return None
+    if po is None:
+        return None
+    return round(po if side == "Over" else 1 - po, 4)
+
+
 def grade_leg(data_dir, leg, fin_by_gid):
     """{y: 1/0/None(push), close: sharp fair of this side at the close} or None while not final"""
     snap = _snap(data_dir, leg.get("gameId"))
@@ -119,9 +142,12 @@ def grade_leg(data_dir, leg, fin_by_gid):
     res = _result(data_dir, snap, fin_by_gid, is_prop)
     if not res:
         return None
-    close = None
+    close, est = None, False
     if row is not None:
         close = row["f"] if same else 1 - row["f"]
+    elif is_prop:
+        close = _close_est(snap, leg)
+        est = close is not None
     if is_prop:
         p = res["players"].get(T._norm(leg["player"]))
         if not p:
@@ -143,7 +169,7 @@ def grade_leg(data_dir, leg, fin_by_gid):
             y = None
         else:
             y = float(v > pt) if side == "Over" else float(v < pt)
-        return {"y": y, "close": close, "stat": v}
+        return {"y": y, "close": close, "stat": v, **({"est": True} if est else {})}
     base = mk.replace("alternate_", "")
     pt = leg.get("point")
     canon_side = snap["home"] if base in ("h2h", "spreads") else "Over"
@@ -181,7 +207,19 @@ def grade_bet(data_dir, legs, dec, fin_by_gid):
         for c in cl:
             pc *= c
         clv = round(pc * dec - 1, 4)          # expected return per $1 at the price taken, valued at the closing fair
-    return {"result": result, "clv": clv, "closeFair": round(pc, 4) if clv is not None else None, "legs": out}
+    return {"result": result, "clv": clv, "closeFair": round(pc, 4) if clv is not None else None, "legs": out,
+            "est": any(g.get("est") for g in live)}
+
+
+def leg_results(legs, out):
+    """compact per-leg results kept on the bet (analysis of which legs hit): market, side, point, player, y, close, stat"""
+    res = []
+    for leg, g in zip(legs, out):
+        res.append({k: v for k, v in {"market": leg.get("market"), "side": leg.get("side"), "point": leg.get("point"),
+                                      "player": leg.get("player"), "gameId": leg.get("gameId"), "y": g.get("y"),
+                                      "close": g.get("close"), "stat": g.get("stat"), "est": g.get("est") or None,
+                                      "void": g.get("void") or None}.items() if v is not None})
+    return res
 
 
 # ---------------------------------------------------------------------------
@@ -302,8 +340,114 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
             lc = b.get("liveCheck") or {}
             g["clv"], g["closeFair"] = lc.get("clv"), lc.get("fair")
         snap.reference.update({"auto": {"result": g["result"], "clv": g["clv"], "closeFair": g["closeFair"],
+                                        "legs": leg_results(legs, g["legs"]), "closeEst": g.get("est") or None,
                                         "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}})
         n += 1
+    return n
+
+
+def _legs_of(b, data_dir):
+    """the bet's legs resolved to (gameId, market, side, point, player, team), or None if one can't be identified"""
+    legs = [x for x in (b.get("legs") or []) if x.get("gameId")]
+    if legs:
+        legs = [LB.resolve(x, data_dir) for x in legs]
+        return None if any(x is None for x in legs) else legs
+    if b.get("gameId") and b.get("market") and b.get("side"):
+        return [{k: b.get(k) for k in ("gameId", "market", "side", "point", "player", "team")}]
+    if b.get("gameId") and not b.get("pickId"):
+        leg = LB.resolve({"gameId": b["gameId"], "label": b.get("label")}, data_dir)
+        return [leg] if leg else None
+    if b.get("pickId"):
+        pk = _find_pick(data_dir, b["pickId"])
+        snap_ = _snap(data_dir, (pk or {}).get("gameId")) if pk else None
+        leg = parse_pick(pk, snap_) if snap_ else None
+        return [leg] if leg else None
+    return None
+
+
+def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
+    """settled bets that never got the engine's numbers (settled by hand before grading, or graded before these fields
+    existed): closing line value, each leg's result and close, the legs' structured fields and start times, and an
+    estimated fair when none was logged (the close, marked fairAtLogSrc "close"). Never changes a result or a profit.
+    Runs hourly (latest/backfill_state.json); our pick files get their structured fields filled the same way."""
+    st_fn = os.path.join(data_dir, "latest", "backfill_state.json")
+    try:
+        last = json.load(open(st_fn)).get("at")
+    except Exception:
+        last = None
+    if last and now - datetime.fromisoformat(last) < timedelta(hours=1):
+        return 0
+    n, mism = 0, []
+    for snap in db.collection("bets").where("status", "in", ["won", "lost", "push"]).stream():
+        b = snap.to_dict() or {}
+        legs = _legs_of(b, data_dir)
+        if not legs:
+            continue
+        up = {}
+        # structured legs with start times (a leg that was only a label gets its market, side, number and player)
+        if b.get("legs"):
+            new, changed = [], False
+            for x, r in zip([y for y in b["legs"] if y.get("gameId")], legs):
+                y = dict(x)
+                for k in ("market", "side", "point", "player", "team"):
+                    if y.get(k) is None and r.get(k) is not None:
+                        y[k], changed = r[k], True
+                if not y.get("commence"):
+                    sn = _snap(data_dir, y["gameId"])
+                    if sn:
+                        y["commence"], changed = sn["commence"], True
+                new.append(y)
+            if changed and len(new) == len(b["legs"]):
+                up["legs"] = new
+        elif not b.get("market") and legs[0].get("market"):
+            up.update({k: legs[0].get(k) for k in ("market", "side", "point", "player", "team") if legs[0].get(k) is not None})
+        need = b.get("clv") is None or not b.get("legResults") or b.get("fairAtLog") is None
+        if need:
+            try:
+                g = grade_bet(data_dir, legs, b.get("dec"), fin_by_gid)
+            except Exception:
+                g = None
+            if g:
+                if g["result"] != b.get("status"):
+                    mism.append({"id": snap.id, "status": b.get("status"), "engine": g["result"]})
+                if b.get("clv") is None:
+                    if b.get("live"):
+                        lc = b.get("liveCheck") or {}
+                        if lc.get("clv") is not None:
+                            up.update({"clv": lc["clv"], "closeFair": lc.get("fair")})
+                    elif g["clv"] is not None:
+                        up.update({"clv": g["clv"], "closeFair": g["closeFair"], "closeEst": g.get("est") or None})
+                if not b.get("legResults"):
+                    up["legResults"] = leg_results(legs, g["legs"])
+                if b.get("fairAtLog") is None and g.get("closeFair") is not None:
+                    up.update({"fairAtLog": g["closeFair"], "fairAtLogSrc": "close"})
+        if up:
+            up["backfilledAt"] = now.isoformat().replace("+00:00", "Z")
+            snap.reference.update(up)
+            n += 1
+    # our picks: structured fields for picks posted before they carried them
+    np_ = 0
+    for fn in sorted(glob.glob(os.path.join(data_dir, "picks", "*.json"))):
+        try:
+            picks = json.load(open(fn))
+        except Exception:
+            continue
+        ch = False
+        for p in picks:
+            if p.get("tier") == "likely" or (p.get("market") and p.get("side")):
+                continue
+            sn = _snap(data_dir, p.get("gameId"))
+            leg = parse_pick(p, sn) if sn else None
+            if leg:
+                for k in ("market", "side", "point", "player", "team"):
+                    if p.get(k) is None and leg.get(k) is not None:
+                        p[k] = leg[k]
+                ch, np_ = True, np_ + 1
+        if ch:
+            json.dump(picks, open(fn, "w"), indent=1, ensure_ascii=False)
+    json.dump({"at": now.isoformat(), "bets": n, "picks": np_, "mismatch": mism}, open(st_fn, "w"), indent=1)
+    if n or np_:
+        log(f"ledger: backfilled {n} settled bets and {np_} picks")
     return n
 
 

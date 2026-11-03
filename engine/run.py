@@ -1146,6 +1146,7 @@ def publish(game_docs, prop_docs, status, stamp):
             if firestore_db():
                 ledger.debug_bets(firestore_db(), DATA_DIR, fin_by)
                 ledger.backfill_leagues(firestore_db(), DATA_DIR, NOW, log=log)
+                ledger.backfill_settled(firestore_db(), DATA_DIR, fin_by, NOW, log=log)
             if n_p or n_b:
                 log(f"ledger: {n_p} picks and {n_b} bets graded")
         except Exception as e:

@@ -22,7 +22,7 @@ export function autoSettle() {
   for (const b of S.bets.values()) {
     if (b.status !== "pending" || !b.auto?.result || inflight.has(b.id)) continue;
     inflight.add(b.id);
-    saveBet({ ...b, status: b.auto.result, profit: profitFor(b, b.auto.result), clv: b.auto.clv ?? null, closeFair: b.auto.closeFair ?? null,
+    saveBet({ ...b, status: b.auto.result, profit: profitFor(b, b.auto.result), clv: b.auto.clv ?? null, closeFair: b.auto.closeFair ?? null, legResults: b.auto.legs ?? null, closeEst: b.auto.closeEst ?? null,
               settledAt: b.auto.at || new Date().toISOString(), autoSettled: true }).finally(() => inflight.delete(b.id));
   }
 }
