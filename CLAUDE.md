@@ -48,6 +48,19 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   won-fair split into fair move + beat the close, support curve, sport/kind x band, matched agrees-disagrees, daily) and
   mutingSupport; site Reports > Model logic (`views/logic.js`). Model fixes go in the data repo stats/model_changes.json
   (before / after backtest log loss), shown at the top of Models in depth.
+- Self-correcting fair (`engine/fairadj.py` -> calib/fairadj.json, applied in build._finish_line via build.FAIR_SHIFT, pre-game
+  modes only): a logit shift for the tracked side (Over/Yes/home) per sport|kind and market, recency weighted (half-life 14 d,
+  backtest rows a 0.15-weight prior), live only for sport|kinds whose walk-forward gain vs the raw fair is 2+ SE (NBA props:
+  overs win less than the even-margin de-vig says). Lines keep fairRaw / fairShift; tracker snapshots keep the raw fair as f
+  (fits stay on raw) plus fa; ledger CLV uses fa. Refit when graded rows change. Edge card dim fairShift.
+- Recency: edgecard _agg adds gapR / roiR / nR (half-life 5 days); rerank leans half on gapR. Playbook (`engine/playbook.py` ->
+  stats/playbook.json, Reports data "playbook"): lean (cells with 150+ graded, positive long-run and recent ROI) and avoid
+  (z <= -2.5, losing) across kind, venue x type, venue, timing, edge size, support, logic, sport, market, fair, venue x sport,
+  plus plain rules (support, logic by sport, fair correction, model trust, picks). playbook.tag stamps e.lean / e.avoid on
+  edges (rank x1.1 per lean up to 1.3, x0.8 per avoid down to 0.5; alerts skip avoid). Edges page: "What's working now" card,
+  On the playbook / Model backs it filters, "The record says skip" section. The pick prompts read the playbook first.
+  policytest.ai_study -> mstats.policy.ai: our picks by pillar / check / tier / pillar count / timing / price source, and edges
+  and model skill in games with vs without verified context (Reports > AI flags and news).
 - Steam (`edgecard.steam`, each run): track/fairhist.json keeps 90 minutes of sharp fair per main line/prop row; an edge whose
   fair moved toward its side 20-75 min ago gets fairMove (and steam: true at 2+ pts). The edge log keeps it ("steam") and the
   report card grades it (dim steam). No boost until it's proven. `leadlag.py` (mode leadlag -> stats/leadlag.json): which books
@@ -165,7 +178,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   case (1-2 paragraphs, blank line between), pillars{model,advanced,matchup,role,context,market: support|neutral|against},
   risk (a paragraph on what could go wrong), marketFair, modelP, keyStats[{label,value,note?,tone}], confirm[],
   market (Odds API key), side, point (the side's own line), player?, team?, early? (posted the night before by the early look,
-  earlyAt), checks {logic, model, price} and logicCase (bet tier needs all three; price-only edges are never picks); graded by the engine: status, profit, clv, closeFair
+  earlyAt), checks {logic, model, price} and logicCase (bet tier needs all three; price-only edges are never picks), evidence {lean: [playbook cells], support}; graded by the engine: status, profit, clv, closeFair
 - `.github/workflows/pull.yml` engine run (manual or push to `engine/run-request`; live cron after the 5M upgrade).
   `deploy.yml` deploys site + rules on changes to `site/`, `firebase.json` or the rules template.
 - Private data repo `vincecohen17/slate-ledger-data`: `latest/` (board.json, props.json, edges.json, log_<mode>.txt: the

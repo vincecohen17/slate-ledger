@@ -56,6 +56,7 @@ export function pickCard(p) {
       })()}
       ${(p.fair || 0) >= 0.7 ? `<span class="pill" title="a 70%+ favorite pays little and loses to minutes, blowouts and foul trouble; it needs a real price edge">heavy favorite</span>` : ""}</div>
     ${p.logicCase ? `<div class="small" style="line-height:1.45"><b>The sports case:</b> ${esc(p.logicCase)}</div>` : ""}
+    ${p.evidence && ((p.evidence.lean || []).length || p.evidence.support != null) ? `<div class="tiny row" style="gap:4px;flex-wrap:wrap"><span class="muted">On the record:</span>${(p.evidence.lean || []).map((k) => `<span class="pill pos">▲ ${esc(k)}</span>`).join("")}${p.evidence.support != null ? `<span class="pill ${p.evidence.support >= 0 && p.evidence.support < 1.5 ? "pos" : "neg"}" title="where our model sits from the price (0) to the fair (1)">model support ${(+p.evidence.support).toFixed(2)}</span>` : ""}</div>` : ""}
     <div class="playto">
       <div class="fc"><div class="k">Fair</div><div class="v">${am(p.fairAm)}</div><div class="s">${prob(p.fair, 1)}</div></div>
       <div class="fc"><div class="k">Good at</div><div class="v">${am(p.goodAt)}</div><div class="s">or better</div></div>
