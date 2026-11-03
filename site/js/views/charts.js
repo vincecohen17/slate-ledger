@@ -4,7 +4,7 @@ import { esc } from "../util.js";
 // lines over a shared x (index); a series may carry a band [{lo, hi}] drawn behind it
 export function lineChart(series, { h = 220, fmt = (v) => v.toFixed(2), zero = true, labels = null } = {}) {
   const pts = series.flatMap((s) => s.pts.flatMap((p) => [p.y, ...(s.band ? [s.band[p.i]?.lo, s.band[p.i]?.hi] : [])])).filter((v) => v != null && isFinite(v));
-  const nX = Math.max(...series.map((s) => s.pts.length));
+  const nX = Math.max(...series.map((s) => s.pts.length ? Math.max(...s.pts.map((p) => p.i)) + 1 : 0), labels ? labels.length : 0);     // series may skip x positions
   if (nX < 2 || !pts.length) return `<div class="note">Needs a few more settled bets.</div>`;
   const W = 800, P = { l: 56, r: 12, t: 12, b: labels ? 26 : 14 };
   let lo = Math.min(...pts, zero ? 0 : Infinity), hi = Math.max(...pts, zero ? 0 : -Infinity);

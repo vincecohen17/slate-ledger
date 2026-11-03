@@ -40,7 +40,14 @@ export function modelsDeep() {
       ${td(r.fit ? r.fit.b.toFixed(2) : "–", r.fit?.b)}${td(r.fit ? `${Math.round(r.fit.w * 100)}%` : "–", r.fit?.w)}<td>${verdict(r.blendGainT)}</td></tr>`));
   const mur = (m) => m ? `REL ${m.rel.toFixed(4)} · RES ${m.res.toFixed(4)} · UNC ${m.unc.toFixed(4)}` : "–";
   const P = M.policy;
-  return `<div class="card">
+  const btBy = Object.fromEntries((M.sources?.bt || []).map((r) => [r.group, r]));
+  const changes = (M.changes || []).length ? `<div class="card" style="margin-bottom:10px"><b>Model changes</b> <span class="tiny muted">(backtest log loss on the closing lines, lower is better; a coin flip is 0.693)</span>
+    ${sortTable(["Date", "What changed", "Market", "Before", "After", "Now", "Market (close)"], M.changes.flatMap((c) => (c.groups.length ? c.groups : [null]).map((g, i) => { const now = g ? btBy[g.g] : null;
+      return `<tr><td class="nowrap">${i ? "" : esc(c.date.slice(5))}</td><td style="text-align:left">${i ? "" : `<b>${esc(c.area)}</b><div class="tiny muted" style="max-width:420px;white-space:normal">${esc(c.change)}</div>`}</td>
+        <td style="text-align:left">${g ? esc(groupName(g.g)) : "–"}</td>${td(g ? g.before.toFixed(4) : "–", g?.before)}${td(g ? `<span class="${g.after < g.before ? "pos" : "neg"}">${g.after.toFixed(4)}</span>` : "–", g?.after)}
+        ${td(now ? now.llModel.toFixed(4) : "–", now?.llModel)}${td(now ? now.llMarket.toFixed(4) : "–", now?.llMarket)}</tr>`; })))}
+    <p class="note">Before and after come from rerunning the full walk-forward backtest with the fix; "Now" is the current backtest. These models still lose to the close, so their weight in fairs stays 0 until the out-of-sample blend gain clears 2 SE. The fixes matter for the model's vote on edges (Model logic, above).</p></div>` : "";
+  return `${changes}<div class="card">
     <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>Our model against the closing market</b><span class="tiny muted">computed ${M.at ? ago(M.at) : ""}</span></div>
     ${chipBar("msrc", [["live", "Live record"], ["bt", "Backtests (walk-forward replays)"]], V.src)}
     <div class="kpis">${top.map((r) => `<div class="kpi"><div class="k">${esc(groupName(r.group))}</div><div class="v ${r.skill > 0 ? "pos" : "neg"}">${mn(r.skill)}</div>

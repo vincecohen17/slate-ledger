@@ -62,7 +62,24 @@ def logic_rule(prior, r, bad, min_n=100):
     return r["k"] in bad or r["vk"] in bad
 
 
-def muting(data_dir, min_n=100, z_cut=-2.0, logic=False):
+def support_rule(prior_sl, prior_ls, r, bad, min_n=100):
+    """the support override (edgecard.rerank): with a model number, a 5%+ edge whose model sits between price and fair comes
+    back where its league x band x size cell held its fair; one under the price or far past the fair is muted where its
+    cell lost. Without one, the logic override."""
+    import edgecard as EC
+    if (r.get("edge") or 0) >= 0.05 and r.get("sup") is not None:
+        c = prior_sl.get(EC._sup_size(r.get("league"), r["sup"], r["edge"]))
+        if c and c["n"] >= min_n:
+            band = EC._band(r["sup"])
+            if band in ("between", "near") and c["gap"] >= 0:
+                return False
+            if band in ("below", "beyond") and c["z"] is not None and c["z"] <= -2:
+                return True
+            return r["k"] in bad or r["vk"] in bad
+    return logic_rule(prior_ls, r, bad, min_n)
+
+
+def muting(data_dir, min_n=100, z_cut=-2.0, logic=False, support=False):
     rows = []
     for fn in glob.glob(os.path.join(data_dir, "track", "edgecard", "*.jsonl")):
         for line in open(fn):
@@ -90,12 +107,20 @@ def muting(data_dir, min_n=100, z_cut=-2.0, logic=False):
                 if s["n"] >= min_n and s["z"] is not None and s["z"] <= z_cut and s["gap"] < 0:
                     bad.add(k)
         today = [r for r in rows if r["d"] == d]
-        if logic:
+        if logic or support:
             by_ls = defaultdict(list)
             for r in prior:
                 by_ls[_ls(r)].append(r)
             cells = {k: _stat(v) for k, v in by_ls.items()}
-            mut = [logic_rule(cells, r, bad) for r in today]
+            if support:
+                import edgecard as EC
+                by_sl = defaultdict(list)
+                for r in prior:
+                    by_sl[EC._sup_size(r.get("league"), r.get("sup"), r.get("edge"))].append(r)
+                scells = {k: _stat(v) for k, v in by_sl.items()}
+                mut = [support_rule(scells, cells, r, bad) for r in today]
+            else:
+                mut = [logic_rule(cells, r, bad) for r in today]
         else:
             mut = [r["k"] in bad or r["vk"] in bad for r in today]
         km = [r for r, m in zip(today, mut) if m]
@@ -225,10 +250,110 @@ def residual(data_dir, min_rows=1500):
     return out
 
 
+def _edge_rows(data_dir):
+    rows = []
+    for fn in glob.glob(os.path.join(data_dir, "track", "edgecard", "*.jsonl")):
+        for line in open(fn):
+            try:
+                r = json.loads(line)
+            except Exception:
+                continue
+            if r.get("y") is None or (r.get("hrs") or 0) < 0 or r.get("fair") is None or r.get("pnl") is None or r.get("close") is None:
+                continue
+            r["k"] = _kind(r)
+            rows.append(r)
+    return rows
+
+
+def _dec_stat(rows):
+    """won minus the flagged fair, split into how far the fair moved by the close and how the result beat the close"""
+    n = len(rows)
+    if not n:
+        return {"n": 0}
+    s = _stat(rows)
+    s.update(move=round(sum(r["close"] - r["fair"] for r in rows) / n, 4), beatClose=round(sum(r["y"] - r["close"] for r in rows) / n, 4),
+             clv=round(sum(r.get("clv") or 0 for r in rows) / n, 4), edge=round(sum(r["edge"] for r in rows) / n, 4))
+    if n >= 2:
+        pn = [r["pnl"] for r in rows]
+        m = sum(pn) / n
+        s["roiSE"] = round(math.sqrt(sum((x - m) ** 2 for x in pn) / (n - 1) / n), 4)
+    return s
+
+
+SUP_BINS = ((-1e9, 0, "under the price (< 0)"), (0, 0.5, "0 – 0.5"), (0.5, 1.0, "0.5 – 1"), (1.0, 1.5, "1 – 1.5"),
+            (1.5, 2.5, "1.5 – 2.5"), (2.5, 1e9, "past 2.5x"))
+
+
+def logic_study(data_dir):
+    """how the model's logic relates to results on every graded edge (Reports > Model logic)"""
+    import edgecard as EC
+    rows = _edge_rows(data_dir)
+    size = lambda r: "5%+" if r["edge"] >= 0.05 else "under 5%"
+    lg = lambda r: r.get("logic") or "none"
+    out = {"n": len(rows), "since": min((r["d"] for r in rows), default=None),
+           "supRows": sum(r.get("sup") is not None for r in rows), "supFlag": sum(r.get("supSrc") == "flag" for r in rows)}
+    def table(keyf, rs, order=None):
+        by = defaultdict(list)
+        for r in rs:
+            k = keyf(r)
+            if k is not None:
+                by[k].append(r)
+        keys = order or sorted(by, key=lambda k: -len(by[k]))
+        return [{"k": k, **_dec_stat(by[k])} for k in keys if by.get(k)]
+    out["logicSize"] = [{"size": sz, "rows": table(lg, [r for r in rows if sz == "all" or size(r) == sz], ["agrees", "neutral", "disagrees", "none"])}
+                        for sz in ("all", "under 5%", "5%+")]
+    sup = [r for r in rows if r.get("sup") is not None]
+    binf = lambda r: next(lbl for lo, hi, lbl in SUP_BINS if lo <= r["sup"] < hi)
+    out["supCurve"] = [{"size": sz, "rows": table(binf, [r for r in sup if size(r) == sz], [b[2] for b in SUP_BINS])} for sz in ("5%+", "under 5%")]
+    big = [r for r in rows if r["edge"] >= 0.05]
+    out["leagueLogic"] = table(lambda r: f"{r.get('league')} · {lg(r)}", [r for r in big if lg(r) in ("agrees", "disagrees")])
+    out["leagueBand"] = table(lambda r: f"{r.get('league')} · {EC.SUP_NAME[EC._band(r['sup'])]}", [r for r in big if r.get("sup") is not None])
+    out["kindBand"] = table(lambda r: f"{r['k']} · {EC.SUP_NAME[EC._band(r['sup'])]}", [r for r in big if r.get("sup") is not None])
+    out["srcBand"] = table(lambda r: f"{'at the flag' if r.get('supSrc') == 'flag' else 'closing model (backfill)'} · {EC.SUP_NAME[EC._band(r['sup'])]}",
+                           [r for r in big if r.get("sup") is not None])
+    # agrees vs disagrees inside the same league x edge kind x size (so mix can't explain it)
+    strata = defaultdict(lambda: {"agrees": [], "disagrees": []})
+    for r in rows:
+        if lg(r) in ("agrees", "disagrees"):
+            strata[(r.get("league"), r["k"], size(r))][lg(r)].append(r)
+    num = den = var = 0.0
+    for st in strata.values():
+        a, d = st["agrees"], st["disagrees"]
+        if len(a) < 10 or len(d) < 10:
+            continue
+        w = len(a) * len(d) / (len(a) + len(d))
+        ga = sum(r["y"] - r["fair"] for r in a) / len(a)
+        gd = sum(r["y"] - r["fair"] for r in d) / len(d)
+        va = sum(r["fair"] * (1 - r["fair"]) for r in a) / len(a) ** 2
+        vd = sum(r["fair"] * (1 - r["fair"]) for r in d) / len(d) ** 2
+        num += w * (ga - gd); den += w; var += w * w * (va + vd)
+    if den:
+        out["matched"] = {"diff": round(num / den, 4), "z": round(num / math.sqrt(var), 2) if var else None, "strata": sum(1 for st in strata.values() if len(st["agrees"]) >= 10 and len(st["disagrees"]) >= 10)}
+    # daily, 5%+ edges
+    days = defaultdict(list)
+    for r in big:
+        days[r["d"]].append(r)
+    out["daily"] = []
+    for d in sorted(days):
+        rs = days[d]
+        grp = lambda f: [r for r in rs if f(r)]
+        ag, di = grp(lambda r: lg(r) == "agrees"), grp(lambda r: lg(r) == "disagrees")
+        bt = grp(lambda r: r.get("sup") is not None and 0 <= r["sup"] < 1.5)
+        ot = grp(lambda r: r.get("sup") is not None and not (0 <= r["sup"] < 1.5))
+        g = lambda x: None if len(x) < 5 else round(sum(r["y"] - r["fair"] for r in x) / len(x), 4)
+        out["daily"].append({"d": d, "agrees": g(ag), "disagrees": g(di), "support": g(bt), "against": g(ot), "nA": len(ag), "nD": len(di), "nS": len(bt), "nO": len(ot)})
+    return out
+
+
 def run(data_dir, log=print, ms=None):
     if ms is None:
         ms, _ = MS.compute(data_dir, log=log)
-    res = {"muting": muting(data_dir), "mutingLogic": muting(data_dir, logic=True), "blending": blending(data_dir, ms)}
+    res = {"muting": muting(data_dir), "mutingLogic": muting(data_dir, logic=True), "mutingSupport": muting(data_dir, support=True),
+           "blending": blending(data_dir, ms)}
+    try:
+        res["logic"] = logic_study(data_dir)
+    except Exception as e:
+        log(f"logic study failed: {type(e).__name__}: {str(e)[:80]}")
     try:
         res["residual"] = residual(data_dir)
     except Exception as e:

@@ -2,13 +2,14 @@ import { S } from "../store.js";
 import { esc, pct, ago, bindTips, bookLogo, $$ } from "../util.js";
 import { lineChart, legend } from "./charts.js";
 import { modelsDeep, bindModels } from "./models.js";
+import { logicDeep, bindLogic } from "./logic.js";
 import { bindSort } from "./deep.js";
 
 let span = "total", focus = null, ecDim = "venue";
 
 // the edges' report card: every edge we flagged, graded at the close and after the result
 const EC_DIMS = [["venue", "Venue"], ["kind", "Line type"], ["market", "Market"], ["edge", "Edge size"], ["logic", "Model"], ["timing", "Time before start"],
-  ["league", "Sport"], ["venueKind", "Venue x type"], ["venueLeague", "Venue x sport"], ["logicSize", "Logic x edge size"], ["steam", "Steam"]];
+  ["league", "Sport"], ["venueKind", "Venue x type"], ["venueLeague", "Venue x sport"], ["logicSize", "Logic x edge size"], ["support", "Model support"], ["supportSize", "Support x edge size"], ["steam", "Steam"]];
 const venueName = (k) => S.edges.find((e) => e.book === k)?.bookName || k;
 function edgeCard(C) {
   if (!C || !C.n) return `<div class="card note">Collecting. Every edge the board flags is logged with its price, followed to the close and graded after the game; the first grades land after today's games, and categories show from 3 edges (trust them from a few hundred).</div>`;
@@ -123,6 +124,8 @@ export function renderReports(el) {
     <div class="sec-title">Best price share<span class="line"></span></div>
     <div class="card">${rows.length ? seqBars([...rows].sort((a, b) => b.bestRate - a.bestRate).slice(0, 15), (r) => r.bestRate, (v) => Math.round(v * 100) + "%") : ""}
       <p class="note">How often each book has the best price on the board for a side. A book you can bet with a high share is where to look first.</p></div>
+    <div class="sec-title">Model logic: does the model's vote help?<span class="line"></span></div>
+    ${logicDeep()}
     <div class="sec-title">Models in depth<span class="line"></span></div>
     ${modelsDeep()}
     <div class="sec-title">Model report card (in-sample fit)<span class="line"></span></div>
@@ -133,6 +136,7 @@ export function renderReports(el) {
   $$("[data-ec]", el).forEach((b) => b.onclick = () => { ecDim = b.dataset.ec; renderReports(el); });
   $$("[data-book]", el).forEach((b) => b.onclick = () => { focus = focus === b.dataset.book ? null : b.dataset.book; renderReports(el); });
   bindModels(el, () => renderReports(el));
+  bindLogic(el, () => renderReports(el));
   bindSort(el);
   bindTips(el);
 }

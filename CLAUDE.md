@@ -38,6 +38,16 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   has z <= -2; edgecard dim logicSize) and residual: a walk-forward residual model logit(close) + b . features per sport|kind
   on live rows that carry tracker features x {mm market mean, md/mr model mean, op open fair, opPt, nb, fw, disp books' no-vig
   sd}; reported only (Reports > Models), wired into fairs only if it beats the close with t >= 2.
+- Model support (build.edges): support = (modelP - venue cost) / (fair - cost), where the model sits from the price (0) to our
+  fair (1); supBand below (<0) | between (0-1) | near (1-1.5) | beyond (1.5+). On 5%+ edges between/near won, below and beyond lost
+  (beyond = model and fair share an error, mostly model-shaped alt fairs). Rank weight between 1.5 / near 1.2 / beyond 0.6 /
+  below 0.4 (else the logic flag's 1.5 / 0.4); alerts skip below/beyond. edgecard: graded rows carry gid, side, pt, player,
+  mp and sup (supSrc "flag"; rows before Nov 3 were backfilled from the closing model, supSrc "close"); dims support,
+  supportSize, supLeague; rerank's support override (league x band x 5%+ cells, same 100 / z -2 rule; supportBacked) wins
+  over the logic override when an edge has a model number. policytest.logic_study -> mstats.policy.logic (logic x size with
+  won-fair split into fair move + beat the close, support curve, sport/kind x band, matched agrees-disagrees, daily) and
+  mutingSupport; site Reports > Model logic (`views/logic.js`). Model fixes go in the data repo stats/model_changes.json
+  (before / after backtest log loss), shown at the top of Models in depth.
 - Steam (`edgecard.steam`, each run): track/fairhist.json keeps 90 minutes of sharp fair per main line/prop row; an edge whose
   fair moved toward its side 20-75 min ago gets fairMove (and steam: true at 2+ pts). The edge log keeps it ("steam") and the
   report card grades it (dim steam). No boost until it's proven. `leadlag.py` (mode leadlag -> stats/leadlag.json): which books

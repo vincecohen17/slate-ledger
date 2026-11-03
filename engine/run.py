@@ -1162,13 +1162,18 @@ def publish(game_docs, prop_docs, status, stamp):
             import modelstats
             mstats, mnew = modelstats.compute(DATA_DIR, log=log)
             modelstats.oos_weights(DATA_DIR, params, mstats, log=log)
-            if mnew or "policy" not in mstats:     # did the edge muting and the gated blend help? (walk-forward, live record)
+            if mnew or "logic" not in (mstats.get("policy") or {}):     # did the edge muting and the gated blend help? (walk-forward, live record)
                 import policytest
                 pt = policytest.run(DATA_DIR, log=log, ms=mstats)
                 mstats["policy"] = {"muting": {k: pt["muting"][k] for k in ("all", "kept", "muted")} | {"days": pt["muting"]["days"]},
                                     "mutingLogic": {k: pt["mutingLogic"][k] for k in ("all", "kept", "muted")},
-                                    "blending": pt["blending"]}
+                                    "mutingSupport": {k: pt["mutingSupport"][k] for k in ("all", "kept", "muted")} | {"days": pt["mutingSupport"]["days"]},
+                                    "blending": pt["blending"], "residual": pt.get("residual"), "logic": pt.get("logic")}
                 json.dump(mstats, open(os.path.join(DATA_DIR, "stats", "modelstats.json"), "w"), separators=(",", ":"))
+            try:        # the model change log (before / after numbers for each fix), shown on Reports > Models
+                mstats["changes"] = json.load(open(os.path.join(DATA_DIR, "stats", "model_changes.json")))
+            except Exception:
+                pass
         except Exception as e:
             log(f"modelstats failed: {type(e).__name__}: {str(e)[:100]}")
     except Exception as e:

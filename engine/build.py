@@ -681,6 +681,14 @@ def market_period(mk):
     return ""
 
 
+DFS_BE = C.DFS_BREAKEVEN
+
+
+def support_band(r):
+    """model position between the venue price (0) and our fair (1)"""
+    return "below" if r < 0 else "between" if r < 1.0 else "near" if r < 1.5 else "beyond"
+
+
 def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
     out = []
 
@@ -705,7 +713,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "matchup": f"{doc['away']} @ {doc['home']}", "market": line.get("market") or doc.get("market"),
                         "side": o, "point": pt, "team": line.get("team"),
                         "label": label(o), "book": q["book"], "bookName": q["name"], "avail": pe.get("avail"),
-                        "am": pe.get("allInAm", pe["am"]), "fair": line["fair"][o],
+                        "am": pe.get("allInAm", pe["am"]), "cost": pe.get("cost"), "fair": line["fair"][o],
                         "fairAm": line["fairAm"][o], "edge": e, "ev": pe.get("ev"),
                         "fairWeight": line["fairWeight"], "model": bool(line.get("modelFair")), "est": bool(line.get("oneSided")),
                         "main": bool(line.get("isMain")) or line.get("point") is None,
@@ -749,10 +757,23 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "fair": d["p"], "edge": d["edge"], "fairWeight": l.get("fairWeight"), "be": d.get("be"),
                         "minMult": (d.get("minMult") or {}).get(d["side"]), "flex": d.get("flex"), "estMult": d.get("mult"),
                     })
+    # support ratio: where the model sits between the venue's price (0) and our fair (1). Between the two, both sources say the
+    # price is cheap and the model is the cautious one; past 1.5 the model is more bullish than the fair, which on our own
+    # data (5%+ edges, Oct-Nov 2026) marks a shared error (model-shaped alt fairs), not support: -8 to -11 pts vs fair.
+    for x in out:
+        mp, fair = x.get("modelP"), x.get("fair")
+        cost = (x.get("be") or DFS_BE) if x.get("pickem") else x.get("cost")
+        if mp is None or fair is None or cost is None or fair - cost < 0.005:
+            continue
+        x["support"] = round((mp - cost) / (fair - cost), 3)
+        x["supBand"] = support_band(x["support"])
     # rank: model-derived fairs (alt lines, pick'em lines) count half until backtests earn them more trust
     for x in out:
         w = 0.5 if x.get("model") or x.get("pickem") or x.get("est") else 1.0
-        w *= {"agrees": 1.5, "disagrees": 0.4}.get(x.get("logic"), 1.0)
+        if x.get("supBand"):
+            w *= {"below": 0.4, "between": 1.5, "near": 1.2, "beyond": 0.6}[x["supBand"]]
+        else:
+            w *= {"agrees": 1.5, "disagrees": 0.4}.get(x.get("logic"), 1.0)
         x["score"] = round(x["edge"] * w, 4)
     out.sort(key=lambda x: -x["score"])
     return out

@@ -188,9 +188,13 @@ def grade(data_dir, fin_by_gid, now, log=print):
             kind = ("pick'em" if v.get("pickem") else "prop" if ent.get("player") else "line")
             row = {"d": ent["commence"][:10], "sport": ent.get("sport"), "league": ent.get("league"), "venue": venue,
                    "mk": ent["market"], "kind": kind, "main": ent.get("main", False), "est": bool(v.get("est")), "model": bool(v.get("model")),
-                   "logic": v.get("logic"), "mp": v.get("mp"), "steam": v.get("steam"), "edge": v["edge"], "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
+                   "logic": v.get("logic"), "mp": v.get("mp"), "steam": v.get("steam"), "edge": v["edge"],
+                   "gid": ent["gid"], "side": ent["side"], "pt": ent.get("point"), "player": ent.get("player"), "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
                    "clv": round(close * v["dec"] - 1, 4), "clvLast": round(close * v["last"] - 1, 4), "clvBest": round(close * v["best"] - 1, 4),
                    "y": y, "pnl": None if y is None else round(y * (v["dec"] - 1) - (1 - y), 4)}
+            if v.get("mp") is not None and v["fair"] - 1 / v["dec"] >= 0.005:     # support ratio at the flag (see build.edges)
+                row["sup"] = round((v["mp"] - 1 / v["dec"]) / (v["fair"] - 1 / v["dec"]), 3)
+                row["supSrc"] = "flag"
             out.setdefault(ent.get("sport") or "other", []).append(row)
             n += 1
     d = os.path.join(data_dir, "track", "edgecard")
@@ -241,6 +245,19 @@ def _logic_size(league, logic, edge):
     return f"{league} · {lg} · {'5%+' if (edge or 0) >= 0.05 else 'under 5%'}"
 
 
+def _band(sup):
+    return None if sup is None else "below" if sup < 0 else "between" if sup < 1.0 else "near" if sup < 1.5 else "beyond"
+
+
+def _sup_size(league, sup, edge):
+    """league x where the model sits between price and fair x price-edge size: the cell the support override is judged in"""
+    return f"{league} · {_band(sup) or 'no model'} · {'5%+' if (edge or 0) >= 0.05 else 'under 5%'}"
+
+
+SUP_NAME = {"below": "Model under the price", "between": "Model between price and fair", "near": "Model near the fair",
+            "beyond": "Model past the fair (1.5x+)", None: "No model"}
+
+
 DIMS = {
     "venue": lambda r: r["venue"],
     "kind": _kind,
@@ -253,6 +270,9 @@ DIMS = {
     "venueLeague": lambda r: f"{r['venue']} · {r['league']}",
     # league x model logic x price-edge size: where the logic flag carries signal (big edges the model backs vs fights)
     "logicSize": lambda r: _logic_size(r.get("league"), r.get("logic"), r.get("edge")),
+    "support": lambda r: SUP_NAME[_band(r.get("sup"))],
+    "supportSize": lambda r: f"{SUP_NAME[_band(r.get('sup'))]} · {'5%+' if (r.get('edge') or 0) >= 0.05 else 'under 5%'}",
+    "supLeague": lambda r: _sup_size(r.get("league"), r.get("sup"), r.get("edge")),
     "steam": lambda r: "No fair history" if r.get("steam") is None else "Fair moved 2+ pts toward it" if r["steam"] >= 0.02 else "Fair moved away" if r["steam"] <= -0.01 else "Static gap",
 }
 
@@ -294,7 +314,7 @@ def summarize(data_dir, days=120, now=None):
             by = {}
             for r in rows:
                 by.setdefault(f(r), []).append(r)
-            out[dim] = sorted(({"k": k, **_agg(v)} for k, v in by.items() if len(v) >= 3), key=lambda x: -x["n"])[:60]
+            out[dim] = sorted(({"k": k, **_agg(v)} for k, v in by.items() if len(v) >= 3), key=lambda x: -x["n"])[:150 if dim in ("supLeague", "logicSize") else 60]
         # the last 30 days by day, for a trend line
         by = {}
         for r in rows:
@@ -317,6 +337,7 @@ def rerank(edges, card, prior=150):
     vk = {x["k"]: x for x in card.get("venueKind", [])}
     kd = {x["k"]: x for x in card.get("kind", [])}
     ls = {x["k"]: x for x in card.get("logicSize", [])}
+    sl = {x["k"]: x for x in card.get("supLeague", [])}
     for e in edges:
         r = {"kind": "pick'em" if e.get("pickem") else "prop" if e.get("player") else "line", "est": bool(e.get("est")),
              "model": bool(e.get("model")), "main": bool(e.get("main", True))}
@@ -340,7 +361,18 @@ def rerank(edges, card, prior=150):
                 break
         # the logic override (walk-forward tested, engine/policytest.py): a 5%+ price edge our model backs comes back when
         # that league's record for such edges has held its fair; one the model fights is muted when that record has lost
-        if (e.get("edge") or 0) >= 0.05 and e.get("logic") in ("agrees", "disagrees"):
+        # the support override (same idea, sharper: where the model sits between the venue's price and our fair) takes
+        # precedence when the edge has a model number; a 5%+ edge whose model sits between price and fair comes back when
+        # that league's cell has held its fair, one whose model is under the price or far past the fair is muted when its
+        # cell has lost
+        c = sl.get(_sup_size(e.get("league"), e.get("support"), e.get("edge"))) if e.get("supBand") else None
+        if (e.get("edge") or 0) >= 0.05 and c and (c.get("graded") or 0) >= MUTE_N:
+            if e["supBand"] in ("between", "near") and (c.get("gap") or 0) >= 0:
+                e.pop("muted", None)
+                e["supportBacked"] = True
+            elif e["supBand"] in ("below", "beyond") and c.get("zRes") is not None and c["zRes"] <= MUTE_Z:
+                e["muted"] = c["k"]
+        elif (e.get("edge") or 0) >= 0.05 and e.get("logic") in ("agrees", "disagrees"):
             c = ls.get(_logic_size(e.get("league"), e.get("logic"), e.get("edge")))
             if c and (c.get("graded") or 0) >= MUTE_N:
                 if e["logic"] == "agrees" and (c.get("gap") or 0) >= 0:
