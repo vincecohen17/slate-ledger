@@ -23,6 +23,25 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - `engine/tracker.py` model report card: snapshots model vs sharp fair before each game (`track/open/`), grades after
   (`track/graded/<sport>.jsonl`), fits per-market calibration a, b and model trust weight w (`calib/params.json`), and
   applies the calibration to every model probability on each run. Reports page shows the card.
+- `engine/modelstats.py` deep model statistics from track/graded (live rows and the bt_ backtests, separately): per
+  sport|kind|market and pooled groups, log loss/Brier of model vs closing market, skill with cluster-robust SEs (by game id
+  where graded rows carry gid, else by day; t only with 6+ clusters), walk-forward calibration + blend (weekly refits when
+  there are many days) and its out-of-sample gain, reliability bins with Wilson CIs, Murphy decomposition, disagreement
+  buckets (ROI of the model's side at the closing no-vig price), daily series. stats/modelstats.json + RTDB pre/mstats
+  (Reports > Models in depth). Recomputed when the graded files change. `oos_weights` then sets calib/params.json w to 0
+  unless the walk-forward blend gain is 2+ SE (keeps the in-sample w as wInSample): the pick runs read that w.
+- `engine/policytest.py` walk-forward test of the decision rules on the live record: edge muting (kept vs muted by results)
+  and gated vs in-sample blend weights (log loss by sport, day-clustered SE); stored in mstats.policy and stats/policytest.json.
+  Mode policytest runs it alone.
+- `engine/pickprices.py` real prices for picks: the first real price seen at each play-to venue (picklive each run ->
+  latest/pick_first_prices.json), else the first raw pull after posting (snapshots/, posting time from git history), else
+  goodAt; grade_picks stores gradedAt, gradeSrc, gradeVenue. Pick6 multipliers are estimated from DraftKings' vigged price
+  (break-even / implied chance, capped 1x), here and in build.py.
+- `engine/audit.py` (mode audit): every bet, promo, wallet entry and pick with its missing fields to the private data repo
+  latest/audit/. `ledger.backfill_settled` (hourly) fills settled bets' clv/closeFair/closeEst, legResults, structured legs
+  and leg start times, and fairAtLog from the close when none was logged (fairAtLogSrc "close"); never results or profits.
+  Pick'em-only numbers get an estimated close (the player's closing mean at that number, closeEst). Bets keep per-leg
+  results in auto.legs / legResults {market, side, point, player, gameId, y, close, stat, est}.
 - `engine/finals.py` finished games (ESPN summary fetched once per game: final score, line score, team stats, scoring
   plays, box scores) plus our pre-game numbers from `track/open` and how they did; data repo `finals/<date>.json`,
   Realtime Database `pre/fin` (three days). Bets grade as soon as their game is in finals. Collected in auto/rebuild runs before grading.
@@ -98,11 +117,17 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - Sports on bets: site `leaguesOf()` / `sportKeys()` in store.js (each leg's game league, else a team name in the label; saved as
   bet.leagues); `ledger.backfill_leagues` fills older bets hourly from track/open snapshots, finals, or player/team names in
   refs. A multi-sport parlay counts in each of its sports and in "Multi-sport".
+- Ledger > Analysis (`views/analysis.js`) and Our picks (`views/picksdeep.js`), shared pieces in `views/deep.js` (calendar,
+  reliability chart, histogram, sortable tables, CSV) and math in `site/js/stats.js` (mean/SE, Wilson, bootstrap ROI,
+  log loss, Brier, logistic calibration fit, p-values). Days are the Pacific date of the bet's last game. ROI is on money
+  risked (bonus bets and free entries count in profit, not the ratio). Reports > Models in depth is `views/models.js`.
 - Wallet (Ledger > Wallet, `site/js/wallet.js` + `views/wallet.js`): Firestore `wallet/{id}` entries {venue, type: balance |
   deposit | withdrawal | bonus, cash/bonus or amount, at, note}. From each balance check-in it replays deposits, withdrawals,
   bonus credits and every bet placed/settled at that venue (bonus-funded = promo kind bonus_bet/free_entry: stake from bonus,
-  winnings to cash) to know what each app should hold; later check-ins that differ are "unaccounted". Real profit per app =
-  cash + open cash stakes + withdrawn - deposited - opening (first check-in + its open stakes), next to the ledger's P/L.
+  winnings to cash) to know what each app should hold; later check-ins that differ are "unaccounted". Money in = the first
+  check-in (its cash, open cash stakes, and bonus where it counts) + deposits; profit = withdrawals + value now - money in,
+  so check-in differences count (shown as adjustments, with bets settled and bonus credited - staked as the breakdown).
+  settings/owner.bonusCash[app] marks apps whose bonus works like cash (counted as money; converting it isn't profit).
   DK Pick6 shares the DraftKings account (accountOf). Bonus funds become a promo per app (id wb-<app>, wallet: true) whose
   amount follows the wallet's bonus balance (syncWalletPromos).
 - `engine/picklive.py` every run re-checks each open pick's playTo venues (current price, pick'em line still listed, in range vs
