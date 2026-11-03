@@ -41,7 +41,28 @@ def _stat(rows):
             "z": round((w - e) / math.sqrt(v), 2) if v else None, "roi": round(sum(r["pnl"] for r in rows) / n, 4)}
 
 
-def muting(data_dir, min_n=100, z_cut=-2.0):
+def _ls(r):
+    """league x model logic x price-edge size: the cell the logic override is judged in"""
+    lg = {"agrees": "agrees", "disagrees": "disagrees"}.get(r.get("logic"), "other")
+    return f"{r.get('league')} · {lg} · {'5%+' if (r.get('edge') or 0) >= 0.05 else 'under 5%'}"
+
+
+def logic_rule(prior, r, bad, min_n=100):
+    """muted after the logic override: a 5%+ price edge where the model agrees comes back when that league's cell has held
+    its fair (gap >= 0 over min_n); one where the model disagrees is muted when its cell has lost (z <= -2)"""
+    if (r.get("edge") or 0) < 0.05 or r.get("logic") not in ("agrees", "disagrees"):
+        return r["k"] in bad or r["vk"] in bad
+    s = prior.get(_ls(r))
+    if r["logic"] == "agrees":
+        if s and s["n"] >= min_n and s["gap"] >= 0:
+            return False
+        return r["k"] in bad or r["vk"] in bad
+    if s and s["n"] >= min_n and s["z"] is not None and s["z"] <= -2:
+        return True
+    return r["k"] in bad or r["vk"] in bad
+
+
+def muting(data_dir, min_n=100, z_cut=-2.0, logic=False):
     rows = []
     for fn in glob.glob(os.path.join(data_dir, "track", "edgecard", "*.jsonl")):
         for line in open(fn):
@@ -69,8 +90,16 @@ def muting(data_dir, min_n=100, z_cut=-2.0):
                 if s["n"] >= min_n and s["z"] is not None and s["z"] <= z_cut and s["gap"] < 0:
                     bad.add(k)
         today = [r for r in rows if r["d"] == d]
-        km = [r for r in today if r["k"] in bad or r["vk"] in bad]
-        kk = [r for r in today if not (r["k"] in bad or r["vk"] in bad)]
+        if logic:
+            by_ls = defaultdict(list)
+            for r in prior:
+                by_ls[_ls(r)].append(r)
+            cells = {k: _stat(v) for k, v in by_ls.items()}
+            mut = [logic_rule(cells, r, bad) for r in today]
+        else:
+            mut = [r["k"] in bad or r["vk"] in bad for r in today]
+        km = [r for r, m in zip(today, mut) if m]
+        kk = [r for r, m in zip(today, mut) if not m]
         kept += kk
         muted += km
         per_day.append({"d": d, "kept": _stat(kk), "muted": _stat(km), "rule": sorted(bad)})
@@ -137,7 +166,7 @@ def blending(data_dir, ms):
 def run(data_dir, log=print, ms=None):
     if ms is None:
         ms, _ = MS.compute(data_dir, log=log)
-    res = {"muting": muting(data_dir), "blending": blending(data_dir, ms)}
+    res = {"muting": muting(data_dir), "mutingLogic": muting(data_dir, logic=True), "blending": blending(data_dir, ms)}
     os.makedirs(os.path.join(data_dir, "stats"), exist_ok=True)
     json.dump(res, open(os.path.join(data_dir, "stats", "policytest.json"), "w"), indent=1)
     m, b = res["muting"], res["blending"].get("all") or {}

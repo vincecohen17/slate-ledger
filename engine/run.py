@@ -1163,6 +1163,7 @@ def publish(game_docs, prop_docs, status, stamp):
                 import policytest
                 pt = policytest.run(DATA_DIR, log=log, ms=mstats)
                 mstats["policy"] = {"muting": {k: pt["muting"][k] for k in ("all", "kept", "muted")} | {"days": pt["muting"]["days"]},
+                                    "mutingLogic": {k: pt["mutingLogic"][k] for k in ("all", "kept", "muted")},
                                     "blending": pt["blending"]}
                 json.dump(mstats, open(os.path.join(DATA_DIR, "stats", "modelstats.json"), "w"), separators=(",", ":"))
         except Exception as e:

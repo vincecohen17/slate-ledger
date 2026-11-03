@@ -66,8 +66,8 @@ export function modelsDeep() {
       ${legend([["var(--accent)", "daily skill (mnats/row)"], ["var(--pos)", "daily out-of-sample blend gain"]])}` : ""}</div>` : ""}
   ${P ? `<div class="sec-title">Did the decision changes help?<span class="line"></span></div><div class="card">
     <b>Muting losing edge kinds</b> <span class="tiny muted">(walk-forward: each day's rule uses only earlier days)</span>
-    ${sortTable(["", "Edges", "Won", "Expected", "Won − expected", "z", "Flat ROI"], ["all", "kept", "muted"].map((k) => { const s = P.muting[k] || {};
-      return `<tr><td>${{ all: "All flagged", kept: "Kept (shown and alerted)", muted: "Muted" }[k]}</td>${td((s.n || 0).toLocaleString(), s.n)}${td(s.win != null ? pct(s.win).replace("+", "") : "–", s.win)}${td(s.exp != null ? pct(s.exp).replace("+", "") : "–", s.exp)}
+    ${sortTable(["", "Edges", "Won", "Expected", "Won − expected", "z", "Flat ROI"], [["all", P.muting], ["kept", P.muting], ["muted", P.muting], ["kept", P.mutingLogic, true], ["muted", P.mutingLogic, true]].filter(([, src]) => src).map(([k, src, lg]) => { const s = src[k] || {};
+      return `<tr><td>${{ all: "All flagged", kept: "Kept (shown and alerted)", muted: "Muted" }[k]}${lg ? " · with the logic override" : ""}</td>${td((s.n || 0).toLocaleString(), s.n)}${td(s.win != null ? pct(s.win).replace("+", "") : "–", s.win)}${td(s.exp != null ? pct(s.exp).replace("+", "") : "–", s.exp)}
         ${td(`<span class="${(s.gap || 0) >= 0 ? "pos" : "neg"}">${s.gap != null ? `${(s.gap * 100).toFixed(1)} pts` : "–"}</span>`, s.gap)}${td(fmtT(s.z), s.z)}${td(`<span class="${(s.roi || 0) >= 0 ? "pos" : "neg"}">${s.roi != null ? pct(s.roi) : "–"}</span>`, s.roi)}</tr>`; }))}
     ${P.blending?.all ? `<b style="display:block;margin-top:12px">Gated blend weights</b>
     ${sortTable(["", "Rows", "LL market", "LL old blend", "LL new blend", "New vs old", "New vs market"], [["All", P.blending.all], ...Object.entries(P.blending.bySport || {}).map(([k, v]) => [SPORT[k] || k, v])].map(([k, s]) =>

@@ -108,7 +108,7 @@ def observe(data_dir, game_docs, prop_docs, edges, now, log=print):
             continue
         v = ent["obs"].get(e["book"])
         if v is None:
-            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"),
+            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"), "mp": e.get("modelP"),
                                      "model": e.get("model"), "est": e.get("est"), "pickem": bool(e.get("pickem")),
                                      "best": round(dec, 4), "bestT": t, "last": round(dec, 4), "lastT": t}
             new += 1
@@ -188,7 +188,7 @@ def grade(data_dir, fin_by_gid, now, log=print):
             kind = ("pick'em" if v.get("pickem") else "prop" if ent.get("player") else "line")
             row = {"d": ent["commence"][:10], "sport": ent.get("sport"), "league": ent.get("league"), "venue": venue,
                    "mk": ent["market"], "kind": kind, "main": ent.get("main", False), "est": bool(v.get("est")), "model": bool(v.get("model")),
-                   "logic": v.get("logic"), "edge": v["edge"], "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
+                   "logic": v.get("logic"), "mp": v.get("mp"), "edge": v["edge"], "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
                    "clv": round(close * v["dec"] - 1, 4), "clvLast": round(close * v["last"] - 1, 4), "clvBest": round(close * v["best"] - 1, 4),
                    "y": y, "pnl": None if y is None else round(y * (v["dec"] - 1) - (1 - y), 4)}
             out.setdefault(ent.get("sport") or "other", []).append(row)
@@ -236,6 +236,11 @@ def _mkname(r):
     return f"{r['league']} {m}"
 
 
+def _logic_size(league, logic, edge):
+    lg = {"agrees": "agrees", "disagrees": "disagrees"}.get(logic, "other")
+    return f"{league} · {lg} · {'5%+' if (edge or 0) >= 0.05 else 'under 5%'}"
+
+
 DIMS = {
     "venue": lambda r: r["venue"],
     "kind": _kind,
@@ -246,6 +251,8 @@ DIMS = {
     "league": lambda r: r["league"],
     "venueKind": lambda r: f"{r['venue']} · {_kind(r)}",
     "venueLeague": lambda r: f"{r['venue']} · {r['league']}",
+    # league x model logic x price-edge size: where the logic flag carries signal (big edges the model backs vs fights)
+    "logicSize": lambda r: _logic_size(r.get("league"), r.get("logic"), r.get("edge")),
 }
 
 
@@ -308,6 +315,7 @@ def rerank(edges, card, prior=150):
         return
     vk = {x["k"]: x for x in card.get("venueKind", [])}
     kd = {x["k"]: x for x in card.get("kind", [])}
+    ls = {x["k"]: x for x in card.get("logicSize", [])}
     for e in edges:
         r = {"kind": "pick'em" if e.get("pickem") else "prop" if e.get("player") else "line", "est": bool(e.get("est")),
              "model": bool(e.get("model")), "main": bool(e.get("main", True))}
@@ -329,6 +337,16 @@ def rerank(edges, card, prior=150):
             if c and (c.get("graded") or 0) >= MUTE_N and c.get("zRes") is not None and c["zRes"] <= MUTE_Z and (c.get("gap") or 0) < 0:
                 e["muted"] = c["k"]
                 break
+        # the logic override (walk-forward tested, engine/policytest.py): a 5%+ price edge our model backs comes back when
+        # that league's record for such edges has held its fair; one the model fights is muted when that record has lost
+        if (e.get("edge") or 0) >= 0.05 and e.get("logic") in ("agrees", "disagrees"):
+            c = ls.get(_logic_size(e.get("league"), e.get("logic"), e.get("edge")))
+            if c and (c.get("graded") or 0) >= MUTE_N:
+                if e["logic"] == "agrees" and (c.get("gap") or 0) >= 0:
+                    e.pop("muted", None)
+                    e["logicBacked"] = True
+                elif e["logic"] == "disagrees" and c.get("zRes") is not None and c["zRes"] <= MUTE_Z:
+                    e["muted"] = c["k"]
         # a market-priced edge in the last hour before the start has done best of any timing (live record): a mild lift
         hrs = (_dt(e["commence"]) - datetime.now(timezone.utc)).total_seconds() / 3600 if e.get("commence") else None
         if not e.get("model") and not e.get("est") and hrs is not None and 0 <= hrs < 1:
