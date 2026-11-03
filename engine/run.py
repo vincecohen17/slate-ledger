@@ -30,7 +30,7 @@ def _mode():
         return m
     try:  # push-triggered runs read the mode from the first word of engine/run-request
         w = open(os.path.join(os.path.dirname(__file__), "run-request")).read().split()
-        if w and w[0] in ("mock", "live", "watch", "auto", "refresh", "rebuild", "probe", "stats", "history", "backtest"):
+        if w and w[0] in ("mock", "live", "watch", "audit", "auto", "refresh", "rebuild", "probe", "stats", "history", "backtest"):
             return w[0]
     except OSError:
         pass
@@ -940,6 +940,9 @@ def main():
         return live()
     if MODE == "watch":
         return watch()
+    if MODE == "audit":
+        import audit
+        return audit.run(firestore_db(), DATA_DIR, log)
     if MODE == "history":
         return run_history()
     if MODE == "rtdb_setup":
