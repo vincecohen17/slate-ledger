@@ -69,8 +69,38 @@ def _price_entry(dec, fee, fair_p):
     return e
 
 
+FAIR_SHIFT = {}       # group -> logit shift for the side the tracker grades (Over / Yes / home); fairadj.py, set by run.py
+_CTX = {"sport": None, "kind": None, "home": None}
+
+
+def _shift_fair(line, fair, outcomes):
+    """the self-correcting fair (engine/fairadj.py): where the walk-forward test showed our even-margin de-vig is off by side
+    (NBA prop overs win less than their fair), move it by the recency-weighted shift. Keeps the raw fair in fairRaw."""
+    if not FAIR_SHIFT or not fair or len(outcomes) != 2 or not _CTX["sport"]:
+        return fair
+    side = "Over" if "Over" in outcomes else "Yes" if "Yes" in outcomes else _CTX["home"] if _CTX["home"] in outcomes else None
+    if side is None or side not in fair:
+        return fair
+    import tracker
+    try:
+        g = tracker.group(_CTX["sport"], _CTX["kind"], line.get("market") or "")
+    except Exception:
+        return fair
+    sp, kind, _ = g.split("|")
+    s = FAIR_SHIFT.get(g, FAIR_SHIFT.get(f"{sp}|{kind}|*"))
+    if not s:
+        return fair
+    other = next(o for o in outcomes if o != side)
+    p = min(max(fair[side], 1e-4), 1 - 1e-4)
+    q = 1 / (1 + math.exp(-(math.log(p / (1 - p)) + s)))
+    line["fairRaw"] = {o: _r(v) for o, v in fair.items()}
+    line["fairShift"] = round(s, 4)
+    return {side: q, other: 1 - q}
+
+
 def _finish_line(line, quotes, outcomes):
     fair, source, wsum = _consensus(quotes, outcomes)
+    fair = _shift_fair(line, fair, outcomes)
     newest = max((q["updated"] for q in quotes if q["updated"]), default=None)
     out_quotes, best, best_venue = [], {}, {}
     for q in quotes:
@@ -174,6 +204,7 @@ def _collect(bookmakers, market_key, keyfn):
 
 def build_game(ev, label):
     home, away = ev["home_team"], ev["away_team"]
+    _CTX.update(sport=ev.get("sport_key"), kind="line", home=home)
     bms = ev.get("bookmakers", [])
     lines = []
 
@@ -521,6 +552,7 @@ def _norm_outcome(o):
 
 def build_props(ev, label):
     """Returns {market: doc}. One Firestore doc per (event, market)."""
+    _CTX.update(sport=ev.get("sport_key"), kind="prop", home=ev.get("home_team"))
     bms = ev.get("bookmakers", [])
     margins = _book_margins(bms)
     # fold alternate ladders into their base market so every line of a stat lives together
@@ -717,6 +749,7 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
                         "fairAm": line["fairAm"][o], "edge": e, "ev": pe.get("ev"),
                         "fairWeight": line["fairWeight"], "model": bool(line.get("modelFair")), "est": bool(line.get("oneSided")),
                         "main": bool(line.get("isMain")) or line.get("point") is None,
+                        **({"fairShift": line["fairShift"], "fairRaw": line["fairRaw"].get(o)} if line.get("fairShift") else {}),
                     })
 
     for g in game_docs:

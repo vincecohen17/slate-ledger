@@ -116,15 +116,16 @@ def snapshot(data_dir, game_docs, prop_docs, now):
         rows = []
         for l in g["lines"]:
             side = _canon_line(g, l)
-            m, f = l.get("model") or {}, l.get("fair") or {}
+            m, f = l.get("model") or {}, l.get("fairRaw") or l.get("fair") or {}      # raw fair: fairadj fits on it
             pm = m.get("_raw", {}).get(side) if isinstance(m.get("_raw"), dict) else m.get(side)
             # main lines are kept even without a model number: the ledger needs every closing fair
             if side and f.get(side) is not None and (pm is not None or l.get("isMain")):
                 rows.append({"g": group(g["sport"], "line", l["market"]), "mk": l["market"], "pt": l.get("point"), "team": l.get("team"),
-                             "side": side, "p": round(pm, 4) if pm is not None else None, "f": f[side], "w": l.get("fairWeight"), "x": _feat(l, side)})
+                             "side": side, "p": round(pm, 4) if pm is not None else None, "f": f[side], "w": l.get("fairWeight"), "x": _feat(l, side),
+                             **({"fa": l["fair"][side]} if l.get("fairRaw") else {})})
         for doc in props.get(g["id"], []):
             for r in doc["rows"]:
-                m, f = r.get("model") or {}, r.get("fair") or {}
+                m, f = r.get("model") or {}, r.get("fairRaw") or r.get("fair") or {}
                 side = "Over" if "Over" in m else "Yes" if "Yes" in m else None
                 if not side and r.get("isMain") and "Over" in f:
                     side = "Over"
@@ -132,7 +133,7 @@ def snapshot(data_dir, game_docs, prop_docs, now):
                 if side and f.get(side) is not None and (pm is not None or r.get("isMain")):
                     rows.append({"g": group(g["sport"], "prop", doc["market"]), "mk": doc["market"], "pt": r.get("point"),
                                  "player": r["player"], "side": side, "p": round(pm, 4) if pm is not None else None, "f": f[side], "w": r.get("fairWeight"),
-                                 "x": _feat(r, side)})
+                                 "x": _feat(r, side), **({"fa": r["fair"][side]} if r.get("fairRaw") else {})})
         if not rows:
             continue
         snap = {"id": g["id"], "sport": g["sport"], "commence": g["commence"], "home": g["home"], "away": g["away"],

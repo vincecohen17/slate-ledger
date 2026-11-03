@@ -2,14 +2,14 @@ import { S } from "../store.js";
 import { esc, pct, ago, bindTips, bookLogo, $$ } from "../util.js";
 import { lineChart, legend } from "./charts.js";
 import { modelsDeep, bindModels } from "./models.js";
-import { logicDeep, bindLogic } from "./logic.js";
+import { logicDeep, aiDeep, bindLogic } from "./logic.js";
 import { bindSort } from "./deep.js";
 
 let span = "total", focus = null, ecDim = "venue";
 
 // the edges' report card: every edge we flagged, graded at the close and after the result
 const EC_DIMS = [["venue", "Venue"], ["kind", "Line type"], ["market", "Market"], ["edge", "Edge size"], ["logic", "Model"], ["timing", "Time before start"],
-  ["league", "Sport"], ["venueKind", "Venue x type"], ["venueLeague", "Venue x sport"], ["logicSize", "Logic x edge size"], ["support", "Model support"], ["supportSize", "Support x edge size"], ["steam", "Steam"]];
+  ["league", "Sport"], ["venueKind", "Venue x type"], ["venueLeague", "Venue x sport"], ["logicSize", "Logic x edge size"], ["support", "Model support"], ["supportSize", "Support x edge size"], ["fairShift", "Fair correction"], ["steam", "Steam"]];
 const venueName = (k) => S.edges.find((e) => e.book === k)?.bookName || k;
 function edgeCard(C) {
   if (!C || !C.n) return `<div class="card note">Collecting. Every edge the board flags is logged with its price, followed to the close and graded after the game; the first grades land after today's games, and categories show from 3 edges (trust them from a few hundred).</div>`;
@@ -29,15 +29,16 @@ function edgeCard(C) {
       <div class="kpi"><div class="k">Flat 1u ROI</div><div class="v ${A.roi > 0 ? "pos" : "neg"}">${A.roi != null ? pct(A.roi) : "–"}</div><div class="s">every flagged edge at its flagged price</div></div>
       <div class="kpi"><div class="k">CLV at the flag</div><div class="v">${pct(A.clv)}</div><div class="s">vs our closing fair (self-graded on model-priced lines)</div></div></div>
     <div class="bar" style="margin-top:10px">${EC_DIMS.map(([k, l]) => `<button class="chip sm ${k === ecDim ? "on" : ""}" data-ec="${k}">${l}</button>`).join("")}</div>
-    <div style="overflow-x:auto"><table class="l10t an-t" style="width:100%"><thead><tr><th></th><th>Graded</th><th style="min-width:130px">Won vs expected</th><th>Won / exp</th><th>ROI</th><th>CLV</th><th>Waited</th><th></th></tr></thead><tbody>
+    <div style="overflow-x:auto"><table class="l10t an-t" style="width:100%"><thead><tr><th></th><th>Graded</th><th style="min-width:130px">Won vs expected</th><th>Won / exp</th><th>ROI</th><th title="recency-weighted: the last few days count most (half-life 5 days)">Lately ROI</th><th>CLV</th><th>Waited</th><th></th></tr></thead><tbody>
       ${rows.map((r) => { const g = gap(r); return `<tr><td>${name(r.k)}</td><td class="num">${r.graded ?? r.n}</td>
         <td><div class="lg-roi"><span class="lg-mid"></span><i class="${g >= 0 ? "pos" : "neg"}" style="${g >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(g || 0) / max * 50).toFixed(0)}%"></i></div><span class="num tiny ${g >= 0 ? "pos" : "neg"}">${g != null ? pp(g) : "–"}</span></td>
         <td class="num">${r.win != null ? `${Math.round(r.win * 100)} / ${Math.round(r.exp * 100)}` : "–"}</td>
-        <td class="num ${r.roi > 0 ? "pos" : r.roi < 0 ? "neg" : ""}">${r.roi != null ? pct(r.roi) : "–"}</td><td class="num">${pct(r.clv)}</td><td class="num">${pct(r.clvLast)}</td><td>${conf(r)}</td></tr>`; }).join("")}
+        <td class="num ${r.roi > 0 ? "pos" : r.roi < 0 ? "neg" : ""}">${r.roi != null ? pct(r.roi) : "–"}</td><td class="num ${r.roiR > 0 ? "pos" : r.roiR < 0 ? "neg" : ""}">${r.roiR != null ? pct(r.roiR) : "–"}</td><td class="num">${pct(r.clv)}</td><td class="num">${pct(r.clvLast)}</td><td>${conf(r)}</td></tr>`; }).join("")}
     </tbody></table></div>
     ${d.length >= 3 ? `<div style="margin-top:10px">${lineChart([{ pts: d.map((x, i) => ({ i, y: gap(x) ?? 0, tip: `${x.d}: won ${Math.round((x.win || 0) * 100)}% vs ${Math.round((x.exp || 0) * 100)}% expected over ${x.graded ?? x.n} edges` })), color: "var(--accent)" }], { h: 160, fmt: (x) => pp(x), labels: d.map((x, i) => (i % Math.ceil(d.length / 6) === 0 ? x.d.slice(5) : "")) })}${legend([["var(--accent)", "each day: flagged edges' win rate minus what their fair expected"]])}</div>` : ""}
     <p class="note"><b>Won vs expected</b> is the honest test of an edge: how often that kind of flagged bet won, minus the chance our fair gave it. Above zero over a few hundred edges, the edge is real; below, the fair was wrong (a "mirage"). The tag reads it at 2.5 standard errors.
-      <b>CLV</b> here is the flagged price at our own closing fair, which on lines priced from our model grades the model against itself, so trust it only on main lines. <b>Waited</b> is the venue's last price before the start. These results also nudge each new edge's rank: a kind that wins less than its fair says gets pushed down.</p></div>`;
+      <b>CLV</b> here is the flagged price at our own closing fair, which on lines priced from our model grades the model against itself, so trust it only on main lines. <b>Waited</b> is the venue's last price before the start. These results also nudge each new edge's rank: a kind that wins less than its fair says gets pushed down, judged half on its whole record and half on how it has done lately.
+      <b>Why CLV is positive while results are negative:</b> CLV compares the price with our own closing fair, and that fair has itself been too generous to the sides we flag (overs above all), so a price can "beat" it and still lose. The self-correcting fair (Model logic > AI flags) fixes that where the data proves it.</p></div>`;
 }
 
 function divBars(rows, val, fmt, tip) {
@@ -126,6 +127,8 @@ export function renderReports(el) {
       <p class="note">How often each book has the best price on the board for a side. A book you can bet with a high share is where to look first.</p></div>
     <div class="sec-title">Model logic: does the model's vote help?<span class="line"></span></div>
     ${logicDeep()}
+    <div class="sec-title">AI flags and news: what each is doing to results<span class="line"></span></div>
+    ${aiDeep()}
     <div class="sec-title">Models in depth<span class="line"></span></div>
     ${modelsDeep()}
     <div class="sec-title">Model report card (in-sample fit)<span class="line"></span></div>

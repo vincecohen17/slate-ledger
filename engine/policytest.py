@@ -345,11 +345,125 @@ def logic_study(data_dir):
     return out
 
 
+def _ll1(p, y):
+    p = min(max(p, 1e-6), 1 - 1e-6)
+    return -(y * math.log(p) + (1 - y) * math.log(1 - p))
+
+
+def ai_study(data_dir):
+    """the AI pick runs' flags and the news they feed the models (Reports > Model logic): how our picks did by each pillar,
+    check, tier and price source; and whether games with verified context (statuses, goalies, starters, notes) went
+    differently for flagged edges and for the model against the close"""
+    import datetime as dt
+    out = {}
+    picks = []
+    for fn in sorted(glob.glob(os.path.join(data_dir, "picks", "*.json"))):
+        try:
+            picks += json.load(open(fn))
+        except Exception:
+            pass
+    g = [p for p in picks if p.get("status") in ("won", "lost", "push")]
+    def pst(rs):
+        n = len(rs)
+        if not n:
+            return {"n": 0}
+        u = sum(p.get("units") or 0 for p in rs)
+        pr = sum(p.get("profit") or 0 for p in rs)
+        cl = [p["clv"] for p in rs if p.get("clv") is not None]
+        return {"n": n, "w": sum(p["status"] == "won" for p in rs), "l": sum(p["status"] == "lost" for p in rs), "units": round(pr, 2),
+                "roi": round(pr / u, 4) if u else None, "clv": round(sum(cl) / len(cl), 4) if cl else None}
+    rows = [{"k": "All graded picks", **pst(g)}]
+    for pil in ("model", "advanced", "matchup", "role", "context", "market"):
+        for v in ("support", "neutral", "against"):
+            rs = [p for p in g if (p.get("pillars") or {}).get(pil) == v]
+            if rs:
+                rows.append({"k": f"Pillar {pil}: {v}", "grp": "pillar", **pst(rs)})
+    for c in ("logic", "model", "price"):
+        for v, lbl in ((True, "passed"), (False, "failed"), (None, "not used")):
+            rs = [p for p in g if (p.get("checks") or {}).get(c, "missing") is v]
+            if rs:
+                rows.append({"k": f"Check {c}: {lbl}", "grp": "check", **pst(rs)})
+    for t in ("bet", "floor", "likely"):
+        rs = [p for p in g if p.get("tier") == t]
+        if rs:
+            rows.append({"k": f"Tier {t}", "grp": "tier", **pst(rs)})
+    for n_sup in range(0, 7):
+        rs = [p for p in g if sum(v == "support" for v in (p.get("pillars") or {}).values()) == n_sup]
+        if rs:
+            rows.append({"k": f"{n_sup} pillars in support", "grp": "count", **pst(rs)})
+    for k_, f_ in (("Posted the night before (early look)", lambda p: p.get("early")), ("Posted same day", lambda p: not p.get("early"))):
+        rs = [p for p in g if f_(p)]
+        if rs:
+            rows.append({"k": k_, "grp": "timing", **pst(rs)})
+    for src in sorted({p.get("gradeSrc") or "?" for p in g}):
+        rows.append({"k": f"Graded at: {src}", "grp": "price", **pst([p for p in g if (p.get("gradeSrc") or "?") == src])})
+    out["picks"] = rows
+    # verified context per game (team abbreviations; a PT-date file covers that evening's games, which can be the next UTC day)
+    ctx = defaultdict(list)
+    for fn in glob.glob(os.path.join(data_dir, "context", "*.json")):
+        d = os.path.basename(fn)[:10]
+        try:
+            for c in json.load(open(fn)):
+                kind = c.get("kind")
+                if kind == "status":
+                    kind = "status: out" if str(c.get("value", "")).lower() in ("out", "doubtful") else "status: other"
+                for dd in (d, (dt.date.fromisoformat(d) + dt.timedelta(days=1)).isoformat()):
+                    ctx[(dd, c.get("team"))].append(kind)
+        except Exception:
+            pass
+    teams = {}
+    for fn in glob.glob(os.path.join(data_dir, "track", "closed", "*.json")) + glob.glob(os.path.join(data_dir, "track", "open", "*.json")):
+        try:
+            sn = json.load(open(fn))
+            teams[sn["id"]] = (sn.get("ha"), sn.get("aa"))
+            teams[sn["id"][:12]] = (sn.get("ha"), sn.get("aa"))
+        except Exception:
+            pass
+    def kinds(gid, d):
+        t = teams.get(gid) or teams.get((gid or "")[:12])
+        if not t:
+            return None
+        return set(ctx.get((d, t[0]), [])) | set(ctx.get((d, t[1]), []))
+    KINDS = ("status: out", "status: other", "goalie", "starter", "note")
+    edges = [r for r in _edge_rows(data_dir) if r.get("gid")]
+    er = []
+    for r in edges:
+        r["_ctx"] = kinds(r["gid"], r["d"])
+    known = [r for r in edges if r["_ctx"] is not None]
+    er.append({"k": "Games with no verified news", **_dec_stat([r for r in known if not r["_ctx"]])})
+    er.append({"k": "Games with any verified news", **_dec_stat([r for r in known if r["_ctx"]])})
+    for k in KINDS:
+        rs = [r for r in known if k in r["_ctx"]]
+        if rs:
+            er.append({"k": f"Games with {k}", **_dec_stat(rs)})
+    out["ctxEdges"] = er
+    # the model against the close in games with and without news (live tracked rows; skill = market log loss - model's)
+    live, _ = MS._load(data_dir)
+    mr = defaultdict(lambda: [0, 0.0])
+    for r in live:
+        if not r.get("gid"):
+            continue
+        ks = kinds(r["gid"], r["d"])
+        if ks is None:
+            continue
+        sk = _ll1(r["f"], r["y"]) - _ll1(r["p"], r["y"])
+        for k in (["any news"] + sorted(ks)) if ks else ["no news"]:
+            mr[k][0] += 1
+            mr[k][1] += sk
+    out["ctxModel"] = [{"k": k, "n": v[0], "skill": round(v[1] / v[0], 5)} for k, v in sorted(mr.items(), key=lambda x: -x[1][0]) if v[0]]
+    out["ctxEntries"] = sum(len(v) for v in ctx.values()) // 2
+    return out
+
+
 def run(data_dir, log=print, ms=None):
     if ms is None:
         ms, _ = MS.compute(data_dir, log=log)
     res = {"muting": muting(data_dir), "mutingLogic": muting(data_dir, logic=True), "mutingSupport": muting(data_dir, support=True),
            "blending": blending(data_dir, ms)}
+    try:
+        res["ai"] = ai_study(data_dir)
+    except Exception as e:
+        log(f"ai study failed: {type(e).__name__}: {str(e)[:80]}")
     try:
         res["logic"] = logic_study(data_dir)
     except Exception as e:

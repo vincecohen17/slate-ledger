@@ -9,7 +9,7 @@ import { lineChart, legend, divRows } from "./charts.js";
 import { sortTable, td, chipBar } from "./deep.js";
 import { fmtT } from "../stats.js";
 
-const V = { size: "5%+", curve: "5%+", where: "leagueLogic" };
+const V = { size: "5%+", curve: "5%+", where: "leagueLogic", ai: "pillar" };
 const pts = (x) => (x == null ? "–" : `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}`);
 const LOGIC = { agrees: "Model agrees", neutral: "Model neutral", disagrees: "Model disagrees", none: "No model number" };
 
@@ -86,7 +86,42 @@ export function logicDeep() {
       Kept ${rule(P.mutingLogic)} with logic, ${rule(P.mutingSupport)} with support so far. The support cells need 100 graded edges each before they act, so they start mostly on the logic rule and take over as flag-time numbers accumulate.</p></div>` : ""}`;
 }
 
+// the AI pick runs: their flags (pillars, checks, tier, timing, price source) against results, and the verified news they
+// feed the models (context file: statuses, goalies, starters, notes) against how edges and the model did in those games
+export function aiDeep() {
+  const A = S.mstats?.policy?.ai;
+  if (!A) return `<div class="card note">The AI flags study is computed with the next engine run.</div>`;
+  const all = (A.picks || [])[0];
+  const grp = V.ai;
+  const rows = (A.picks || []).filter((r) => r.grp === grp);
+  const rec = (r) => `${r.w}-${r.l}${r.n - r.w - r.l ? `-${r.n - r.w - r.l}` : ""}`;
+  const fa = S.mstats?.fairadj;
+  return `<div class="card">
+    <div class="kpis">
+      ${all ? `<div class="kpi"><div class="k">AI picks graded</div><div class="v ${all.units >= 0 ? "pos" : "neg"}">${all.units >= 0 ? "+" : ""}${all.units}u</div><div class="s">${rec(all)} · ROI ${pct(all.roi)} · CLV ${pct(all.clv)} · graded at real venue prices</div></div>` : ""}
+      ${(() => { const a = (A.ctxEdges || []).find((r) => r.k.startsWith("Games with any")), b = (A.ctxEdges || []).find((r) => r.k.startsWith("Games with no"));
+        return a && b ? `<div class="kpi"><div class="k">Edges in games with verified news</div><div class="v ${a.gap - b.gap >= 0 ? "pos" : "neg"}">${pts(a.gap - b.gap)} pts</div><div class="s">won − fair vs games without news (${pts(a.gap)} vs ${pts(b.gap)}) · ROI ${pct(a.roi)} vs ${pct(b.roi)}</div></div>` : ""; })()}
+      <div class="kpi"><div class="k">Verified news entries</div><div class="v">${A.ctxEntries || 0}</div><div class="s">statuses, goalies, starters and notes the pick runs fed into the models</div></div>
+    </div>
+    <b style="display:block;margin-top:10px">Our AI picks by flag</b>
+    ${chipBar("aigrp", [["pillar", "Pillars"], ["check", "Checks"], ["count", "Pillars in support"], ["tier", "Tier"], ["timing", "Timing"], ["price", "Price graded at"]], grp)}
+    ${sortTable(["Flag", "Picks", "Record", "Units", "ROI", "CLV"], rows.map((r) => `<tr><td>${esc(r.k)}</td>${td(r.n, r.n)}${td(rec(r), r.w / Math.max(1, r.n))}
+      ${td(`<span class="${r.units >= 0 ? "pos" : "neg"}">${r.units >= 0 ? "+" : ""}${r.units}u</span>`, r.units)}${td(pct(r.roi), r.roi)}${td(pct(r.clv), r.clv)}</tr>`))}
+    <p class="note">Only ${all?.n ?? 0} picks have graded, so treat every row here as a story, not a finding: at this size a flag would need to be 20+ units apart to mean anything. CLV is the better early read (it moves with far less noise than wins and losses).</p>
+    <b style="display:block;margin-top:12px">What the news did to edges</b>
+    ${sortTable(HEAD, (A.ctxEdges || []).map((r) => statRow(esc(r.k), r)))}
+    <p class="note">Every graded edge, split by whether its game had verified news in the context file the pick runs write (a game counts for each kind it had). Games with news are mostly NBA, so read the gap against games without news with that in mind.</p>
+    <b style="display:block;margin-top:12px">The model against the close, with and without news</b>
+    ${(A.ctxModel || []).length ? sortTable(["Games", "Rows", "Skill (mnats/row)"], A.ctxModel.map((r) => `<tr><td>${esc(r.k)}</td>${td(r.n.toLocaleString(), r.n)}${td(`<span class="${r.skill >= 0 ? "pos" : "neg"}">${(r.skill * 1000).toFixed(2)}</span>`, r.skill)}</tr>`))
+      : `<p class="small muted">Collecting: tracked rows carry their game from today, so this fills in as tonight's games grade.</p>`}
+    ${fa ? `<b style="display:block;margin-top:12px">Self-correcting fair</b> <span class="tiny muted">(refit ${fa.at ? esc(fa.at.slice(0, 10)) : ""}; recent days weigh most, half-life ${fa.halfLife} days)</span>
+      ${sortTable(["Sport · kind", "Rows", "Gain vs raw fair (mnats/row)", "t", "Live?"], Object.entries(fa.eval || {}).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => `<tr><td>${esc(k.replace("|*", "").replace("|", " · "))}</td>${td(v.n.toLocaleString(), v.n)}${td(`<span class="${v.gain >= 0 ? "pos" : "neg"}">${(v.gain * 1000).toFixed(2)}</span>`, v.gain)}${td(fmtT(v.t), v.t)}<td>${v.on ? `<span class="pill pos">on</span>` : `<span class="pill" style="opacity:.6">off</span>`}</td></tr>`))}
+      <p class="note">Our no-vig fair splits each book's margin evenly between sides. Results say books don't: NBA prop overs win less than that fair (1.1 pts over the whole 2025-26 backtest, every month; 2.6 pts lately). The fair now carries a fitted, recency-weighted shift where a walk-forward test shows it beats the raw fair by 2+ SE. Edges priced on the corrected fair are graded separately on the report card ("Fair correction").</p>` : ""}
+  </div>`;
+}
+
 export function bindLogic(el, rerender) {
+  el.querySelectorAll("[data-aigrp]").forEach((b) => b.onclick = () => { V.ai = b.dataset.aigrp; rerender(); });
   el.querySelectorAll("[data-lgsize]").forEach((b) => b.onclick = () => { V.size = b.dataset.lgsize; rerender(); });
   el.querySelectorAll("[data-lgcurve]").forEach((b) => b.onclick = () => { V.curve = b.dataset.lgcurve; rerender(); });
   el.querySelectorAll("[data-lgwhere]").forEach((b) => b.onclick = () => { V.where = b.dataset.lgwhere; rerender(); });

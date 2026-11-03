@@ -108,7 +108,7 @@ def observe(data_dir, game_docs, prop_docs, edges, now, log=print):
             continue
         v = ent["obs"].get(e["book"])
         if v is None:
-            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"), "mp": e.get("modelP"), "steam": e.get("fairMove"),
+            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"), "mp": e.get("modelP"), "steam": e.get("fairMove"), "fs": e.get("fairShift"),
                                      "model": e.get("model"), "est": e.get("est"), "pickem": bool(e.get("pickem")),
                                      "best": round(dec, 4), "bestT": t, "last": round(dec, 4), "lastT": t}
             new += 1
@@ -189,7 +189,7 @@ def grade(data_dir, fin_by_gid, now, log=print):
             row = {"d": ent["commence"][:10], "sport": ent.get("sport"), "league": ent.get("league"), "venue": venue,
                    "mk": ent["market"], "kind": kind, "main": ent.get("main", False), "est": bool(v.get("est")), "model": bool(v.get("model")),
                    "logic": v.get("logic"), "mp": v.get("mp"), "steam": v.get("steam"), "edge": v["edge"],
-                   "gid": ent["gid"], "side": ent["side"], "pt": ent.get("point"), "player": ent.get("player"), "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
+                   "gid": ent["gid"], "side": ent["side"], "pt": ent.get("point"), "player": ent.get("player"), "fs": v.get("fs"), "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
                    "clv": round(close * v["dec"] - 1, 4), "clvLast": round(close * v["last"] - 1, 4), "clvBest": round(close * v["best"] - 1, 4),
                    "y": y, "pnl": None if y is None else round(y * (v["dec"] - 1) - (1 - y), 4)}
             if v.get("mp") is not None and v["fair"] - 1 / v["dec"] >= 0.005:     # support ratio at the flag (see build.edges)
@@ -273,15 +273,33 @@ DIMS = {
     "support": lambda r: SUP_NAME[_band(r.get("sup"))],
     "supportSize": lambda r: f"{SUP_NAME[_band(r.get('sup'))]} · {'5%+' if (r.get('edge') or 0) >= 0.05 else 'under 5%'}",
     "supLeague": lambda r: _sup_size(r.get("league"), r.get("sup"), r.get("edge")),
+    "fairShift": lambda r: ("Corrected fair · " + ("Over/Yes" if r.get("side") in ("Over", "Yes") else "Under/No")) if r.get("fs") else "Raw fair",
     "steam": lambda r: "No fair history" if r.get("steam") is None else "Fair moved 2+ pts toward it" if r["steam"] >= 0.02 else "Fair moved away" if r["steam"] <= -0.01 else "Static gap",
 }
+
+
+RECENT_HL = 5.0       # days: the recency weight half-life for "lately" stats (gapR / roiR), which rerank leans on half
+_REF = {"d": None}
+
+
+def _recent(g):
+    """recency-weighted results (half-life RECENT_HL days before the newest graded day): gap, ROI, effective n"""
+    if not g or not _REF["d"]:
+        return {}
+    ref = datetime.fromisoformat(_REF["d"])
+    w = [0.5 ** (max(0, (ref - datetime.fromisoformat(r["d"])).days) / RECENT_HL) for r in g]
+    sw = sum(w)
+    if sw <= 0:
+        return {}
+    return {"gapR": round(sum(wi * (r["y"] - r["close"]) for wi, r in zip(w, g)) / sw, 4),
+            "roiR": round(sum(wi * r["pnl"] for wi, r in zip(w, g)) / sw, 4), "nR": round(sw * sw / sum(wi * wi for wi in w), 1)}
 
 
 def _agg(rows):
     n = len(rows)
     g = [r for r in rows if r["y"] is not None]
     clv = sum(r["clv"] for r in rows) / n
-    return {"n": n, "clv": round(clv, 4), "beat": round(sum(r["clv"] > 0 for r in rows) / n, 3),
+    return {**_recent(g), "n": n, "clv": round(clv, 4), "beat": round(sum(r["clv"] > 0 for r in rows) / n, 3),
             "clvLast": round(sum(r["clvLast"] for r in rows) / n, 4), "clvBest": round(sum(r["clvBest"] for r in rows) / n, 4),
             "edge": round(sum(r["edge"] for r in rows) / n, 4),
             "graded": len(g), "roi": round(sum(r["pnl"] for r in g) / len(g), 4) if g else None,
@@ -307,7 +325,8 @@ def summarize(data_dir, days=120, now=None):
                 continue
             if r.get("d", "") >= cut and _ok(r):       # history logged before the fixes: drop in-play and junk-quote rows
                 rows.append(r)
-    out = {"updated": _iso(now), "n": len(rows), "since": min((r["d"] for r in rows), default=None)}
+    _REF["d"] = max((r["d"] for r in rows if r.get("y") is not None), default=None)
+    out = {"updated": _iso(now), "n": len(rows), "since": min((r["d"] for r in rows), default=None), "recentHL": RECENT_HL}
     if rows:
         out["all"] = _agg(rows)
         for dim, f in DIMS.items():
@@ -348,9 +367,13 @@ def rerank(edges, card, prior=150):
         if not s or (s.get("graded") or 0) < 30 or s.get("gap") is None:
             continue
         w = s["graded"] / (s["graded"] + prior)
-        adj = max(-0.5, min(0.5, s["gap"] * w * 6))
+        # lean half on how this kind has done lately (recency-weighted, half-life RECENT_HL days) when there's enough of it
+        gap = s["gap"]
+        if s.get("gapR") is not None and (s.get("nR") or 0) >= 30:
+            gap = 0.5 * s["gap"] + 0.5 * s["gapR"]
+        adj = max(-0.5, min(0.5, gap * w * 6))
         e["track"] = {"n": s["graded"], "clv": s["clv"], "beat": s["beat"], "cat": s["k"], "win": s["win"], "exp": s["exp"], "gap": s["gap"],
-                      "roi": s["roi"], "z": s.get("zRes")}
+                      "roi": s["roi"], "z": s.get("zRes"), "gapR": s.get("gapR"), "roiR": s.get("roiR"), "nR": s.get("nR")}
         e["score"] = round(e["score"] * (1 + adj), 4)
         # muted: this kind of edge (or this venue's version of it) has lost to its fair by 2+ standard errors over 100+
         # graded edges. It stays visible in a "losing so far" section but out of the main list, alerts and picks; it

@@ -144,7 +144,8 @@ def grade_leg(data_dir, leg, fin_by_gid):
         return None
     close, est = None, False
     if row is not None:
-        close = row["f"] if same else 1 - row["f"]
+        fc = row.get("fa", row["f"])          # our fair at the close (the self-corrected one where fairadj applies)
+        close = fc if same else 1 - fc
     elif is_prop:
         close = _close_est(snap, leg)
         est = close is not None
