@@ -132,7 +132,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   amount follows the wallet's bonus balance (syncWalletPromos).
 - `engine/picklive.py` every run re-checks each open pick's playTo venues (current price, pick'em line still listed, in range vs
   goodAt) -> RTDB pre/pickslive and latest/pickslive.json; the Picks screen shows it. Pick'em payouts: Underdog/Dabble real,
-  PrizePicks standard = fixed 1.732/leg, DK Pick6 multiplier estimated from DraftKings' no-vig price (dfs estMult in props).
+  PrizePicks standard = fixed 1.732/leg, DK Pick6 multiplier estimated from DraftKings' price with its margin (dfs estMult in props).
 - `engine/refs.py` ESPN team logos/colors and player headshots (cached daily in the data repo `refs/`).
   `engine/reports.py` per-book "where the books are off" stats (snapshot + cumulative in `stats/`).
 - `site/` Firebase Hosting app, plain ES modules (Google sign-in; Firestore rules allow only the owner email,
