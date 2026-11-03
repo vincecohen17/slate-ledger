@@ -282,7 +282,7 @@ def grade(data_dir, now):
                     continue
                 if r["side"] not in ("Over", "Yes") and r["side"] != snap["home"]:
                     continue
-            out.append({"d": snap["commence"][:10], "g": r["g"], "p": r["p"], "f": r["f"], "y": y})
+            out.append({"d": snap["commence"][:10], "g": r["g"], "p": r["p"], "f": r["f"], "y": y, "gid": snap["id"][:12]})
         if out:
             gd = os.path.join(data_dir, "track", "graded")
             os.makedirs(gd, exist_ok=True)

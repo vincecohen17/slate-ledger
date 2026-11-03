@@ -1126,7 +1126,7 @@ def publish(game_docs, prop_docs, status, stamp):
             log(f"stats refresh failed: {type(e).__name__}")
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")
     import tracker
-    fin = {}
+    fin, mstats = {}, None
     try:
         n_graded = 0
         try:        # before grading: finals read the pre-game snapshots that grading clears
@@ -1152,6 +1152,11 @@ def publish(game_docs, prop_docs, status, stamp):
         except Exception as e:
             log(f"ledger grading failed: {type(e).__name__}: {str(e)[:100]}")
         params, card = tracker.fit(DATA_DIR)
+        try:            # deep model statistics (Reports): only when the graded rows changed
+            import modelstats
+            mstats, mnew = modelstats.compute(DATA_DIR, log=log)
+        except Exception as e:
+            log(f"modelstats failed: {type(e).__name__}: {str(e)[:100]}")
     except Exception as e:
         log(f"tracker failed: {type(e).__name__}: {str(e)[:100]}")
         n_graded, params, card = 0, tracker.load_params(DATA_DIR), []
@@ -1227,7 +1232,8 @@ def publish(game_docs, prop_docs, status, stamp):
             rc = rt.ensure_rules(DATA_DIR, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             if rc != 200:
                 raise RuntimeError(f"rules {rc}")
-            kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log, mups=mups, rep=rep, fin=fin, opps=opp_list, pickslive=pl)
+            kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log, mups=mups, rep=rep, fin=fin, opps=opp_list, pickslive=pl,
+                                      mstats=mstats)
             pre_ok = True
             log(f"realtime database: {npcs} pieces, {kb} KB")
         except Exception as e:
