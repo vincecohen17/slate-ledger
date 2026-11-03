@@ -1155,6 +1155,7 @@ def publish(game_docs, prop_docs, status, stamp):
         try:            # deep model statistics (Reports): only when the graded rows changed
             import modelstats
             mstats, mnew = modelstats.compute(DATA_DIR, log=log)
+            modelstats.oos_weights(DATA_DIR, params, mstats, log=log)
         except Exception as e:
             log(f"modelstats failed: {type(e).__name__}: {str(e)[:100]}")
     except Exception as e:

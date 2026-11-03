@@ -77,7 +77,7 @@ def _cluster_se(v, cl):
     _, inv = np.unique(cl, return_inverse=True)
     s = np.bincount(inv, weights=v - m)
     k = len(s)
-    if k < 2:
+    if k < 6:                   # too few clusters for a cluster-robust standard error to mean anything
         return None
     return float(math.sqrt((s ** 2).sum() * k / (k - 1)) / n)
 
@@ -259,3 +259,35 @@ def compute(data_dir, log=print, force=False):
     json.dump(sig, open(sfn, "w"))
     log(f"modelstats: {len(out['sources'].get('live', []))} live groups, {len(out['sources'].get('bt', []))} backtest groups")
     return out, True
+
+
+def oos_weights(data_dir, params, ms, log=print):
+    """the blend weight the pick runs use (calib/params.json w) only where the walk-forward test says the model helps:
+    w is kept (capped at the walk-forward fit's w) when the out-of-sample blend gain is 2+ standard errors above zero in
+    the live record or the backtests, else set to 0 (fair = the market). The in-sample fit alone overstates the model."""
+    if not params or not ms:
+        return 0
+    best = {}
+    for src in ("live", "bt"):
+        for s in (ms.get("sources") or {}).get(src, []):
+            t = s.get("blendGainT")
+            if t is None:
+                continue
+            g = s["group"]
+            if g not in best or t > best[g][0]:
+                best[g] = (t, (s.get("fit") or {}).get("w"))
+    n = 0
+    for g, pr in params.items():
+        t, w_oos = best.get(g, (None, None))
+        w0 = pr.get("w", 0)
+        w = (min(w0, w_oos) if w_oos is not None else w0) if t is not None and t >= 2 else 0.0
+        if pr.get("wInSample") is None:
+            pr["wInSample"] = w0
+        pr["oosT"] = t
+        if w != w0:
+            pr["w"] = w
+            n += 1
+    json.dump(params, open(os.path.join(data_dir, "calib", "params.json"), "w"), indent=0)
+    if n:
+        log(f"modelstats: blend weight set from walk-forward results on {n} markets")
+    return n

@@ -96,7 +96,7 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
         if not _quiet(cfg, now):
             good = []
             for e in edges:
-                if e.get("live") or e.get("est") or e.get("logic") != "agrees" or (e.get("score") or 0) < cfg.get("minScore", 0.04) \
+                if e.get("live") or e.get("est") or e.get("muted") or e.get("logic") != "agrees" or (e.get("score") or 0) < cfg.get("minScore", 0.04) \
                         or (e.get("avail") is not None and e["avail"] < THIN):   # an exchange price with only a few dollars behind it
                     continue
                 tr = e.get("track") or {}

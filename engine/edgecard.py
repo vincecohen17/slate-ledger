@@ -297,6 +297,9 @@ def summarize(data_dir, days=120, now=None):
     return out
 
 
+MUTE_N, MUTE_Z = 300, -2.5
+
+
 def rerank(edges, card, prior=150):
     """nudge each edge's rank by how its kind of edge has actually done: wins against what the fair expected (venue x
     kind, else kind), shrunk toward zero (n / (n + prior)). A kind that wins 5 points less than its fair said drops about
@@ -316,9 +319,21 @@ def rerank(edges, card, prior=150):
             continue
         w = s["graded"] / (s["graded"] + prior)
         adj = max(-0.5, min(0.5, s["gap"] * w * 6))
-        e["track"] = {"n": s["graded"], "clv": s["clv"], "beat": s["beat"], "cat": s["k"], "win": s["win"], "exp": s["exp"], "gap": s["gap"], "roi": s["roi"]}
+        e["track"] = {"n": s["graded"], "clv": s["clv"], "beat": s["beat"], "cat": s["k"], "win": s["win"], "exp": s["exp"], "gap": s["gap"],
+                      "roi": s["roi"], "z": s.get("zRes")}
         e["score"] = round(e["score"] * (1 + adj), 4)
-    edges.sort(key=lambda x: -x["score"])
+        # muted: this kind of edge (or this venue's version of it) has lost to its fair by 2.5+ standard errors over 300+
+        # graded edges. It stays visible in a "losing so far" section but out of the main list, alerts and picks; it
+        # comes back by itself when its record recovers.
+        for c in (kd.get(k), vk.get(f"{e['book']} · {k}")):
+            if c and (c.get("graded") or 0) >= MUTE_N and c.get("zRes") is not None and c["zRes"] <= MUTE_Z and (c.get("gap") or 0) < 0:
+                e["muted"] = c["k"]
+                break
+        # a market-priced edge in the last hour before the start has done best of any timing (live record): a mild lift
+        hrs = (_dt(e["commence"]) - datetime.now(timezone.utc)).total_seconds() / 3600 if e.get("commence") else None
+        if not e.get("model") and not e.get("est") and hrs is not None and 0 <= hrs < 1:
+            e["score"] = round(e["score"] * 1.1, 4)
+    edges.sort(key=lambda x: (bool(x.get("muted")), -x["score"]))
 
 
 # ---------------------------------------------------------------------------
