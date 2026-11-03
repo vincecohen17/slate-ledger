@@ -940,6 +940,9 @@ def main():
         return live()
     if MODE == "watch":
         return watch()
+    if MODE == "policytest":
+        import policytest
+        return policytest.run(DATA_DIR, log)
     if MODE == "audit":
         import audit
         return audit.run(firestore_db(), DATA_DIR, log)
@@ -1156,6 +1159,12 @@ def publish(game_docs, prop_docs, status, stamp):
             import modelstats
             mstats, mnew = modelstats.compute(DATA_DIR, log=log)
             modelstats.oos_weights(DATA_DIR, params, mstats, log=log)
+            if mnew or "policy" not in mstats:     # did the edge muting and the gated blend help? (walk-forward, live record)
+                import policytest
+                pt = policytest.run(DATA_DIR, log=log, ms=mstats)
+                mstats["policy"] = {"muting": {k: pt["muting"][k] for k in ("all", "kept", "muted")} | {"days": pt["muting"]["days"]},
+                                    "blending": pt["blending"]}
+                json.dump(mstats, open(os.path.join(DATA_DIR, "stats", "modelstats.json"), "w"), separators=(",", ":"))
         except Exception as e:
             log(f"modelstats failed: {type(e).__name__}: {str(e)[:100]}")
     except Exception as e:
@@ -1217,6 +1226,11 @@ def publish(game_docs, prop_docs, status, stamp):
     try:            # where each open pick can be played right now (prices drift, pick'em lines get pulled)
         import picklive
         pl = picklive.check(picks, game_docs, prop_docs, NOW)
+        try:            # the first real price at each venue, which grading uses (never the price the pick run wrote)
+            import pickprices
+            pickprices.record_first(DATA_DIR, pl, iso(NOW))
+        except Exception as e:
+            log(f"pick prices not recorded: {type(e).__name__}")
         json.dump(pl, open(os.path.join(DATA_DIR, "latest", "pickslive.json"), "w"), indent=0)
     except Exception as e:
         pl = None

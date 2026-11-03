@@ -277,14 +277,32 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
             leg = parse_pick(p, snap)
             if not leg:
                 continue
-            am, dec = _pick_dec(p)
+            # the price: the best real price first seen at a play-to venue (picklive), else the first raw pull after
+            # posting (snapshots), else good-at; never the prices the pick run typed into playTo
+            import pickprices as PP
+            fp = {k: v for k, v in PP.first_prices(data_dir, p["id"]).items() if k in {x.get("venue") for x in p.get("playTo") or []}}
+            src, gv = None, None
+            if fp:
+                gv = max(fp, key=lambda k: fp[k]["dec"])
+                dec, src = fp[gv]["dec"], "first seen"
+            else:
+                px, _at = PP.posted_prices(data_dir, p)
+                px = {k: v for k, v in (px or {}).items() if k in {x.get("venue") for x in p.get("playTo") or []}}
+                if px:
+                    gv = max(px, key=px.get)
+                    dec, src = px[gv], "posted"
+            if src:
+                am = round((dec - 1) * 100) if dec >= 2 else round(-100 / (dec - 1))
+            else:
+                am, dec = _pick_dec(p)
+                src = "goodAt"
             g = grade_bet(data_dir, [leg], dec, fin_by_gid)
             if not g:
                 continue
             u = p.get("units") or 0
             p["status"] = g["result"]
             p["profit"] = round(u * (dec - 1), 3) if g["result"] == "won" else -u if g["result"] == "lost" else 0
-            p["gradedAt"] = am
+            p["gradedAt"], p["gradeSrc"], p["gradeVenue"] = am, src, gv
             p["clv"] = g["clv"]
             p["closeFair"] = g["closeFair"]
             if g["legs"] and g["legs"][0].get("stat") is not None:

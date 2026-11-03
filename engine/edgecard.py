@@ -297,7 +297,7 @@ def summarize(data_dir, days=120, now=None):
     return out
 
 
-MUTE_N, MUTE_Z = 300, -2.5
+MUTE_N, MUTE_Z = 100, -2.0      # chosen by the walk-forward test (engine/policytest.py)
 
 
 def rerank(edges, card, prior=150):
@@ -322,7 +322,7 @@ def rerank(edges, card, prior=150):
         e["track"] = {"n": s["graded"], "clv": s["clv"], "beat": s["beat"], "cat": s["k"], "win": s["win"], "exp": s["exp"], "gap": s["gap"],
                       "roi": s["roi"], "z": s.get("zRes")}
         e["score"] = round(e["score"] * (1 + adj), 4)
-        # muted: this kind of edge (or this venue's version of it) has lost to its fair by 2.5+ standard errors over 300+
+        # muted: this kind of edge (or this venue's version of it) has lost to its fair by 2+ standard errors over 100+
         # graded edges. It stays visible in a "losing so far" section but out of the main list, alerts and picks; it
         # comes back by itself when its record recovers.
         for c in (kd.get(k), vk.get(f"{e['book']} · {k}")):

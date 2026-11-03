@@ -626,10 +626,11 @@ def build_props(ev, label):
                         if d["book"] == "pick6":
                             dk = next((q for q in l.get("quotes") or [] if q["book"] == "draftkings"), None)
                             if dk and {"Over", "Under"} <= set(dk.get("prices") or {}):
-                                io, iu = 1 / dk["prices"]["Over"]["dec"], 1 / dk["prices"]["Under"]["dec"]
-                                pd = io / (io + iu)
-                                for s_, ps_ in (("Over", pd), ("Under", 1 - pd)):
-                                    est[s_] = 1.0 if ps_ <= C.DFS_BREAKEVEN else _r(max(0.35, 0.97 * C.DFS_BREAKEVEN / ps_))
+                                # Pick6 follows DraftKings' own price, margin included (what Vince sees in the app),
+                                # not the no-vig chance: break-even over DraftKings' implied chance, capped at 1x
+                                for s_ in ("Over", "Under"):
+                                    q = 1 / dk["prices"][s_]["dec"]
+                                    est[s_] = _r(max(0.35, min(1.0, C.DFS_BREAKEVEN / q)))
                             d["estMult"] = est or None
                         if flex:
                             # the smallest multiplier worth taking for each side, to check against what the app shows
