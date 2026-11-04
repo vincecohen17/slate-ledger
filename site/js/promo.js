@@ -46,6 +46,8 @@ export const KINDS = [
     fields: ["amount", "picks", "mult", "sports"] },
   { key: "discounted_line", group: "Pick'em", name: "Discounted line / special pick", blurb: "An easier line on one player",
     fields: ["target", "promoLine", "promoSide", "picks", "promoMult", "otherMult", "mult", "stake"] },
+  { key: "manual", group: "Anything else", name: "Other promo (log it yourself)", blurb: "Anything that isn't a sports bet on the board: sign-up or referral bonuses, deposit cashback, casino or daily rewards, election, finance or culture markets. You say what it costs and what it should bring in; log what actually came in when it's done",
+    fields: ["what", "cost", "value"] },
   { key: "custom", group: "Anything else", name: "Custom payout", blurb: "Describe what it pays on a win and on a loss",
     fields: ["stake", "stakeBack", "winBoost", "extraWin", "refundMax", "refundAs", "minOdds", "minLegs", "sports", "betTypes"] },
 ];
@@ -62,6 +64,9 @@ export const FIELDS = {
   otherMult: ["Other picks pay (x each), if shown", "num", "assumed 1.73"],
   feeOff: ["Share of fee waived %", "pct"], winBoost: ["Extra % on winnings", "pct"], extraWin: ["Extra $ if it wins", "num"],
   expires: ["Expires", "date"],
+  what: ["What it is", "str", "e.g. Kalshi referral: $25 when a friend trades $100 · Polymarket election market, $10 free"],
+  cost: ["Costs you $ (deposit tied up or stake at risk; 0 if free)", "num"],
+  value: ["Expected profit $", "num", "what you expect to come out ahead"],
 };
 
 export function blank(kind = "profit_boost", venue = "any") {
@@ -127,6 +132,17 @@ export function parsePromo(text) {
   const ob0 = m(new RegExp(`(?:boosted|boost)?\\s*(?:from\\s*)?${ODDS}\\s*(?:to|->|→|now)\\s*${ODDS}`));
   const ob1 = !ob0 && m(new RegExp(`${ODDS}\\s*\\(?\\s*(?:was|from|orig(?:inally)?|reg(?:ular(?:ly)?)?)\\s*${ODDS}`));
   const ob = ob0 || (ob1 ? [ob1[0], ob1[2], ob1[1]] : null);
+  // not a sports bet we can price: referral and sign-up cash, casino and daily rewards, cashback, election / finance / culture
+  // markets. Logged by hand (kind manual): what it is, what it costs, what it should bring in.
+  const sportish = Object.keys(SPORT_WORDS).some((w) => new RegExp(`\\b${w}\\b`).test(t)) || pick || /\b(?:parlay|sgp|legs?|picks?|spread|moneyline|over|under|touchdown|points|rebounds|assists)\b/.test(t);
+  if (!sportish && /refer(?:ral|\s+a\s+friend|\s+friends?)|invite (?:a )?friends?|sign[- ]?up bonus|join(?:ing)? bonus|casino|\bslots?\b|free spins?|daily (?:spin|reward|bonus|login)|cash ?back|rakuten|\belection|president|senate|governor|mayor|ballot|\bprop(?:osition)? \d+|fed (?:rate|decision)|\bcpi\b|inflation|bitcoin|\bcrypto|\bstocks?\b|oscars?|grammys?|weather market|apy|savings account/.test(t)) {
+    p.kind = "manual"; p.what = text.trim().slice(0, 140);
+    const g = m(/(?:get|earn|receive|bonus of|up to|win|reward of|credit of)\s*\$\s*([\d,]+(?:\.\d+)?)/) || m(/\$\s*([\d,]+(?:\.\d+)?)\s*(?:bonus|reward|credit|cash|when|for each|per)/);
+    if (g) p.value = num(g[1]);
+    const c = m(/(?:deposit|trade|wager|spend|bet|buy)\s*(?:at least\s*)?\$\s*([\d,]+(?:\.\d+)?)/) || m(/\$\s*([\d,]+(?:\.\d+)?)\s*(?:deposit|trade|wager|purchase)/); if (c) p.cost = num(c[1]);
+    if (/bonus (?:funds|cash|credit)|site credit|casino credit/.test(t)) p.credit = "bonus";
+    return p;
+  }
   if (/fee[- ]?free|no fees?|zero fees?|(?:zero|no|0%) (?:fees?|commission|vig|juice)|fees? waived|waive[sd]? (?:the )?fees?|no commission|0% commission|commission[- ]free|reduced (?:juice|fees?|vig|commission)|half (?:the )?fees?/.test(t)) {
     p.kind = "fee_free"; const h = m(/(\d{1,3})\s*%\s*(?:off|lower|reduced)?\s*(?:fees?|commission)/); p.feeOff = /half/.test(t) ? 0.5 : h && !/0%/.test(h[0]) ? +h[1] / 100 : 1;
   } else if (/deposit match|match(?:es)? your (?:first )?deposit|deposit bonus|first deposit|playthrough|rollover|wagering requirement|play-through/.test(t)) {
@@ -232,6 +248,7 @@ export function describe(p) {
   const k = kindOf(p.kind), b = [];
   const pc = (x) => `${Math.round((x || 0) * 100)}%`;
   switch (k.key) {
+    case "manual": b.push(`${p.what || "manual promo"}${p.cost ? ` · costs $${p.cost}` : ""}${p.value != null && p.value !== "" ? ` · expect +$${p.value}` : ""}${p.credit === "bonus" ? " · paid in bonus funds" : ""}`); break;
     case "profit_boost": b.push(`${pc(p.boost)} profit boost`); break;
     case "parlay_boost": b.push(`${pc(p.boost)} boost on ${p.minLegs}+ leg ${p.sameGame === "required" ? "same-game parlays" : "parlays"}`); break;
     case "odds_boost": b.push(`boosted to ${oddsTxt(p.boostedOdds)}${p.origOdds != null ? ` from ${oddsTxt(p.origOdds)}` : ""}`); break;
@@ -421,6 +438,7 @@ export function optimize(p0, top = 8) {
   const ctx = { conv };
   const wrap = (cs, extra = {}) => ({ legs: cs, ...value(p, cs, ctx), ...extra });
 
+  if (k === "manual") return [];            // not a bet on the board: valued by what Vince entered
   if (k === "deposit_match") return depositPlan(p);
   if (k === "odds_boost") {
     const l = findTarget(p.target);

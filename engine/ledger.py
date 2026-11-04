@@ -330,8 +330,8 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
     n = 0
     for snap in db.collection("bets").where("status", "==", "pending").stream():
         b = snap.to_dict() or {}
-        if (b.get("auto") or {}).get("result"):
-            continue
+        if (b.get("auto") or {}).get("result") or b.get("manual"):
+            continue        # manual: logged by hand (non-sports promos, markets we don't price); Vince settles those
         legs = [x for x in (b.get("legs") or []) if x.get("gameId")]
         legs = [LB.resolve(x, data_dir) for x in legs]
         if any(x is None for x in legs):            # a leg we can't identify: leave the bet for Vince to settle

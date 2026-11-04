@@ -24,6 +24,7 @@ export const VENUES = [
   { key: "parlayplay", name: "ParlayPlay", dfs: true, aliases: ["parlayplay", "parlay play"] },
   { key: "onyx", name: "Onyx", dfs: true, aliases: ["onyx"] },
   { key: "bookmaker", name: "Bookmaker", aliases: ["bookmaker"] },
+  { key: "other", name: "Other app", other: true, aliases: [] },     // anything not in the feed (casinos, referral apps, banks): name typed in
   { key: "any", name: "Any venue (best price)", aliases: [] },
 ];
 export const venueName = (k) => VENUES.find((v) => v.key === k)?.name || k;

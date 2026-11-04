@@ -1,9 +1,10 @@
-import { S, savePromo, deletePromo, loadAllProps } from "../store.js";
-import { esc, am, prob, fmtTime, money, uid, toast, todayPT, bookLogo, $, $$ } from "../util.js";
+import { S, savePromo, deletePromo, loadAllProps, saveBet, saveWallet } from "../store.js";
+import { esc, am, prob, fmtTime, money, uid, toast, todayPT, bookLogo, sheet, $, $$ } from "../util.js";
 import { VENUES, venueName, legSpec } from "../lab.js";
 const draftLine = (p, c) => p.promoLine ?? legSpec(c.leg).point;
 import { KINDS, FIELDS, SPORTS, BET_TYPES, PICKEM, FEE_VENUES, kindOf, blank, normalize, parsePromo, describe, optimize, legs,
   bonusConv, convCurve, findTarget, pAtLine, autoTarget, decOf, amOf, payoutFor, venueHasFeed, fundsOf } from "../promo.js";
+const vname = (p) => (p.venue === "other" && p.venueOther ? p.venueOther : venueName(p.venue));
 import { betImage, logSheet } from "./common.js";
 import { labWithPromo, addToLab } from "./lab.js";
 import { syncWalletPromos } from "../wallet.js";
@@ -20,7 +21,8 @@ function best(p) {
   results.set(p.id, { stamp: stamp(), opts });
   return opts;
 }
-const worth = (p, opts) => Math.max(0, opts[0]?.ev || 0) * (kindOf(p.kind).key === "bonus_bet" ? (p.count || 1) : 1);
+const worth = (p, opts) => kindOf(p.kind).key === "manual" ? Math.max(0, +p.value || 0)
+  : Math.max(0, opts[0]?.ev || 0) * (kindOf(p.kind).key === "bonus_bet" ? (p.count || 1) : 1);
 let showOld = false;
 const status = (p) => p.used ? "used" : p.expires && p.expires < todayPT() ? "expired" : p.expires === todayPT() ? "today" : "active";
 
@@ -84,6 +86,7 @@ function missing(p) {
   if (k === "bet_and_get") { need("qualStake", "the bet you place"); need("amount", "the bonus you get"); }
   if (["no_sweat", "parlay_insurance"].includes(k) && p.refundMax == null && p.stake == null) out.push(["refundMax", "the max refund"]);
   if (k === "deposit_match") { need("amount", "the bonus"); need("playthrough", "the playthrough"); }
+  if (k === "manual") { if (!p.what) out.push(["what", "what it is"]); if (p.venue === "other" && !p.venueOther) out.push(["venueOther", "the app's name"]); }
   return out;
 }
 function readout(p) {
@@ -99,7 +102,7 @@ function field(p, f, miss = new Set()) {
   let val = p[f];
   if (type === "pct") val = val ? Math.round(val * 100) : "";
   if (type === "odds" && val != null && val !== "") val = val > 0 ? `+${val}` : val;
-  return `<label class="f ${miss.has(f) ? "miss" : ""}">${esc(lab)}<input data-k="${f}" data-t="${type}" ${type === "date" ? 'type="date"' : 'inputmode="decimal"'} value="${esc(val ?? "")}" placeholder="${esc(ph || "")}"></label>`;
+  return `<label class="f ${miss.has(f) ? "miss" : ""}" ${type === "str" ? 'style="grid-column:1 / -1"' : ""}>${esc(lab)}<input data-k="${f}" data-t="${type}" ${type === "date" ? 'type="date"' : type === "str" ? "" : 'inputmode="decimal"'} value="${esc(val ?? "")}" placeholder="${esc(ph || "")}"></label>`;
 }
 const sel = (k, cur, opts, lab) => `<label class="f">${lab}<select data-k="${k}" data-t="str">${opts.map(([v, t]) => `<option value="${v}" ${String(cur) === String(v) ? "selected" : ""}>${t}</option>`).join("")}</select></label>`;
 
@@ -116,11 +119,16 @@ function form(p) {
   if (F.has("sameGame")) inputs.push(sel("sameGame", p.sameGame, [["allowed", "Any games"], ["banned", "Different games only"], ["required", "Same-game parlay only"]], "Games"));
   if (F.has("promoSide")) inputs.push(sel("promoSide", p.promoSide, [["Over", "Over / More"], ["Under", "Under / Less"]], "Side"));
   if (["bonus_bet", "free_entry"].includes(kind.key) && !p.wallet) inputs.push(sel("funds", fundsNow(p), [["own", "Its own free bet"], ["bonus", "My bonus balance"]], "Paid from"));
+  if (kind.key === "manual") {
+    inputs.push(sel("credit", p.credit || "cash", [["cash", "Cash"], ["bonus", "Bonus funds (go to the Wallet)"], ["other", "Something else"]], "Pays out as"));
+    if (p.venue === "other") inputs.unshift(`<label class="f ${M.has("venueOther") ? "miss" : ""}">App name<input data-k="venueOther" data-t="str" value="${esc(p.venueOther || "")}" placeholder="e.g. Chime, Rakuten, DraftKings Casino"></label>`);
+  }
   if (F.has("stakeBack")) inputs.push(sel("stakeBack", p.stakeBack, [["true", "Yes (cash bet)"], ["false", "No (bonus stake)"]], "Stake returned on a win"));
   if (["pickem_boost", "free_entry", "discounted_line"].includes(kind.key)) inputs.push(`<label class="f">Flex payouts (optional)<input data-k="flex" data-t="str" value="${esc(p.flex || "")}" placeholder="3:2.25, 2:1.25"></label>`);
   inputs.push(field(p, "expires"));
   const tgt = F.has("target") ? findTarget(p.target) : null;
   const preview = (() => {
+    if (kind.key === "manual") return `<span class="muted">Counted at the profit you expect until you log what came in. Logging the result puts it in your Ledger (cash) or Wallet (bonus funds) so it counts in your profit.</span>`;
     try {
       const opts = optimize({ ...p, id: "draft" }, 3);
       if (!opts.length) return `<span class="muted">Nothing on the board fits yet</span>`;
@@ -185,7 +193,68 @@ function depSummary(d) {
     <div class="tiny muted">Clear the playthrough on bets priced closest to fair at this app, like these:</div>`;
 }
 
+function manualCard(p, st) {
+  const bets = [...S.bets.values()].filter((b) => b.promoId === p.id);
+  const got = bets.reduce((s2, b) => s2 + (b.profit ?? 0), 0);
+  const credits = [...S.wallet.values()].filter((w) => w.promoId === p.id);
+  return `<div class="card col pr-card ${st === "used" || st === "expired" ? "pr-dim" : ""}" style="gap:10px">
+    <div class="row" style="justify-content:space-between;gap:8px"><b class="row ellip" style="gap:6px">${p.venue !== "other" ? bookLogo(p.venue, venueName(p.venue), 20) : ""}${esc(p.title || vname(p))}</b>
+      <span class="pill ${st === "active" ? "pos" : st === "today" ? "warn" : st === "expired" ? "neg" : ""}">${st === "today" ? "ends today" : st}</span></div>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><span class="pill">Other promo</span><span class="small">${esc(describe(p))}</span></div>
+    <div class="pr-worth"><div><div class="pr-big ${(+p.value || 0) > 0 ? "pos" : "muted"}">${p.value != null && p.value !== "" ? money(+p.value) : "–"}</div><div class="tiny muted">expected profit, as you entered it${p.cost ? ` · ${money(+p.cost)} at stake or tied up` : ""}</div></div></div>
+    ${bets.length || credits.length ? `<div class="tiny">Logged: ${bets.length ? `${bets.length} result${bets.length > 1 ? "s" : ""} in the Ledger, <span class="${got >= 0 ? "pos" : "neg"}">${money(got)}</span>` : ""}${bets.length && credits.length ? " · " : ""}${credits.length ? `${money(credits.reduce((a, w) => a + (+w.amount || 0), 0))} bonus funds in the Wallet` : ""}</div>` : ""}
+    <div class="row" style="flex-wrap:wrap"><button class="btn sm" data-mres="${esc(p.id)}">Log what came in</button><button class="btn sm ghost" data-edit="${esc(p.id)}">Edit</button>
+      <button class="btn sm ghost" data-used="${esc(p.id)}">${p.used ? "Mark active" : "Mark used"}</button><button class="btn sm ghost" data-del="${esc(p.id)}">Delete</button></div>
+  </div>`;
+}
+
+// what a manual promo actually brought in: cash goes to the Ledger as a settled result (stake = what it cost, profit = what
+// came in minus that), bonus funds go to the Wallet as a credit at that app (and become usable bonus there)
+function manualResult(p) {
+  const ven = VENUES.filter((v) => v.key !== "any");
+  sheet(`<h3>Log what came in</h3>
+    <div class="col" style="gap:10px"><div class="small">${esc(p.title || describe(p))}</div>
+      <div class="fgrid">
+        <label class="f">It cost you $<input id="mr-cost" inputmode="decimal" value="${esc(p.cost ?? 0)}"></label>
+        <label class="f">You got back $ (in total)<input id="mr-got" inputmode="decimal" placeholder="0 if nothing" value=""></label>
+        <label class="f">Paid as<select id="mr-as"><option value="cash" ${p.credit !== "bonus" ? "selected" : ""}>Cash</option><option value="bonus" ${p.credit === "bonus" ? "selected" : ""}>Bonus funds</option></select></label>
+        <label class="f">App<select id="mr-ven">${ven.map((v) => `<option value="${v.key}" ${v.key === p.venue ? "selected" : ""}>${esc(v.key === "other" && p.venueOther ? p.venueOther : v.name)}</option>`).join("")}</select></label>
+        <label class="f">Date<input id="mr-date" type="date" value="${todayPT()}"></label>
+      </div>
+      <label class="row lb-boost" style="gap:8px;align-items:center"><input type="checkbox" id="mr-used" checked><span class="small">Mark the promo used</span></label>
+      <div class="mr-out card" style="padding:10px 12px"></div>
+      <div class="row"><button class="btn" id="mr-save">Save</button><button class="btn ghost" id="mr-cancel">Cancel</button></div></div>`, (el, close) => {
+    const rd = () => ({ cost: parseFloat($("#mr-cost", el).value) || 0, got: parseFloat($("#mr-got", el).value), as: $("#mr-as", el).value, venue: $("#mr-ven", el).value });
+    const show = () => { const r = rd();
+      $(".mr-out", el).innerHTML = isNaN(r.got) ? `<span class="tiny muted">Enter what came back (0 if it lost or never paid).</span>`
+        : r.as === "bonus" ? `<span class="small">${money(r.got)} goes into your Wallet as bonus funds at this app${r.cost ? `; the ${money(r.cost)} it cost is logged as a ${money(-r.cost)} result` : ""}. It counts as profit once you turn it into cash.</span>`
+        : `<span class="small">Logged in your Ledger as <b class="${r.got - r.cost >= 0 ? "pos" : "neg"}">${money(r.got - r.cost)}</b>${r.cost ? ` (${money(r.got)} back on ${money(r.cost)})` : ""}.</span>`; };
+    ["mr-cost", "mr-got"].forEach((i) => $("#" + i, el).oninput = show); $("#mr-as", el).onchange = show; show();
+    $("#mr-cancel", el).onclick = close;
+    $("#mr-save", el).onclick = async () => {
+      const r = rd();
+      if (isNaN(r.got)) { toast("Enter what came back (0 if nothing)"); return; }
+      const v = VENUES.find((x) => x.key === r.venue), vn = r.venue === "other" ? (p.venueOther || "Other app") : v?.name || r.venue;
+      const day = $("#mr-date", el).value || todayPT(), at = new Date(`${day}T12:00:00-08:00`).toISOString();
+      const label = p.what || p.title || "Promo";
+      try {
+        const cashBack = r.as === "bonus" ? 0 : r.got;
+        if (r.cost || r.as !== "bonus") {          // the money side: what it cost against what came back as cash
+          const profit = Math.round((cashBack - r.cost) * 100) / 100, dec = r.cost > 0 && cashBack > r.cost ? cashBack / r.cost : null;
+          await saveBet({ id: uid(), createdAt: new Date().toISOString(), date: day, settledAt: at, label, venue: r.venue, venueName: vn,
+            stake: r.cost, am: dec ? amOf(dec) : null, dec: dec || 1, status: profit >= 0 ? "won" : "lost", profit,
+            promoId: p.id, manual: true, source: "promo-manual", leagues: ["Other"] });
+        }
+        if (r.as === "bonus" && r.got > 0) await saveWallet({ id: uid(), venue: r.venue, type: "bonus", amount: r.got, at, note: label, promoId: p.id });
+        if ($("#mr-used", el).checked && !p.used) await savePromo({ ...S.promos.get(p.id), used: true, usedAt: new Date().toISOString() });
+        toast(r.as === "bonus" ? "Added to your Wallet" : "Logged in your Ledger"); close();
+      } catch (e) { toast("Could not save: " + e.message); }
+    };
+  });
+}
+
 function promoCard(p) {
+  if (kindOf(p.kind).key === "manual") return manualCard(p, status(p));
   const opts = best(p), k = kindOf(p.kind).key, st = status(p);
   const bets = [...S.bets.values()].filter((b) => b.promoId === p.id);
   const pl = bets.reduce((s, b) => s + (b.profit ?? 0), 0);
@@ -297,7 +366,7 @@ function bind(el) {
   let tm = null;
   if (tx) tx.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { const t = tx.value.trim(); live.innerHTML = t.length > 6 ? readout(autoTarget(parsePromo(t))) : ""; }, 250); };
   $("#pr-read", el).onclick = () => { const t = $("#pr-text", el).value.trim(); if (!t) return; draft = autoTarget(parsePromo(t)); targetQ = ""; rerender(); };
-  $$("[data-new]", el).forEach((b) => b.onclick = () => { draft = blank(b.dataset.new, PICKEM.has(draft?.venue) ? draft.venue : "any"); targetQ = ""; if (["pickem_boost", "free_entry", "discounted_line"].includes(b.dataset.new)) draft.venue = "prizepicks"; rerender(); });
+  $$("[data-new]", el).forEach((b) => b.onclick = () => { draft = blank(b.dataset.new, PICKEM.has(draft?.venue) ? draft.venue : "any"); targetQ = ""; if (["pickem_boost", "free_entry", "discounted_line"].includes(b.dataset.new)) draft.venue = "prizepicks"; if (b.dataset.new === "manual") { draft.venue = "other"; draft.credit = "cash"; } rerender(); });
   if (draft) {
     $$("[data-k]", el).forEach((i) => i.onchange = () => {
       const k = i.dataset.k, t = i.dataset.t, v = i.value.trim();
@@ -328,7 +397,7 @@ function bind(el) {
     $("#pr-save", el).onclick = async () => {
       const p = { ...draft, id: draft.id || uid(), createdAt: draft.createdAt || new Date().toISOString() };
       if (["bonus_bet", "free_entry"].includes(kindOf(p.kind).key) && !p.wallet) p.funds = fundsNow(draft);
-      p.title = draft.titleSet ? draft.title : `${venueName(p.venue)} · ${kindOf(p.kind).name}`;
+      p.title = draft.titleSet ? draft.title : kindOf(p.kind).key === "manual" ? `${vname(p)} · ${(p.what || "Other promo").slice(0, 48)}` : `${venueName(p.venue)} · ${kindOf(p.kind).name}`;
       delete p.type;
       try { await savePromo(p); results.delete(p.id); open.add(p.id); draft = null; toast("Promo saved"); } catch (e) { toast("Could not save: " + e.message); }
     };
@@ -350,6 +419,7 @@ function bind(el) {
   $$("[data-edit]", el).forEach((b) => b.onclick = () => { draft = normalize(S.promos.get(b.dataset.edit)); draft.titleSet = false; rerender(); scrollTo(0, 0); });
   $$("[data-used]", el).forEach((b) => b.onclick = () => { const p = S.promos.get(b.dataset.used); savePromo({ ...p, used: !p.used, usedAt: !p.used ? new Date().toISOString() : null }).then(() => toast(p.used ? "Back in your promos" : "Marked used: moved to Used and expired")); });
   $$("[data-lab]", el).forEach((b) => b.onclick = () => { labWithPromo(b.dataset.lab); location.hash = "#/lab"; });
+  $$("[data-mres]", el).forEach((b) => b.onclick = () => manualResult(normalize(S.promos.get(b.dataset.mres))));
   $$("[data-takelab]", el).forEach((b) => b.onclick = () => {
     const [id, i] = b.dataset.takelab.split("|");
     const p = normalize(S.promos.get(id)), o = best(p)[+i], k = kindOf(p.kind).key;

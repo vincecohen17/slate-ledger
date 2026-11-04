@@ -81,7 +81,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   conversion measured on the board), optimizer (main lines only, venue price at most 10% over fair), pick'em entries,
   discounted lines via `site/js/dist.js` (port of build.p_over; keep in sync), settlement for the ledger. Special picks with their
   own multiplier (Chalkboard free pick 1.78x) pay the product of every pick's multiplier (promoMult / otherMult). The reader
-  (parsePromo) is checked against `tests/promo_corpus.json` (71 phrasings with the expected fields): keep it passing, add to it.
+  (parsePromo) is checked against `tests/promo_corpus.json` (81 phrasings with the expected fields): keep it passing, add to it.
   The Promos page shows a live readout of what it read and flags what's missing before saving. Unused special picks show at
   the top of the Bet Lab (`promoLegs()`); with one in the slip the Lab prices the slip as that app's entry (multipliers
   multiplied, or the app's table; per-pick multipliers typed in) and logs it with the promo attached.
@@ -145,6 +145,11 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - Promo funds: bonus_bet / free_entry promos have funds "own" (a set free bet or entry the app hands you: the wallet's bonus
   balance is untouched, winnings land as cash; wallet.freeFunded) or "bonus" (out of the app's bonus balance; wallet
   promos, and promos saved before the field). The reader sets it from the wording; the Promos form has "Paid from".
+- Non-sports promos: kind "manual" ("Other promo (log it yourself)": what, cost, value, pays out as cash | bonus; venue may
+  be "other" with an app name). The reader sends non-sports wording (referral, sign-up, casino, spins, cashback, election,
+  finance) there. No optimizer; "Log what came in" saves cash results as a settled ledger bet (manual: true, source
+  promo-manual, league "Other") and bonus credits as a wallet bonus entry, and can mark the promo used. The Ledger's log
+  sheet also takes an "Other app" venue; bets with no game, legs or pick are manual: true, and the engine never grades them.
 - `engine/alerts.py` phone alerts via ntfy (topic only in the private data repo config/alerts.json; shared to the owner-only
   Firestore private/alerts so the site's Phone alerts card can show setup and send a test): arbs/middles, strong new
   edges (logic agrees, outside quiet hours), optional bet results; each item once (latest/alerts_state.json).

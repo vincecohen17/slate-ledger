@@ -86,6 +86,7 @@ export function logSheet(pre = {}) {
       <label class="f">Bet<input id="lb-label" value="${esc(pre.label || "")}" placeholder="e.g. Knicks -3.5"></label>
       <div class="fgrid">
         <label class="f">Venue<select id="lb-venue">${venues.map((v) => `<option value="${v.key}" ${v.key === pre.venue ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></label>
+        <label class="f lb-vother" ${pre.venue === "other" ? "" : "hidden"}>App name<input id="lb-vname" value="${esc(pre.venue === "other" ? pre.venueName || "" : "")}" placeholder="e.g. Kalshi elections, a casino app"></label>
         <label class="f">Odds<input id="lb-odds" inputmode="decimal" value="${pre.am ?? ""}" placeholder="-110 or 52c"><span class="tiny muted lb-conv"></span></label>
         <label class="f">Stake $<input id="lb-stake" inputmode="decimal" value="${pre.stake ?? (!edit && pre.fair != null && pre.am != null ? kellyStake(pre.fair, decFromAm(pre.am), S.settings) || "" : "")}" placeholder="10"></label>
         <label class="f">Promo<select id="lb-promo"><option value="">None</option>${[...S.promos.values()].filter((p) => promoOpen(p) || p.id === pre.promoId).map((p) => `<option value="${p.id}" ${p.id === pre.promoId ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}</select></label>
@@ -156,7 +157,7 @@ export function logSheet(pre = {}) {
       };
     }
     ["lb-odds", "lb-stake"].forEach((id) => $("#" + id, el).oninput = preview);
-    $("#lb-venue", el).onchange = preview;
+    $("#lb-venue", el).onchange = () => { $(".lb-vother", el).hidden = $("#lb-venue", el).value !== "other"; preview(); };
     ["lb-promo", "lb-boostin"].forEach((id) => $("#" + id, el).onchange = preview);
     preview();
     $("#lb-save", el).onclick = async () => {
@@ -164,7 +165,7 @@ export function logSheet(pre = {}) {
       if (!$("#lb-label", el).value.trim() || isNaN(odds) || isNaN(stake)) { toast("Bet, odds and stake are required"); return; }
       const v = venues.find((x) => x.key === $("#lb-venue", el).value);
       const promoId = $("#lb-promo", el).value || null;
-      const common = { label: $("#lb-label", el).value.trim(), venue: v.key, venueName: v.name, am: odds, dec: decFromAm(odds), stake, promoId,
+      const common = { label: $("#lb-label", el).value.trim(), venue: v.key, venueName: v.key === "other" ? ($("#lb-vname", el).value.trim() || "Other app") : v.name, am: odds, dec: decFromAm(odds), stake, promoId,
         boostIn: isBoost(S.promos.get(promoId)) ? boostIn : null, live: !!$("#lb-live", el).checked,
         liveState: $("#lb-live", el).checked ? liveSt : null };
       let bet;
@@ -187,13 +188,14 @@ export function logSheet(pre = {}) {
           bet.fairAtLog = null;
         }
         const st = $("#lb-status", el)?.value || pre.status;
-        if (settled) { bet.status = st; bet.profit = settleProfit(bet, promoId ? S.promos.get(promoId) : null, st); }
+        if (settled) { bet.status = st; bet.profit = pre.manual && st === pre.status ? pre.profit : settleProfit(bet, promoId ? S.promos.get(promoId) : null, st); }
       } else {
         bet = { id: uid(), createdAt: new Date().toISOString(), date: todayPT(), ...common, status: "pending",
           gameId: pre.gameId || null, league: pre.league || null,
           matchup: pre.matchup || null, commence: pre.commence || null, market: pre.market || null,
           side: pre.side ?? null, point: pre.point ?? null, player: pre.player || null, team: pre.team || null,
-          fairAtLog: pre.fair ?? null, legs: pre.legs || null, source: pre.source || "manual", pickId: pre.pickId || null };
+          fairAtLog: pre.fair ?? null, legs: pre.legs || null, source: pre.source || "manual", pickId: pre.pickId || null,
+          ...(!pre.gameId && !pre.legs?.length && !pre.pickId ? { manual: true } : {}) };
       }
       const pairId = $("#lb-pair", el)?.value, partner = pairId && S.bets.get(pairId);
       if (partner) {
