@@ -26,11 +26,12 @@ import refs as R
 import stats as ST
 
 ESPN = "https://site.api.espn.com/apis/site/v2/sports"
-PATH = {"basketball_nba": "basketball/nba", "basketball_wnba": "basketball/wnba", "icehockey_nhl": "hockey/nhl",
+PATH = {"basketball_nba": "basketball/nba", "basketball_wnba": "basketball/wnba", "basketball_ncaab": "basketball/mens-college-basketball",
+        "icehockey_nhl": "hockey/nhl",
         "americanfootball_nfl": "football/nfl", "americanfootball_ncaaf": "football/college-football", "baseball_mlb": "baseball/mlb"}
-GAME = {"basketball_nba": (4, 12, 5), "basketball_wnba": (4, 10, 5), "americanfootball_nfl": (4, 15, 10),
+GAME = {"basketball_nba": (4, 12, 5), "basketball_wnba": (4, 10, 5), "basketball_ncaab": (2, 20, 5), "americanfootball_nfl": (4, 15, 10),
         "americanfootball_ncaaf": (4, 15, 0), "icehockey_nhl": (3, 20, 5)}           # periods, minutes each, OT minutes
-SD = {"basketball_nba": (12.5, 18.5), "basketball_wnba": (11.0, 15.0), "americanfootball_nfl": (13.5, 13.0),
+SD = {"basketball_nba": (12.5, 18.5), "basketball_wnba": (11.0, 15.0), "basketball_ncaab": (11.0, 16.0), "americanfootball_nfl": (13.5, 13.0),
       "americanfootball_ncaaf": (15.5, 15.0)}
 RE24 = {0: [0.50, 0.88, 1.12, 1.38, 1.46, 1.73, 1.96, 2.29], 1: [0.27, 0.52, 0.68, 0.94, 0.90, 1.13, 1.38, 1.53],
         2: [0.10, 0.22, 0.32, 0.36, 0.43, 0.48, 0.56, 0.75]}       # runs expected for the rest of the half-inning
@@ -88,7 +89,9 @@ def scoreboards(sports, post=None):
             out.update(_soccer_live(sport, path))
             continue
         try:
-            sb = _get(f"{ESPN}/{path}/scoreboard" + ("?groups=80" if sport == "americanfootball_ncaaf" else ""))
+            # college: every Division I game (FBS = 80, D-I basketball = 50), not just the ranked / featured ones ESPN shows by default
+            q = {"americanfootball_ncaaf": "?groups=80&limit=300", "basketball_ncaab": "?groups=50&limit=500"}.get(sport, "")
+            sb = _get(f"{ESPN}/{path}/scoreboard{q}")
         except Exception:
             continue
         for e in sb.get("events", []):
@@ -185,7 +188,7 @@ def _tennis_live(path):
 
 def box(sport, espn_id):
     """live box score players {normalized name: stat row}"""
-    lg = {"basketball_nba": "nba", "basketball_wnba": "wnba", "icehockey_nhl": "nhl", "americanfootball_nfl": "nfl",
+    lg = {"basketball_nba": "nba", "basketball_wnba": "wnba", "basketball_ncaab": "ncaab", "icehockey_nhl": "nhl", "americanfootball_nfl": "nfl",
           "americanfootball_ncaaf": "cfb", "baseball_mlb": "mlb"}[sport]
     try:
         s = _get(f"{ESPN}/{PATH[sport]}/summary?event={espn_id}")
@@ -483,7 +486,7 @@ def live_props(sport, prop_docs, players_box, mu, pj):
                "americanfootball_nfl": {"player_pass_yds": ["passing.passingYards"], "player_rush_yds": ["rushing.rushingYards"],
                                         "player_reception_yds": ["receiving.receivingYards"], "player_receptions": ["receiving.receptions"],
                                         "player_rush_attempts": ["rushing.rushingAttempts"]}}
-    stat_of["basketball_wnba"] = stat_of["basketball_nba"]
+    stat_of["basketball_wnba"] = stat_of["basketball_ncaab"] = stat_of["basketball_nba"]
     proj_of = {"points": "pts", "rebounds": "reb", "assists": "ast", "3pm": "fg3", "steals": "stl", "blocks": "blk", "shotsTotal": "sog",
                "goals": "g", "assists_nhl": "a", "blockedShots": "blk", "passing.passingYards": "pass_yds", "rushing.rushingYards": "rush_yds",
                "receiving.receivingYards": "rec_yds", "receiving.receptions": "rec", "rushing.rushingAttempts": "car"}

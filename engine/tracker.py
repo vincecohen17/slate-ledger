@@ -215,7 +215,7 @@ def _sum(p, *ks):
 
 def stat(sport, market, p):
     m = market.replace("_alternate", "")
-    if sport in ("basketball_nba", "basketball_wnba"):
+    if sport in ("basketball_nba", "basketball_wnba", "basketball_ncaab"):
         three = lambda: _v(p, "threePointFieldGoalsMade-threePointFieldGoalsAttempted", 0)
         tens = lambda: sum(1 for k in ("points", "rebounds", "assists", "steals", "blocks") if (_v(p, k) or 0) >= 10)
         return {"player_points": lambda: _v(p, "points"), "player_rebounds": lambda: _v(p, "rebounds"), "player_assists": lambda: _v(p, "assists"),

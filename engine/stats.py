@@ -102,7 +102,7 @@ def _players(lg, bx):
                                           "pos": (ath.get("position") or {}).get("abbreviation"),
                                           "starter": bool(a.get("starter")), "dnp": bool(a.get("didNotPlay"))})
                 for k, v in zip(keys, a.get("stats", [])):
-                    name = k if lg in ("nba", "wnba", "nhl") else f"{gname}.{k}"
+                    name = k if lg in ("nba", "wnba", "ncaab", "nhl") else f"{gname}.{k}"
                     if any(x in k for x in ("-", "/")):
                         r[name] = list(_split(v))
                     else:

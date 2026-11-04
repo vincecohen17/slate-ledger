@@ -106,7 +106,10 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   picks are done, app open or not. Each pass is a full live pull while the site is on a live screen (presence.live within
   3 min; the site dispatches "watch" every minute there) and otherwise free: ESPN only, the bet games' small live/g/<id>/m
   pieces (score, clock, bet legs, projected finish) via rt.publish(partial=True), no Odds API credits. Auto runs start it
-  (_watch_wanted: a pending bet or pick on a game started in the last 5 h or starting within 15 min, no watcher running).
+  (_watch_wanted: a pending bet or pick on a game started in the last 5 h or starting within WATCH_AHEAD_H = 6 h, no watcher
+  running). Before the first game starts it waits (a check every 5 min, presence every minute); at 50 min it dispatches the
+  next watcher itself (_dispatch_watch(chain=True)), because GitHub runs the */5 cron only every few hours (Nov 2026: ~6 h).
+  Live sports: NBA, WNBA, NCAAB (D-I scoreboard groups=50, halves 2 x 20), NHL, NFL, NCAAF, MLB, soccer, tennis.
 - `engine/rt.py` Realtime Database (free, no daily write count; 10 GB/month download allowance): the board the engine
   publishes under `pre/` (status, edges, reports, g/<id> a game with main lines, ga/<id> alternate lines, p/<id>/<market>
   main prop rows, pa/<id>/<market> alternate rows, mu/<id> matchups, fin/board + fin/d/<key> finals) and in-play data

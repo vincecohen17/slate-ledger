@@ -339,7 +339,7 @@ def live(watch=False, full=True, pres=None):
                         l["model"] = {o: round(v, 4) for o, v in p.items()}
             props, fresh_props = [], False
             want = pres.get("game") == g["id"] or g["id"] in prop_games
-            if want and st and s in ("basketball_nba", "basketball_wnba", "icehockey_nhl", "americanfootball_nfl"):
+            if want and st and s in ("basketball_nba", "basketball_wnba", "basketball_ncaab", "icehockey_nhl", "americanfootball_nfl"):
                 # prop prices refresh every few minutes; the player stats (ESPN box score, free) refresh every run,
                 # so between price pulls the last lines are kept and re-projected instead of disappearing
                 pdir = os.path.join(DATA_DIR, "latest", "live_props")
@@ -507,35 +507,52 @@ def live(watch=False, full=True, pres=None):
         log(f"live: {len(docs)} games, {len(edges_all)} edges, credits {api.used_run} (today {ls['used']})")
     # still worth watching: an open leg on a game in play, or one starting within 15 minutes
     starts = {g["id"]: g["commence"] for g in games}
+    for gid, legs in bet_legs.items():          # legs carry their game's start when the cache has dropped it
+        starts.setdefault(gid, next((v.get("commence") for v in legs.values() if v.get("commence")), None))
     soon = any(iso(NOW - timedelta(minutes=20)) <= (starts.get(gid) or "") <= iso(NOW + timedelta(minutes=15)) for gid in watch_ids)
-    return {"need": soon or any(d["id"] in watch_ids and not d.get("final") for d in docs)}
+    # a game with an open leg starts later today: the watcher waits for it instead of ending (nothing else would start it
+    # in time: GitHub runs the 5-minute cron only every few hours)
+    upcoming = any(iso(NOW) < (starts.get(gid) or "") <= iso(NOW + timedelta(hours=WATCH_AHEAD_H)) for gid in watch_ids)
+    return {"need": soon or any(d["id"] in watch_ids and not d.get("final") for d in docs), "upcoming": upcoming}
+
+
+WATCH_AHEAD_H = 6          # the watcher starts this far ahead of the first game with an open leg and waits for it
 
 
 def watch():
     """The watcher: one long job (Actions minutes are free on this public repo) that keeps Vince's open bets current
     every minute until they're done, app open or not. While the site is on a live screen (presence.live in the last 3
     minutes) each pass is a full live pull (prices, edges; the same credits the site's own live runs used); otherwise
-    it's free (ESPN only). Ends when nothing is left to watch, or after 50 minutes (the auto run starts the next one)."""
+    it's free (ESPN only). Before the first game with an open leg starts (up to WATCH_AHEAD_H hours ahead) it waits,
+    checking every 5 minutes (every minute once the site is on a live screen). Ends when nothing is left to watch; after
+    50 minutes it starts the next watcher itself, so tracking never depends on the cron or the site being open."""
     import time
     global NOW
     t0 = time.time()
     passes = {True: 0, False: 0}
+    idle, r = 0, {}
     while True:
         NOW = datetime.now(timezone.utc)
         t1 = time.time()
         pres = presence_doc()
         site_live = bool(pres.get("live")) and _age_min(pres.get("at")) <= 3
-        try:
-            r = live(watch=True, full=site_live, pres=pres) or {}
-        except Exception as e:
-            log(f"watch: pass failed ({type(e).__name__}: {str(e)[:120]})")
-            r = {"need": True}
-        passes[site_live] += 1
-        if not (r.get("need") or site_live):
+        waiting = r.get("upcoming") and not r.get("need") and not site_live
+        if waiting and idle % 5:            # nothing in play yet: a full check every 5 minutes, presence every minute
+            idle += 1
+        else:
+            idle = 1 if waiting else 0
+            try:
+                r = live(watch=True, full=site_live, pres=pres) or {}
+            except Exception as e:
+                log(f"watch: pass failed ({type(e).__name__}: {str(e)[:120]})")
+                r = {"need": True}
+            passes[site_live] += 1
+        if not (r.get("need") or r.get("upcoming") or site_live):
             log("watch: nothing left in play")
             break
         if time.time() - t0 > 50 * 60:
-            log("watch: 50 minutes up; the next auto run picks it up")
+            log("watch: 50 minutes up; starting the next watcher")
+            _dispatch_watch(chain=True)
             break
         time.sleep(max(5, 60 - (time.time() - t1)))
     log(f"watch: {passes[True]} full passes, {passes[False]} free passes in {round((time.time() - t0) / 60)} min")
@@ -547,7 +564,7 @@ def _watch_wanted():
     db = firestore_db()
     if not db or not os.environ.get("GITHUB_TOKEN"):
         return False
-    lo, hi = iso(NOW - timedelta(hours=5)), iso(NOW + timedelta(minutes=15))
+    lo, hi = iso(NOW - timedelta(hours=5)), iso(NOW + timedelta(hours=WATCH_AHEAD_H))
     import glob
     starts = {}             # every cached game's start, for legs saved without one
     for f in glob.glob(RAW("lines_*.json")):
@@ -572,17 +589,24 @@ def _watch_wanted():
             pass
     if not want:
         return False
+    return _dispatch_watch()
+
+
+def _dispatch_watch(chain=False):
+    """start a watcher unless one is going or waiting (chain: a watcher handing over to the next, so its own run doesn't count)"""
+    if not os.environ.get("GITHUB_TOKEN"):
+        return False
     import urllib.request
     h = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}", "Accept": "application/vnd.github+json"}
     base = "https://api.github.com/repos/vincecohen17/slate-ledger/actions/workflows/pull.yml"
     try:
-        for stt in ("in_progress", "queued"):
+        for stt in (("queued", "pending", "waiting") if chain else ("in_progress", "queued", "pending", "waiting")):
             runs = json.load(urllib.request.urlopen(urllib.request.Request(f"{base}/runs?status={stt}&per_page=20", headers=h), timeout=20))
             if any((r.get("display_title") or "") == "watch" for r in runs.get("workflow_runs") or []):
                 return False
         urllib.request.urlopen(urllib.request.Request(f"{base}/dispatches", data=json.dumps({"ref": "main", "inputs": {"mode": "watch"}}).encode(),
                                                       method="POST", headers=h), timeout=20)
-        log("watch: started the watcher for open bets in play")
+        log("watch: handed over to the next watcher" if chain else "watch: started the watcher for open bets")
         return True
     except Exception as e:
         log(f"watch: could not start the watcher ({type(e).__name__})")
