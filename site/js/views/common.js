@@ -5,6 +5,9 @@ import { settleProfit, isBoost, promoOpen, singleUse, legs as boardLegs } from "
 import { money } from "../util.js";
 import { addToLab } from "./lab.js";
 
+// categories for bets with no game on our board (prediction markets and the like); saved as the bet's league
+export const NONSPORT = ["Politics", "Economics", "Culture", "Weather", "Other"];
+
 // image for a bet: player headshot for props, team logo for team sides, league logo otherwise
 export function betImage(item, size = 42) {
   if (item.headshot || item.player) return headshot({ player: item.player || item.label, headshot: item.headshot }, size);
@@ -81,6 +84,12 @@ export function logSheet(pre = {}) {
   const st = lv?.state || (S.live?.games || []).find((x) => x.id === gid)?.state;
   const isLive = edit ? !!pre.live : !!(pre.live || lv || (g && new Date(g.commence) < new Date() && Date.now() - new Date(g.commence) < 5 * 3600000));
   const liveSt = edit ? (pre.liveState || null) : st && st.home?.score != null ? { away: st.away.score, home: st.home.score, detail: st.detail || "", text: `${st.away.score}–${st.home.score} ${st.detail || ""}`.trim() } : null;
+  // a bet with no game on our board (politics, economics, anything typed in): Vince types the result and what came back
+  const noGame = !gid && !pre.legs?.length && !pre.pickId;
+  const res0 = pre._res || (pre.cashedOut ? "cashout" : ["won", "lost", "push", "void"].includes(pre.status) ? (pre.status === "void" ? "push" : pre.status) : "open");
+  const paid0 = pre._res ? (pre._res === "won" && pre.dec && pre.stake ? +(pre.stake * pre.dec).toFixed(2) : pre._res === "lost" ? 0 : pre._res === "push" ? pre.stake : "")
+    : settled && pre.stake != null && pre.profit != null ? +(pre.stake + pre.profit).toFixed(2) : "";
+  const cat0 = NONSPORT.includes(pre.league) ? pre.league : "";
   sheet(`<h3>${edit ? "Check this bet" : "Log a bet"}</h3>
     <div class="col" style="gap:10px">
       <label class="f">Bet<input id="lb-label" value="${esc(pre.label || "")}" placeholder="e.g. Knicks -3.5"></label>
@@ -90,9 +99,13 @@ export function logSheet(pre = {}) {
         <label class="f">Odds<input id="lb-odds" inputmode="decimal" value="${pre.am ?? ""}" placeholder="-110 or 52c"><span class="tiny muted lb-conv"></span></label>
         <label class="f">Stake $<input id="lb-stake" inputmode="decimal" value="${pre.stake ?? (!edit && pre.fair != null && pre.am != null ? kellyStake(pre.fair, decFromAm(pre.am), S.settings) || "" : "")}" placeholder="10"></label>
         <label class="f">Promo<select id="lb-promo"><option value="">None</option>${[...S.promos.values()].filter((p) => promoOpen(p) || p.id === pre.promoId).map((p) => `<option value="${p.id}" ${p.id === pre.promoId ? "selected" : ""}>${esc(p.title || p.venueName || "Promo")}</option>`).join("")}</select></label>
-        ${settled ? `<label class="f">Result<select id="lb-status">${["won", "lost", "push", "void"].map((s) => `<option ${s === pre.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
+        ${noGame ? `<label class="f">Category<select id="lb-cat"><option value="">Sports</option>${NONSPORT.map((c) => `<option ${c === cat0 ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+          <label class="f">Result<select id="lb-res">${[["open", "Still open"], ["won", "Won"], ["lost", "Lost"], ["push", "Push / refunded"], ["cashout", "Sold early / cashed out"]].map(([k, t]) => `<option value="${k}" ${k === res0 ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+          <label class="f lb-paidf" ${res0 === "open" ? "hidden" : ""}>Paid out $<input id="lb-paid" inputmode="decimal" value="${paid0}" placeholder="total back, 0 if lost"></label>` : ""}
+        ${settled && !noGame ? `<label class="f">Result<select id="lb-status">${["won", "lost", "push", "void"].map((s) => `<option ${s === pre.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
       </div>
-      <label class="row lb-boost" style="gap:8px;align-items:center"><input type="checkbox" id="lb-live" ${isLive ? "checked" : ""}>
+      ${noGame ? `<p class="tiny muted" style="margin:0">No game on our board, so you settle it: pick the result and type what came back to you (stake included; 0 if it lost). Odds are optional once a payout is in. Kalshi / Polymarket: what landed in your balance.</p>` : ""}
+      <label class="row lb-boost" style="gap:8px;align-items:center" ${noGame && !isLive ? "hidden" : ""}><input type="checkbox" id="lb-live" ${isLive ? "checked" : ""}>
         <span class="small">Live bet (placed during the game)${liveSt ? ` <span class="tiny muted">· ${esc(liveSt.text)}</span>` : ""}</span></label>
       <label class="row lb-boost lb-bst" style="gap:8px;align-items:flex-start" hidden><input type="checkbox" id="lb-boostin" ${pre.boostIn ? "checked" : ""} style="margin-top:3px">
         <span class="small">The odds above already include the boost (what the app showed after boosting). Leave unchecked if you typed the normal price.</span></label>
@@ -109,13 +122,20 @@ export function logSheet(pre = {}) {
         <div id="lb-addhits" class="col" style="gap:4px"></div><div id="lb-added" class="col" style="gap:4px"></div></div>` : ""}
       ${edit ? "" : `<label class="row lb-boost lb-usedrow" style="gap:8px;align-items:center" hidden><input type="checkbox" id="lb-used"><span class="small">Mark this promo used (it leaves the Promos page)</span></label>`}
       <div class="lb-pay card" style="padding:10px 12px"></div>
-      <p class="note">Our fair at logging: ${(pre.fairAtLog ?? pre.fair) != null ? prob(pre.fairAtLog ?? pre.fair, 1) : "none"}. Closing line value fills in automatically once grading runs.</p>
+      <p class="note" ${noGame ? "hidden" : ""}>Our fair at logging: ${(pre.fairAtLog ?? pre.fair) != null ? prob(pre.fairAtLog ?? pre.fair, 1) : "none"}. Closing line value fills in automatically once grading runs.</p>
       <div class="row"><button class="btn" id="lb-save">${edit ? "Save changes" : "Save bet"}</button><button class="btn ghost" id="lb-cancel">Cancel</button></div>
     </div>`, (el, close) => {
     $("#lb-cancel", el).onclick = close;
     const read = () => {
       const odds = oddsFromInput($("#lb-odds", el).value, $("#lb-venue", el).value), stake = parseFloat($("#lb-stake", el).value), promo = S.promos.get($("#lb-promo", el).value) || null;
       return { odds, stake, promo, boostIn: !!$("#lb-boostin", el).checked };
+    };
+    // typed result for a no-game bet: { res, paid } (paid = total back; a loss defaults to 0, a push to the stake)
+    const readRes = () => {
+      if (!noGame) return null;
+      const res = $("#lb-res", el).value, raw = $("#lb-paid", el).value.trim(), stake = parseFloat($("#lb-stake", el).value);
+      const paid = raw !== "" ? parseFloat(raw.replace(/[$,]/g, "")) : res === "lost" ? 0 : res === "push" && !isNaN(stake) ? stake : NaN;
+      return { res, paid };
     };
     const preview = () => {          // what it pays, so a double-counted boost is easy to spot
       const { odds, stake, promo, boostIn } = read(), boost = isBoost(promo);
@@ -124,6 +144,12 @@ export function logSheet(pre = {}) {
       $(".lb-bst", el).hidden = !boost;
       const ur = $(".lb-usedrow", el);
       if (ur) { ur.hidden = !promo || promo.used || promo.wallet; if (promo && ur.dataset.for !== promo.id) { ur.dataset.for = promo.id; $("#lb-used", el).checked = singleUse(promo); } }
+      const rr = readRes();
+      if (rr && rr.res !== "open") {
+        $(".lb-pay", el).innerHTML = isNaN(rr.paid) || isNaN(stake) ? `<span class="tiny muted">Enter the stake and what was paid out.</span>`
+          : `<span class="small">Profit: <b class="${rr.paid - stake >= 0 ? "pos" : "neg"} num">${money(rr.paid - stake)}</b> <span class="tiny muted">(${money(rr.paid)} back on ${money(stake)})</span></span>`;
+        return;
+      }
       if (isNaN(odds) || isNaN(stake)) { $(".lb-pay", el).innerHTML = `<span class="tiny muted">Enter odds and stake to see the payout.</span>`; return; }
       const b = { stake, dec: decFromAm(odds), boostIn };
       const base = stake * (b.dec - 1), w = settleProfit(b, promo, "won"), l = settleProfit(b, promo, "lost");
@@ -156,16 +182,22 @@ export function logSheet(pre = {}) {
         });
       };
     }
-    ["lb-odds", "lb-stake"].forEach((id) => $("#" + id, el).oninput = preview);
+    ["lb-odds", "lb-stake", "lb-paid"].forEach((id) => { const x = $("#" + id, el); if (x) x.oninput = preview; });
+    if (noGame) $("#lb-res", el).onchange = () => { $(".lb-paidf", el).hidden = $("#lb-res", el).value === "open"; preview(); };
     $("#lb-venue", el).onchange = () => { $(".lb-vother", el).hidden = $("#lb-venue", el).value !== "other"; preview(); };
     ["lb-promo", "lb-boostin"].forEach((id) => $("#" + id, el).onchange = preview);
     preview();
     $("#lb-save", el).onclick = async () => {
-      const { odds, stake, boostIn } = read();
-      if (!$("#lb-label", el).value.trim() || isNaN(odds) || isNaN(stake)) { toast("Bet, odds and stake are required"); return; }
+      const { odds, stake, boostIn } = read(), rr = readRes(), typed = rr && rr.res !== "open";
+      if (!$("#lb-label", el).value.trim() || isNaN(stake)) { toast("Bet and stake are required"); return; }
+      if (isNaN(odds) && !typed) { toast("Odds are required (or pick the result and what was paid out)"); return; }
+      if (typed && isNaN(rr.paid)) { toast("Type what was paid out (0 if it lost)"); return; }
       const v = venues.find((x) => x.key === $("#lb-venue", el).value);
       const promoId = $("#lb-promo", el).value || null;
-      const common = { label: $("#lb-label", el).value.trim(), venue: v.key, venueName: v.key === "other" ? ($("#lb-vname", el).value.trim() || "Other app") : v.name, am: odds, dec: decFromAm(odds), stake, promoId,
+      // no odds typed: a win's price is what it paid back on the stake
+      const dec = !isNaN(odds) ? decFromAm(odds) : typed && rr.paid > stake && stake > 0 ? rr.paid / stake : null;
+      const amv = !isNaN(odds) ? odds : dec ? Math.round(dec >= 2 ? (dec - 1) * 100 : -100 / (dec - 1)) : null;
+      const common = { label: $("#lb-label", el).value.trim(), venue: v.key, venueName: v.key === "other" ? ($("#lb-vname", el).value.trim() || "Other app") : v.name, am: amv, dec, stake, promoId,
         boostIn: isBoost(S.promos.get(promoId)) ? boostIn : null, live: !!$("#lb-live", el).checked,
         liveState: $("#lb-live", el).checked ? liveSt : null };
       let bet;
@@ -196,6 +228,21 @@ export function logSheet(pre = {}) {
           side: pre.side ?? null, point: pre.point ?? null, player: pre.player || null, team: pre.team || null,
           fairAtLog: pre.fair ?? null, legs: pre.legs || null, source: pre.source || "manual", pickId: pre.pickId || null,
           ...(!pre.gameId && !pre.legs?.length && !pre.pickId ? { manual: true } : {}) };
+      }
+      if (noGame) {
+        delete bet._res;
+        const cat = $("#lb-cat", el).value;
+        bet.manual = true;
+        if (cat) { bet.league = cat; bet.leagues = [cat]; bet.nonSports = true; }
+        else if (pre.nonSports) { bet.league = null; bet.leagues = null; bet.nonSports = false; }
+        if (typed) {
+          const pl = +(rr.paid - stake).toFixed(2);
+          bet.status = rr.res === "cashout" ? (pl > 0 ? "won" : pl < 0 ? "lost" : "push") : rr.res;
+          bet.profit = pl; bet.cashedOut = rr.res === "cashout"; bet.paidOut = rr.paid;
+          bet.settledAt = pre.settledAt && settled ? pre.settledAt : new Date().toISOString();
+        } else if (edit && settled) {          // reopened
+          bet.status = "pending"; bet.profit = null; bet.settledAt = null; bet.cashedOut = false; bet.paidOut = null;
+        }
       }
       const pairId = $("#lb-pair", el)?.value, partner = pairId && S.bets.get(pairId);
       if (partner) {

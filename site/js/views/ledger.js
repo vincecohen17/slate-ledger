@@ -344,6 +344,8 @@ export function renderLedger(el) {
   $$("[data-flt]", el).forEach((b) => b.onclick = () => { filter = b.dataset.flt; renderLedger(el); });
   $$("[data-set]", el).forEach((b) => b.onclick = () => {
     const [id, st] = b.dataset.set.split("|"); const bet = S.bets.get(id);
+    // a bet with no game on our board: confirm what came back (prefilled from the odds) instead of assuming it
+    if (!bet.gameId && !bet.legs?.length && !bet.pickId && !bet.group) { logSheet({ ...bet, _res: st === "void" ? "push" : st }); return; }
     saveBet({ ...bet, status: st, profit: profitFor(bet, st), settledAt: new Date().toISOString() });
   });
   $$("[data-edit]", el).forEach((b) => b.onclick = () => logSheet(S.bets.get(b.dataset.edit)));

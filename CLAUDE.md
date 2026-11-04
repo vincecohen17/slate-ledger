@@ -150,6 +150,10 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   finance) there. No optimizer; "Log what came in" saves cash results as a settled ledger bet (manual: true, source
   promo-manual, league "Other") and bonus credits as a wallet bonus entry, and can mark the promo used. The Ledger's log
   sheet also takes an "Other app" venue; bets with no game, legs or pick are manual: true, and the engine never grades them.
+  For those the sheet shows Category (Sports, or NONSPORT: Politics / Economics / Culture / Weather / Other -> league, leagues,
+  nonSports), Result (open / won / lost / push / sold early) and Paid out $ (total back): profit = paid - stake, cashedOut,
+  paidOut; odds optional once a payout is typed (a win's price = paid / stake). The ledger's W/L taps on them open the sheet
+  prefilled instead of computing from the odds.
 - `engine/alerts.py` phone alerts via ntfy (topic only in the private data repo config/alerts.json; shared to the owner-only
   Firestore private/alerts so the site's Phone alerts card can show setup and send a test): arbs/middles, strong new
   edges (logic agrees, outside quiet hours), optional bet results; each item once (latest/alerts_state.json).
