@@ -243,10 +243,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   niche sports with logic-led cases (never bet tier under 5 books), and read the fast read first: a sport or tier with 15+
   graded and CLV t <= -1.5 is cut to leans. Ledger > Our picks "Fast read": CLV (the early signal) by sport and tier, t,
   beat-the-close, flat ROI, verdict (15+ picks, |t| >= 1.5) and picks still needed to reach t = 2.
-- Scheduled Claude tasks (Pacific): pick runs 7:37 morning, 10:43 midday, 1:53 pregame, 5:41 evening (late games +
-  overnight tennis/soccer); promo desk hourly at :23 from 8 AM to 11 PM; nightly settlement and live audit 1:17 AM (audit
-  mode, recomputes results from finals, checks watcher/close capture/grading timeliness, fixes via engine or
-  fixes/bets.json); nightly model and logic lab 2:47 AM (one improvement, shipped only if it beats out of sample by 2+ SE;
+- Scheduled Claude tasks (Pacific): six pick runs: 4:41 early (European soccer + tennis near start, re-checks the
+  evening's early picks), 7:37 morning, 10:43 midday, 1:53 pregame, 3:31 late pregame (4-6:30 PM starts), 5:41 evening
+  (late games + overnight tennis/soccer); promo desk hourly at :23 from 8 AM to 11 PM; settlement and live audits twice a
+  day, 1:17 AM and 12:17 PM (audit mode, recomputes results from finals, checks watcher/close capture/grading timeliness,
+  fixes via engine or fixes/bets.json; the midday pass covers overnight/morning games and skips what the nightly one
+  already fixed); nightly model and logic lab 2:47 AM (one improvement, shipped only if it beats out of sample by 2+ SE;
   notebook in the data repo lab/notes.md; logs to model_changes / change_log).
 - `.github/workflows/pull.yml` engine run (manual or push to `engine/run-request`; live cron after the 5M upgrade).
   `deploy.yml` deploys site + rules on changes to `site/`, `firebase.json` or the rules template.
