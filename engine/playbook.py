@@ -97,10 +97,12 @@ def build(data_dir, card, params=None):
     ai = pol.get("ai") or {}
     allp = (ai.get("picks") or [{}])[0]
     if allp.get("n"):
-        cv = allp.get("clvCal") if allp.get("clvCal") is not None else allp.get("clv")
+        if allp.get("clvCal") is not None:
+            ctxt = f"CLV {allp['clvCal'] * 100:+.1f}% calibrated (raw {(allp.get('clv') or 0) * 100:+.1f}%) on {allp.get('nClv')} fresh closes"
+        else:
+            ctxt = f"CLV {(allp.get('clv') or 0) * 100:+.1f}% raw"
         pb["rules"].append({"id": "picks", "text": f"Our picks so far: {allp.get('w')}-{allp.get('l')}, {allp.get('units'):+.2f}u over {allp['n']} graded; "
-                            f"CLV {(cv or 0) * 100:+.1f}% {'calibrated' if allp.get('clvCal') is not None else 'raw'} (raw {(allp.get('clv') or 0) * 100:+.1f}%) on {allp.get('nClv', 0)} fresh closes: "
-                            "too few to judge flags; keep stakes small and let the edge card lead."})
+                            f"{ctxt}: too few to judge flags; keep stakes small and let the edge card lead."})
     pb["at"] = (card or {}).get("updated")
     os.makedirs(os.path.join(data_dir, "stats"), exist_ok=True)
     json.dump(pb, open(os.path.join(data_dir, "stats", "playbook.json"), "w"), indent=1)

@@ -478,6 +478,9 @@ def ai_study(data_dir):
     return out
 
 
+VERSION = 2      # bump when the study's output changes shape, so the next run recomputes it (2: clustered z, fresh/calibrated pick CLV)
+
+
 def run(data_dir, log=print, ms=None):
     if ms is None:
         ms, _ = MS.compute(data_dir, log=log)

@@ -1352,13 +1352,13 @@ def publish(game_docs, prop_docs, status, stamp):
                     fairadj.compute(DATA_DIR, log=log)
                 except Exception as e:
                     log(f"fairadj failed: {type(e).__name__}: {str(e)[:80]}")
-            if mnew or "ai" not in (mstats.get("policy") or {}):     # did the edge muting and the gated blend help? (walk-forward, live record)
-                import policytest
+            import policytest
+            if mnew or "ai" not in (mstats.get("policy") or {}) or (mstats.get("policy") or {}).get("v") != policytest.VERSION:     # did the edge muting and the gated blend help? (walk-forward, live record)
                 pt = policytest.run(DATA_DIR, log=log, ms=mstats)
                 mstats["policy"] = {"muting": {k: pt["muting"][k] for k in ("all", "kept", "muted")} | {"days": pt["muting"]["days"]},
                                     "mutingLogic": {k: pt["mutingLogic"][k] for k in ("all", "kept", "muted")},
                                     "mutingSupport": {k: pt["mutingSupport"][k] for k in ("all", "kept", "muted")} | {"days": pt["mutingSupport"]["days"]},
-                                    "blending": pt["blending"], "residual": pt.get("residual"), "logic": pt.get("logic"), "ai": pt.get("ai")}
+                                    "blending": pt["blending"], "residual": pt.get("residual"), "logic": pt.get("logic"), "ai": pt.get("ai"), "v": policytest.VERSION}
                 json.dump(mstats, open(os.path.join(DATA_DIR, "stats", "modelstats.json"), "w"), separators=(",", ":"))
             try:        # every model / logic / pick-rule change with its before-after effect (changes.py), Reports > Models
                 import changes as CH
