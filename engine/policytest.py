@@ -37,8 +37,13 @@ def _stat(rows):
     w = sum(r["y"] for r in rows)
     e = sum(r["fair"] for r in rows)
     v = sum(r["fair"] * (1 - r["fair"]) for r in rows)
+    import edgecard as EC
+    c = EC.clus(rows, base="fair")
+    # z (every row independent) is the scale the walk-forward rules were chosen on; zG / roiT (clustered by game) are
+    # what the site shows as confidence
     return {"n": n, "win": round(w / n, 4), "exp": round(e / n, 4), "gap": round((w - e) / n, 4),
-            "z": round((w - e) / math.sqrt(v), 2) if v else None, "roi": round(sum(r["pnl"] for r in rows) / n, 4)}
+            "z": round((w - e) / math.sqrt(v), 2) if v else None, "zG": c.get("zG"), "roiT": c.get("roiT"), "games": c.get("games"),
+            "roi": round(sum(r["pnl"] for r in rows) / n, 4)}
 
 
 def _ls(r):
@@ -278,9 +283,13 @@ def _dec_stat(rows):
     s.update(move=round(sum(r["close"] - r["fair"] for r in rows) / n, 4), beatClose=round(sum(r["y"] - r["close"] for r in rows) / n, 4),
              clv=round(sum(r.get("clv") or 0 for r in rows) / n, 4), edge=round(sum(r["edge"] for r in rows) / n, 4))
     if n >= 2:
-        pn = [r["pnl"] for r in rows]
-        m = sum(pn) / n
-        s["roiSE"] = round(math.sqrt(sum((x - m) ** 2 for x in pn) / (n - 1) / n), 4)
+        import edgecard as EC
+        se = EC.clus(rows, base="fair").get("roiSE")
+        if se is None:      # under 6 games: the row-level SE, which understates it
+            pn = [r["pnl"] for r in rows]
+            m = sum(pn) / n
+            se = math.sqrt(sum((x - m) ** 2 for x in pn) / (n - 1) / n)
+        s["roiSE"] = round(se, 4)
     return s
 
 
@@ -320,7 +329,8 @@ def logic_study(data_dir):
     for r in rows:
         if lg(r) in ("agrees", "disagrees"):
             strata[(r.get("league"), r["k"], size(r))][lg(r)].append(r)
-    num = den = var = 0.0
+    num = den = 0.0
+    contrib = defaultdict(float)     # each game's share of the weighted difference, centered, for a game-clustered SE
     for st in strata.values():
         a, d = st["agrees"], st["disagrees"]
         if len(a) < 10 or len(d) < 10:
@@ -328,11 +338,15 @@ def logic_study(data_dir):
         w = len(a) * len(d) / (len(a) + len(d))
         ga = sum(r["y"] - r["fair"] for r in a) / len(a)
         gd = sum(r["y"] - r["fair"] for r in d) / len(d)
-        va = sum(r["fair"] * (1 - r["fair"]) for r in a) / len(a) ** 2
-        vd = sum(r["fair"] * (1 - r["fair"]) for r in d) / len(d) ** 2
-        num += w * (ga - gd); den += w; var += w * w * (va + vd)
+        num += w * (ga - gd); den += w
+        for r in a:
+            contrib[EC._ckey(r)] += w * (r["y"] - r["fair"] - ga) / len(a)
+        for r in d:
+            contrib[EC._ckey(r)] -= w * (r["y"] - r["fair"] - gd) / len(d)
+    G = len(contrib)
+    var = G / (G - 1) * sum(x * x for x in contrib.values()) if G > 1 else 0.0
     if den:
-        out["matched"] = {"diff": round(num / den, 4), "z": round(num / math.sqrt(var), 2) if var else None, "strata": sum(1 for st in strata.values() if len(st["agrees"]) >= 10 and len(st["disagrees"]) >= 10)}
+        out["matched"] = {"diff": round(num / den, 4), "z": round(num / math.sqrt(var), 2) if var else None, "games": G, "strata": sum(1 for st in strata.values() if len(st["agrees"]) >= 10 and len(st["disagrees"]) >= 10)}
     # daily, 5%+ edges
     days = defaultdict(list)
     for r in big:
@@ -373,9 +387,14 @@ def ai_study(data_dir):
             return {"n": 0}
         u = sum(p.get("units") or 0 for p in rs)
         pr = sum(p.get("profit") or 0 for p in rs)
-        cl = [p["clv"] for p in rs if p.get("clv") is not None]
+        # CLV only on fresh closes (pulled within 30 min of the start) and never estimated ones, like the site's clvOk;
+        # clvCal is the calibrated one (closecal), the headline
+        ok = [p for p in rs if p.get("clv") is not None and not ((p.get("closeAge") or 0) > 30) and not p.get("closeEst")]
+        cl = [p["clv"] for p in ok]
+        cc = [p["clvCal"] for p in ok if p.get("clvCal") is not None]
         return {"n": n, "w": sum(p["status"] == "won" for p in rs), "l": sum(p["status"] == "lost" for p in rs), "units": round(pr, 2),
-                "roi": round(pr / u, 4) if u else None, "clv": round(sum(cl) / len(cl), 4) if cl else None}
+                "roi": round(pr / u, 4) if u else None, "clv": round(sum(cl) / len(cl), 4) if cl else None,
+                "clvCal": round(sum(cc) / len(cc), 4) if cc else None, "nClv": len(cl)}
     rows = [{"k": "All graded picks", **pst(g)}]
     for pil in ("model", "advanced", "matchup", "role", "context", "market"):
         for v in ("support", "neutral", "against"):

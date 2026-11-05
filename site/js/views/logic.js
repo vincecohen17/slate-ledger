@@ -22,7 +22,7 @@ function combine(rows) {
 
 function statRow(label, s) {
   return `<tr><td>${label}</td>${td(s.n.toLocaleString(), s.n)}
-    ${td(`<span class="${s.gap >= 0 ? "pos" : "neg"}">${pts(s.gap)}</span> <span class="tiny muted">z ${fmtT(s.z)}</span>`, s.gap)}
+    ${td(`<span class="${s.gap >= 0 ? "pos" : "neg"}">${pts(s.gap)}</span> <span class="tiny muted">z ${fmtT(s.zG ?? s.z)}</span>`, s.gap)}
     ${td(pts(s.move), s.move)}${td(`<span class="${s.beatClose >= 0 ? "pos" : "neg"}">${pts(s.beatClose)}</span>`, s.beatClose)}
     ${td(pct(s.clv), s.clv)}${td(`<span class="${s.roi >= 0 ? "pos" : "neg"}">${pct(s.roi)}</span>${s.roiSE != null ? ` <span class="tiny muted">± ${(s.roiSE * 196).toFixed(0)}</span>` : ""}`, s.roi)}</tr>`;
 }
@@ -47,7 +47,7 @@ export function logicDeep() {
   const series = (k, color, dash) => ({ pts: daily.map((d, i) => ({ i, y: d[k] == null ? null : d[k] * 100, tip: `${d.d}: ${k} ${pts(d[k])} pts over ${d["n" + { agrees: "A", disagrees: "D", support: "S", against: "O" }[k]]}` })).filter((p) => p.y != null), color, dash });
   return `<div class="card">
     <div class="kpis">
-      ${L.matched ? kpi("Agrees minus disagrees, same league, line type and size", `${pts(L.matched.diff)} pts`, `z ${fmtT(L.matched.z)} over ${L.matched.strata} matched groups: the mix of edges can't explain it`, L.matched.diff >= 0 ? "pos" : "neg") : ""}
+      ${L.matched ? kpi("Agrees minus disagrees, same league, line type and size", `${pts(L.matched.diff)} pts`, `z ${fmtT(L.matched.z)} (clustered by game) over ${L.matched.strata} matched groups: the mix of edges can't explain it`, L.matched.diff >= 0 ? "pos" : "neg") : ""}
       ${between ? kpi("5%+ edges, model between price and fair", `${pts(between.gap)} pts`, `won vs fair · flat ROI ${pct(between.roi)} · ${between.n} edges`, between.gap >= 0 ? "pos" : "neg") : ""}
       ${past ? kpi("5%+ edges, model 1.5x+ past the fair", `${pts(past.gap)} pts`, `flat ROI ${pct(past.roi)} · ${past.n} edges: a shared error, not support`, past.gap >= 0 ? "pos" : "neg") : ""}
       ${under ? kpi("5%+ edges, model under the price", `${pts(under.gap)} pts`, `flat ROI ${pct(under.roi)} · ${under.n} edges`, under.gap >= 0 ? "pos" : "neg") : ""}
@@ -98,15 +98,15 @@ export function aiDeep() {
   const fa = S.mstats?.fairadj;
   return `<div class="card">
     <div class="kpis">
-      ${all ? `<div class="kpi"><div class="k">AI picks graded</div><div class="v ${all.units >= 0 ? "pos" : "neg"}">${all.units >= 0 ? "+" : ""}${all.units}u</div><div class="s">${rec(all)} · ROI ${pct(all.roi)} · CLV ${pct(all.clv)} · graded at real venue prices</div></div>` : ""}
+      ${all ? `<div class="kpi"><div class="k">AI picks graded</div><div class="v ${all.units >= 0 ? "pos" : "neg"}">${all.units >= 0 ? "+" : ""}${all.units}u</div><div class="s">${rec(all)} · ROI ${pct(all.roi)} · CLV ${all.clvCal != null ? `${pct(all.clvCal)} cal. (raw ${pct(all.clv)})` : pct(all.clv)} on ${all.nClv ?? "?"} fresh closes · graded at real venue prices</div></div>` : ""}
       ${(() => { const a = (A.ctxEdges || []).find((r) => r.k.startsWith("Games with any")), b = (A.ctxEdges || []).find((r) => r.k.startsWith("Games with no"));
         return a && b ? `<div class="kpi"><div class="k">Edges in games with verified news</div><div class="v ${a.gap - b.gap >= 0 ? "pos" : "neg"}">${pts(a.gap - b.gap)} pts</div><div class="s">won − fair vs games without news (${pts(a.gap)} vs ${pts(b.gap)}) · ROI ${pct(a.roi)} vs ${pct(b.roi)}</div></div>` : ""; })()}
       <div class="kpi"><div class="k">Verified news entries</div><div class="v">${A.ctxEntries || 0}</div><div class="s">statuses, goalies, starters and notes the pick runs fed into the models</div></div>
     </div>
     <b style="display:block;margin-top:10px">Our AI picks by flag</b>
     ${chipBar("aigrp", [["pillar", "Pillars"], ["check", "Checks"], ["count", "Pillars in support"], ["tier", "Tier"], ["timing", "Timing"], ["price", "Price graded at"]], grp)}
-    ${sortTable(["Flag", "Picks", "Record", "Units", "ROI", "CLV"], rows.map((r) => `<tr><td>${esc(r.k)}</td>${td(r.n, r.n)}${td(rec(r), r.w / Math.max(1, r.n))}
-      ${td(`<span class="${r.units >= 0 ? "pos" : "neg"}">${r.units >= 0 ? "+" : ""}${r.units}u</span>`, r.units)}${td(pct(r.roi), r.roi)}${td(pct(r.clv), r.clv)}</tr>`))}
+    ${sortTable(["Flag", "Picks", "Record", "Units", "ROI", "CLV cal.", "CLV raw"], rows.map((r) => `<tr><td>${esc(r.k)}</td>${td(r.n, r.n)}${td(rec(r), r.w / Math.max(1, r.n))}
+      ${td(`<span class="${r.units >= 0 ? "pos" : "neg"}">${r.units >= 0 ? "+" : ""}${r.units}u</span>`, r.units)}${td(pct(r.roi), r.roi)}${td(pct(r.clvCal), r.clvCal)}${td(pct(r.clv), r.clv)}</tr>`))}
     <p class="note">Only ${all?.n ?? 0} picks have graded, so treat every row here as a story, not a finding: at this size a flag would need to be 20+ units apart to mean anything. CLV is the better early read (it moves with far less noise than wins and losses).</p>
     <b style="display:block;margin-top:12px">What the news did to edges</b>
     ${sortTable(HEAD, (A.ctxEdges || []).map((r) => statRow(esc(r.k), r)))}

@@ -18,14 +18,15 @@ function edgeCard(C) {
   // same model, so it can look great while the bets lose; it stays as a column, second.
   const gap = (r) => r.gap ?? (r.win != null && r.exp != null ? r.win - r.exp : null);
   const max = Math.max(0.01, ...rows.map((r) => Math.abs(gap(r) || 0)));
-  const conf = (r) => r.zRes == null ? "" : Math.abs(r.zRes) >= 2.5 ? `<span class="pill ${r.zRes > 0 ? "pos" : "neg"}">${r.zRes > 0 ? "real edge" : "mirage"}</span>` : Math.abs(r.zRes) >= 1.5 ? `<span class="pill">${r.zRes > 0 ? "promising" : "doubtful"}</span>` : `<span class="pill" style="opacity:.6">too early</span>`;
+  // confidence clustered by game (engine edgecard.clus): the same prop at five venues is one bet, not five
+  const conf = (r) => r.zG == null ? `<span class="pill" style="opacity:.6">too early</span>` : Math.abs(r.zG) >= 2.5 ? `<span class="pill ${r.zG > 0 ? "pos" : "neg"}">${r.zG > 0 ? "real edge" : "mirage"}</span>` : Math.abs(r.zG) >= 1.5 ? `<span class="pill">${r.zG > 0 ? "promising" : "doubtful"}</span>` : `<span class="pill" style="opacity:.6">too early</span>`;
   const name = (k) => ecDim === "venue" ? `<span class="lg-name">${bookLogo(k, venueName(k), 16)}${esc(venueName(k))}</span>` : ecDim.startsWith("venue") ? (() => { const [v, rest] = k.split(" · "); return `<span class="lg-name">${bookLogo(v, venueName(v), 16)}${esc(venueName(v))} · ${esc(rest)}</span>`; })() : esc(k);
   const d = C.daily || [];
   const A = C.all, ga = gap(A);
   const pp = (x) => `${x > 0 ? "+" : ""}${(x * 100).toFixed(1)} pts`;
   return `<div class="card">
     <div class="kpis"><div class="kpi"><div class="k">Edges graded</div><div class="v">${C.n.toLocaleString()}</div><div class="s">since ${esc(C.since || "")}</div></div>
-      <div class="kpi"><div class="k">Won vs expected</div><div class="v ${ga > 0 ? "pos" : ga < 0 ? "neg" : ""}">${ga != null ? pp(ga) : "–"}</div><div class="s">won ${A.win != null ? Math.round(A.win * 100) + "%" : "–"} vs ${A.exp != null ? Math.round(A.exp * 100) + "%" : "–"} the fair said${A.zRes != null ? ` · ${A.zRes > 0 ? "+" : ""}${A.zRes}σ` : ""}</div></div>
+      <div class="kpi"><div class="k">Won vs expected</div><div class="v ${ga > 0 ? "pos" : ga < 0 ? "neg" : ""}">${ga != null ? pp(ga) : "–"}</div><div class="s">won ${A.win != null ? Math.round(A.win * 100) + "%" : "–"} vs ${A.exp != null ? Math.round(A.exp * 100) + "%" : "–"} the fair said${A.zG != null ? ` · ${A.zG > 0 ? "+" : ""}${A.zG}σ over ${A.games} games` : ""}</div></div>
       <div class="kpi"><div class="k">Flat 1u ROI</div><div class="v ${A.roi > 0 ? "pos" : "neg"}">${A.roi != null ? pct(A.roi) : "–"}</div><div class="s">every flagged edge at its flagged price</div></div>
       <div class="kpi"><div class="k">CLV, calibrated</div><div class="v ${A.clvCal > 0 ? "pos" : A.clvCal < 0 ? "neg" : ""}">${A.clvCal != null ? pct(A.clvCal) : "–"}</div><div class="s">raw ${pct(A.clv)} vs our closing fair${A.staleClose ? ` · ${A.staleClose} stale closes left out` : ""}${C.closecal?.wf?.n ? ` · out of sample: raw ${pct(C.closecal.wf.raw)}, calibrated ${pct(C.closecal.wf.cal)}, actual ROI ${pct(C.closecal.wf.roi)}` : ""}</div></div></div>
     <div class="bar" style="margin-top:10px">${EC_DIMS.map(([k, l]) => `<button class="chip sm ${k === ecDim ? "on" : ""}" data-ec="${k}">${l}</button>`).join("")}</div>

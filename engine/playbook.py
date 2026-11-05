@@ -10,6 +10,8 @@ DIMS = {"kind": "Line type", "venueKind": "Venue x type", "venue": "Venue", "tim
         "supportSize": "Model support", "logicSize": "Logic", "league": "Sport", "market": "Market", "fairShift": "Fair",
         "venueLeague": "Venue x sport"}
 MIN_N = 150
+MIN_GAMES = 20          # a cell needs this many separate games before its clustered t means anything
+LEAN_T, AVOID_Z = 1.5, -2.0    # game-clustered: flat ROI t to lean on a cell, results-vs-close z to avoid one
 
 
 def _load(path):
@@ -39,18 +41,24 @@ def build(data_dir, card, params=None):
                 if n < MIN_N or r.get("roi") is None:
                     continue
                 cand.append({"dim": dim, "dimName": label, "k": r["k"], "n": n, "roi": r["roi"], "roiR": r.get("roiR"),
-                             "gap": r.get("gap"), "gapR": r.get("gapR"), "z": r.get("zRes"), "score": round(_score(r), 4)})
+                             "gap": r.get("gap"), "gapR": r.get("gapR"), "z": r.get("zG"), "roiT": r.get("roiT"), "games": r.get("games"),
+                             "score": round(_score(r), 4)})
         for c in sorted(cand, key=lambda c: -c["score"]):
             if c["score"] <= 0.005 or (c["roiR"] is not None and c["roiR"] <= 0) or (c["gap"] or 0) < -0.02:
                 continue
-            if (c["dim"], c["k"]) in seen:
+            # significance clustered by game (edgecard.clus): five venues' copies of one prop are one bet, not five
+            if (c["games"] or 0) < MIN_GAMES or c["roiT"] is None or c["roiT"] < LEAN_T:
+                continue
+            # the same edges under two names (pick6 the venue and pick6 · Pick'em) count once
+            if (c["dim"], c["k"]) in seen or (c["n"], c["roi"]) in seen:
                 continue
             seen.add((c["dim"], c["k"]))
+            seen.add((c["n"], c["roi"]))
             pb["lean"].append(c)
             if len(pb["lean"]) >= 10:
                 break
         for c in sorted(cand, key=lambda c: c["score"]):
-            if c["z"] is None or c["z"] > -2.5 or c["roi"] >= 0:
+            if c["z"] is None or c["z"] > AVOID_Z or c["roi"] >= 0 or (c["games"] or 0) < MIN_GAMES:
                 continue
             pb["avoid"].append(c)
             if len(pb["avoid"]) >= 10:
@@ -89,7 +97,10 @@ def build(data_dir, card, params=None):
     ai = pol.get("ai") or {}
     allp = (ai.get("picks") or [{}])[0]
     if allp.get("n"):
-        pb["rules"].append({"id": "picks", "text": f"Our picks so far: {allp.get('w')}-{allp.get('l')}, {allp.get('units'):+.2f}u, CLV {(allp.get('clv') or 0) * 100:+.1f}% over {allp['n']} graded at real prices: too few to judge flags; keep stakes small and let the edge card lead."})
+        cv = allp.get("clvCal") if allp.get("clvCal") is not None else allp.get("clv")
+        pb["rules"].append({"id": "picks", "text": f"Our picks so far: {allp.get('w')}-{allp.get('l')}, {allp.get('units'):+.2f}u over {allp['n']} graded; "
+                            f"CLV {(cv or 0) * 100:+.1f}% {'calibrated' if allp.get('clvCal') is not None else 'raw'} (raw {(allp.get('clv') or 0) * 100:+.1f}%) on {allp.get('nClv', 0)} fresh closes: "
+                            "too few to judge flags; keep stakes small and let the edge card lead."})
     pb["at"] = (card or {}).get("updated")
     os.makedirs(os.path.join(data_dir, "stats"), exist_ok=True)
     json.dump(pb, open(os.path.join(data_dir, "stats", "playbook.json"), "w"), indent=1)

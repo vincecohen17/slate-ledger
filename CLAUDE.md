@@ -139,6 +139,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   Only edges flagged before the start are logged; quotes over 50 decimal or 3x the fair are feed errors; each edge is graded
   once (track/edgelog/graded.json). Kinds are judged by results: gap (won - expected), zRes, roi; CLV on model-priced lines
   grades the model against itself. rerank uses gap (a kind 5 pts under its fair drops ~25%).
+  Significance is clustered by game (edgecard.clus: games, zG, roiT, roiSE; rows without gid cluster by day x sport): the same
+  prop at several venues or an alt ladder is one bet, and row-level z ran 2-8x too big (Nov 5: all edges z -11.7 row-level,
+  -4.1 clustered). Every confidence the site shows, the playbook (lean: 20+ games and clustered ROI t >= 1.5; avoid: zG <= -2)
+  and the logic study (zG, clustered roiSE and matched z) use it; zRes / policytest z stay row-level only for the muting and
+  override rules, whose thresholds the walk-forward test chose on that scale. Pick summaries (policytest.ai) count CLV on fresh
+  closes only and carry clvCal.
 - `engine/opps.py` arbs and middles across Vince's venues (all-in prices; middles priced with the alt-line fairs: EV = 1 - S +
   P(middle)); suspect ones (8%+ or a leg 12+ pts off fair) are flagged. Published as RTDB `pre/opps`, Edges > Arbs & middles.
   Freshness is our pull time (refresh_state lines/events), not the book's last_update: a market older than 1.5 refresh

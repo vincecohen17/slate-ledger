@@ -70,7 +70,7 @@ const isLine = (e) => !/^(player|batter|pitcher)_/.test(e.market || "");
 function playbookCard() {
   const P = S.reports?.playbook;
   if (!P || !(P.lean?.length || P.avoid?.length)) return "";
-  const cell = (c, good) => `<span class="pill ${good ? "pos" : "neg"}" title="${esc(`${c.dimName}: ${c.k} · ${c.n} graded · ROI ${pct(c.roi)}${c.roiR != null ? `, lately ${pct(c.roiR)}` : ""}`)}">${esc(c.k)} <b>${pct(c.roiR ?? c.roi)}</b></span>`;
+  const cell = (c, good) => `<span class="pill ${good ? "pos" : "neg"}" title="${esc(`${c.dimName}: ${c.k} · ${c.n} graded over ${c.games ?? "?"} games · ROI ${pct(c.roi)}${c.roiR != null ? `, lately ${pct(c.roiR)}` : ""}${c.roiT != null ? ` · t ${c.roiT} (clustered by game)` : ""}`)}">${esc(c.k)} <b>${pct(c.roiR ?? c.roi)}</b></span>`;
   const rules = P.rules || [];
   return `<div class="card pb-card" style="margin:6px 0 10px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>What's working now</b><span class="tiny muted">rebuilt every pull from ${S.reports?.edgecard?.n?.toLocaleString?.() || "the"} graded edges · ROI shown is lately (recent days weighted most)</span></div>
     <div class="tiny muted" style="margin-top:6px">Lean on</div><div class="row" style="gap:6px;flex-wrap:wrap;margin-top:3px">${(P.lean || []).slice(0, 8).map((c) => cell(c, true)).join("")}</div>

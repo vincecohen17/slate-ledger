@@ -305,6 +305,36 @@ def _ccal(r):
     return p * r["dec"] - 1
 
 
+def _ckey(r):
+    return r.get("gid") or (r.get("d"), r.get("sport"))
+
+
+def clus(g, base="close"):
+    """game-clustered significance. Graded edges are not independent: the same prop at five venues, or a ladder of
+    alt lines on one player, all win or lose together, so a z that counts every row as its own coin flip runs 2-8x too
+    big. Rows are summed per game (gid; older rows without one per day x sport) and the spread of those sums gives the
+    standard error (CR0 with a G/(G-1) small-sample factor). zG: results against `base` (the close, or the fair at the
+    flag); roiT: flat ROI over its clustered SE. None below 6 games."""
+    g = [r for r in g if r.get("y") is not None and r.get(base) is not None]
+    cl = {}
+    for r in g:
+        c = cl.setdefault(_ckey(r), [0.0, 0.0, 0])
+        c[0] += r["y"] - r[base]
+        c[1] += r.get("pnl") or 0.0
+        c[2] += 1
+    G = len(cl)
+    if G < 6:
+        return {"games": G, "zG": None, "roiT": None}
+    n = len(g)
+    res = sum(c[0] for c in cl.values())
+    roi = sum(c[1] for c in cl.values()) / n
+    k = G / (G - 1)
+    vr = k * sum(c[0] ** 2 for c in cl.values())
+    vp = k * sum((c[1] - roi * c[2]) ** 2 for c in cl.values())
+    return {"games": G, "zG": round(res / vr ** 0.5, 2) if vr > 0 else None,
+            "roiT": round(roi * n / vp ** 0.5, 2) if vp > 0 else None, "roiSE": round(vp ** 0.5 / n, 4) if vp > 0 else None}
+
+
 def _agg(rows):
     n = len(rows)
     g = [r for r in rows if r["y"] is not None]
@@ -314,7 +344,7 @@ def _agg(rows):
     cr = fresh or rows          # every close stale: report them rather than nothing (staleClose says so)
     nc = len(cr)
     clv = sum(r["clv"] for r in cr) / nc
-    return {**_recent(g), "n": n, "nClv": len(fresh), "staleClose": n - len(fresh),
+    return {**_recent(g), **clus(g), "n": n, "nClv": len(fresh), "staleClose": n - len(fresh),
             "clv": round(clv, 4), "beat": round(sum(r["clv"] > 0 for r in cr) / nc, 3),
             # calibrated CLV: the close corrected to how our closes have actually done (closecal); the honest one
             "clvCal": round(sum(_ccal(r) for r in cr) / nc, 4),
@@ -326,6 +356,8 @@ def _agg(rows):
             # results against what the fair expected: the honest test (CLV on model-priced lines is measured against our
             # own model, so it can look good while the bets lose)
             "gap": round((sum(r["y"] for r in g) - sum(r["close"] for r in g)) / len(g), 4) if g else None,
+            # zRes counts every row as independent: kept only for the muting rule, whose threshold the walk-forward test
+            # chose on this scale (policytest.muting). Every displayed confidence uses zG (game-clustered).
             "zRes": round((sum(r["y"] for r in g) - sum(r["close"] for r in g)) / max(1e-9, sum(r["close"] * (1 - r["close"]) for r in g)) ** 0.5, 2) if len(g) > 2 else None,
             # z of the CLV mean: how sure we are it isn't noise
             "z": round(clv / ((sum((r["clv"] - clv) ** 2 for r in cr) / max(1, nc - 1)) ** 0.5 / nc ** 0.5), 2) if nc > 2 and len({r["clv"] for r in cr}) > 1 else None}
@@ -393,7 +425,7 @@ def rerank(edges, card, prior=150):
             gap = 0.5 * s["gap"] + 0.5 * s["gapR"]
         adj = max(-0.5, min(0.5, gap * w * 6))
         e["track"] = {"n": s["graded"], "clv": s["clv"], "beat": s["beat"], "cat": s["k"], "win": s["win"], "exp": s["exp"], "gap": s["gap"],
-                      "roi": s["roi"], "z": s.get("zRes"), "gapR": s.get("gapR"), "roiR": s.get("roiR"), "nR": s.get("nR")}
+                      "roi": s["roi"], "z": s.get("zG"), "games": s.get("games"), "gapR": s.get("gapR"), "roiR": s.get("roiR"), "nR": s.get("nR")}
         e["score"] = round(e["score"] * (1 + adj), 4)
         # muted: this kind of edge (or this venue's version of it) has lost to its fair by 2+ standard errors over 100+
         # graded edges. It stays visible in a "losing so far" section but out of the main list, alerts and picks; it
