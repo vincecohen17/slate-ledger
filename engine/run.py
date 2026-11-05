@@ -608,7 +608,7 @@ def watch():
     t0 = time.time()
     passes = {True: 0, False: 0}
     idle, r = 0, {}
-    asked, seen_live, graded_ask, last_grade = set(), set(), set(), 0.0
+    asked, seen_live, graded_ask, last_grade = set(), set(), {}, 0.0      # graded_ask: gameId -> when its rebuild was asked
     st0 = load_state()
     while True:
         NOW = datetime.now(timezone.utc)
@@ -636,11 +636,13 @@ def watch():
         # settle promptly: a watched game that was in play and is now final (or gone) gets a rebuild run, which collects
         # the final and grades every bet and pick on it, instead of waiting for the next auto run
         now_live = set(r.get("inplay") or [])
-        ended = (seen_live - now_live) | (set(r.get("final") or []) - graded_ask)
+        # a final game still in the feed has open bets or picks: its first rebuild came before the final was collectable
+        # (ESPN's summary lags the scoreboard), so ask again every 15 minutes until it grades and leaves the feed
+        ended = (seen_live - now_live) | {x for x in (r.get("final") or []) if time.time() - graded_ask.get(x, 0) > 15 * 60}
         seen_live |= now_live
         if ended and time.time() - last_grade > 120:
             if _dispatch("rebuild", "grade finals"):
-                graded_ask |= ended
+                graded_ask.update({x: time.time() for x in ended})
                 seen_live -= ended
                 last_grade = time.time()
         if not (r.get("need") or r.get("upcoming") or site_live or board_soon):

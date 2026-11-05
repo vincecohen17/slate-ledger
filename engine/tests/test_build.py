@@ -83,6 +83,16 @@ def test_props():
     e = build.edges([], [docs["player_points"]])
     assert any(x.get("pickem") for x in e)
 
+
+def test_live_flag_needs_a_started_game():
+    import ledger, tracker
+    legs = [{"gameId": "g1", "commence": "2026-11-05T03:10:00Z"}]
+    assert not ledger.is_live({"live": True, "createdAt": "2026-11-05T02:44:14Z", "legs": legs}, "/nonexistent")
+    assert ledger.is_live({"live": True, "createdAt": "2026-11-05T03:30:00Z", "legs": legs}, "/nonexistent")
+    assert not ledger.is_live({"live": False, "createdAt": "2026-11-05T03:30:00Z", "legs": legs}, "/nonexistent")
+    p = {"rushing.rushingTouchdowns": 0, "receiving.receivingTouchdowns": 1}
+    assert tracker.stat("americanfootball_nfl", "player_tds", p) == 1
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

@@ -268,7 +268,7 @@ def stat(sport, market, p):
                 "player_rush_reception_yds": lambda: _sum(p, "rushing.rushingYards", "receiving.receivingYards"),
                 "player_pass_rush_yds": lambda: _sum(p, "passing.passingYards", "rushing.rushingYards"),
                 "player_pass_rush_reception_yds": lambda: _sum(p, "passing.passingYards", "rushing.rushingYards", "receiving.receivingYards"),
-                "player_anytime_td": tds, "player_tds_over": tds, "player_rush_reception_tds": tds,
+                "player_anytime_td": tds, "player_tds_over": tds, "player_tds": tds, "player_rush_reception_tds": tds,
                 "player_rush_tds": lambda: _v(p, "rushing.rushingTouchdowns"), "player_reception_tds": lambda: _v(p, "receiving.receivingTouchdowns"),
                 "player_rush_longest": lambda: _v(p, "rushing.longRushing"), "player_reception_longest": lambda: _v(p, "receiving.longReception"),
                 "player_sacks": lambda: _v(p, "defensive.sacks"), "player_tackles_assists": lambda: _v(p, "defensive.totalTackles"),

@@ -348,6 +348,24 @@ def _find_pick(data_dir, pid):
         return None
 
 
+def is_live(b, data_dir, legs=None):
+    """a live bet: flagged live and placed after its first game started. A bet flagged live but logged before every one of
+    its games began was placed pre-game (the flag was left on), so its yardstick is the pre-game close."""
+    if not b.get("live"):
+        return False
+    try:
+        made = datetime.fromisoformat(str(b.get("createdAt")).replace("Z", "+00:00"))
+    except Exception:
+        return True
+    starts = []
+    for x in legs or b.get("legs") or [b]:
+        c = x.get("commence") or (_snap(data_dir, x.get("gameId")) or {}).get("commence")
+        if not c:
+            return True
+        starts.append(datetime.fromisoformat(c.replace("Z", "+00:00")))
+    return not starts or made >= min(starts) - timedelta(minutes=2)
+
+
 def grade_bets(db, data_dir, fin_by_gid, log=print):
     """pending bets on Firestore: write `auto` (the site settles them with the promo math)"""
     if not db:
@@ -389,9 +407,10 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
                 if done and done != (b.get("legsDone") or {}):
                     snap.reference.update({"legsDone": done})
             continue
-        if b.get("live"):          # a live bet's yardstick is the live fair minutes later, not the pre-game close
+        if is_live(b, data_dir, legs):          # a live bet's yardstick is the live fair minutes later, not the pre-game close
             lc = b.get("liveCheck") or {}
             g["clv"], g["closeFair"] = lc.get("clv"), lc.get("fair")
+            g["clvCal"], g["closeAge"] = None, None     # closecal is fit on pre-game closes: it says nothing about a live fair
         up = {"auto": {"result": g["result"], "clv": g["clv"], "closeFair": g["closeFair"], "closeAge": g.get("closeAge"), "clvCal": g.get("clvCal"),
                        "legs": leg_results(legs, g["legs"]), "closeEst": g.get("est") or None,
                        "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}}
@@ -488,7 +507,8 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
         elif not b.get("market") and legs[0].get("market"):
             up.update({k: legs[0].get(k) for k in ("market", "side", "point", "player", "team") if legs[0].get(k) is not None})
         # clvCal / closeAge arrived later: settled pre-game bets get them once (live bets use the live fair instead)
-        need_cal = not b.get("live") and "clvCal" not in b
+        live = is_live(b, data_dir, legs)
+        need_cal = not live and "clvCal" not in b
         need = b.get("clv") is None or not b.get("legResults") or b.get("fairAtLog") is None or need_cal
         if need:
             try:
@@ -501,7 +521,7 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
                 if need_cal:
                     up.update({"clvCal": g.get("clvCal"), "closeAge": g.get("closeAge")})
                 if b.get("clv") is None:
-                    if b.get("live"):
+                    if live:
                         lc = b.get("liveCheck") or {}
                         if lc.get("clv") is not None:
                             up.update({"clv": lc["clv"], "closeFair": lc.get("fair")})
