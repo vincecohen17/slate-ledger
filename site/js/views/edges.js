@@ -1,3 +1,4 @@
+import { marketMoves } from "./market.js";
 import { S, testAlert, saveOppCheck } from "../store.js";
 import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$, odds } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
@@ -107,6 +108,7 @@ export function renderEdges(el) {
   }
   el.innerHTML = tabs + `<div class="bar">${chips("league", leagues)}<span class="spacer"></span>${chips("type", ["All", "Lines", "Props", "Pick'em"])}</div>
     ${playbookCard()}
+    ${marketMoves()}
     <div class="bar" style="margin-top:0">${chips("logic", ["All", "On the playbook", "Model backs it"])}<span class="spacer"></span>${chips("venue", venues)}<span class="spacer"></span>
       ${[0.015, 0.03, 0.05].map((m) => `<button class="chip ${F.min === m ? "on" : ""}" data-min="${m}">${(m * 100).toFixed(1)}%+</button>`).join("")}</div>
     <p class="note">Prices at your venues that beat the sharp no-vig fair, ranked by edge and by how that kind of edge has actually done, half on its whole record and half on the last few days. Edges in a cell the record says to skip get their own section; kinds that keep losing to their fair go to the bottom until their record recovers.</p>

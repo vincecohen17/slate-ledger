@@ -653,3 +653,16 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 .o3s { font-size: 10.5px; }
 .big .o3s, .v .o3s { font-size: 11px; }
 .q .q3 { font: 400 10px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* market behavior (views/market.js) */
+.mkt-spark { width: 100%; height: 70px; display: block; margin: 6px 0; background: var(--panel-2); border-radius: 8px; }
+.mkt-splits { display: grid; gap: 4px; margin-top: 8px; }
+.mkt-split { display: grid; grid-template-columns: minmax(0, 1fr) 70px 34px 70px 34px; gap: 6px; align-items: center; font-size: 12px; }
+.mkt-split.mkt-hd { margin-bottom: -2px; }
+.mkt-splits.thin .mkt-bar, .mkt-splits.thin .num { opacity: .45; }
+.mkt-bar { height: 7px; background: var(--panel-3); border-radius: 4px; overflow: hidden; }
+.mkt-bar i { display: block; height: 100%; background: var(--muted); }
+.mkt-bar.money i { background: var(--accent); }
+.mkt-list { display: grid; gap: 2px; margin: 8px 0; }
+.mkt-item { display: grid; gap: 2px; padding: 8px 0; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
+.mkt-item:first-child { border-top: 0; }

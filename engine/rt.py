@@ -198,7 +198,7 @@ def pre_pieces(game_docs, prop_docs, edges, status, mups=None, rep=None, fin=Non
     return out
 
 
-def publish_pre(game_docs, prop_docs, edges, status, data_dir, log=print, mups=None, rep=None, fin=None, opps=None, pickslive=None, mstats=None):
+def publish_pre(game_docs, prop_docs, edges, status, data_dir, log=print, mups=None, rep=None, fin=None, opps=None, pickslive=None, mstats=None, mkt=None):
     """write the changed pieces of the pre-game board; hashes in latest/rt_pre.json. Returns (KB sent, pieces)."""
     fn = os.path.join(data_dir, "latest", "rt_pre.json")
     try:
@@ -212,6 +212,8 @@ def publish_pre(game_docs, prop_docs, edges, status, data_dir, log=print, mups=N
         now["pickslive"] = z(pickslive)
     if mstats is not None:
         now["mstats"] = z(mstats)           # deep model statistics, loaded by the Reports page only
+    if mkt is not None:
+        now["mkt"] = z(mkt)                 # market behavior per game (market.run): moves, splits, side signals
     newh = {p: _h(s) for p, s in now.items()}
     # parts this run didn't build (no matchups, reports or finals this time) stay as they are
     for p, h in old.items():

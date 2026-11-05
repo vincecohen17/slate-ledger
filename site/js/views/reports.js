@@ -1,3 +1,4 @@
+import { marketReport } from "./market.js";
 import { S } from "../store.js";
 import { esc, pct, ago, bindTips, bookLogo, $$ } from "../util.js";
 import { lineChart, legend } from "./charts.js";
@@ -37,7 +38,7 @@ function edgeCard(C) {
         <td class="num ${r.roi > 0 ? "pos" : r.roi < 0 ? "neg" : ""}">${r.roi != null ? pct(r.roi) : "–"}</td><td class="num ${r.roiR > 0 ? "pos" : r.roiR < 0 ? "neg" : ""}">${r.roiR != null ? pct(r.roiR) : "–"}</td><td class="num ${r.clvCal > 0 ? "pos" : r.clvCal < 0 ? "neg" : ""}">${r.clvCal != null ? pct(r.clvCal) : "–"}</td><td class="num">${pct(r.clv)}</td><td class="num">${pct(r.clvLast)}</td><td>${conf(r)}</td></tr>`; }).join("")}
     </tbody></table></div>
     ${d.length >= 3 ? `<div style="margin-top:10px">${lineChart([{ pts: d.map((x, i) => ({ i, y: gap(x) ?? 0, tip: `${x.d}: won ${Math.round((x.win || 0) * 100)}% vs ${Math.round((x.exp || 0) * 100)}% expected over ${x.graded ?? x.n} edges` })), color: "var(--accent)" }], { h: 160, fmt: (x) => pp(x), labels: d.map((x, i) => (i % Math.ceil(d.length / 6) === 0 ? x.d.slice(5) : "")) })}${legend([["var(--accent)", "each day: flagged edges' win rate minus what their fair expected"]])}</div>` : ""}
-    <p class="note"><b>Won vs expected</b> is the honest test of an edge: how often that kind of flagged bet won, minus the chance our fair gave it. Above zero over a few hundred edges, the edge is real; below, the fair was wrong (a "mirage"). The tag reads it at 2.5 standard errors.
+    <p class="note"><b>Won vs expected</b> is the honest test of an edge: how often that kind of flagged bet won, minus the chance our fair gave it. Above zero over a few hundred edges, the edge is real; below, the fair was wrong (a "mirage"). The tag reads it at 2.5 standard errors, counted by game (the same prop at five venues is one bet).
       <b>CLV raw</b> values the flagged price at our own closing fair. That fair has been too generous to the sides we flag, so raw CLV overstates every edge (out of sample it ran about 10 points above what the edges actually returned). <b>CLV cal.</b> corrects the close to how our closes have actually done (refit as edges grade) and has tracked real returns closely: read that one. Closes pulled more than 30 minutes before the start, and closes 20+ points from the flagged fair (feed errors), are left out. <b>Waited</b> is the venue's last price before the start. These results also nudge each new edge's rank: a kind that wins less than its fair says gets pushed down, judged half on its whole record and half on how it has done lately.
       <b>Why CLV is positive while results are negative:</b> CLV compares the price with our own closing fair, and that fair has itself been too generous to the sides we flag (overs above all), so a price can "beat" it and still lose. The self-correcting fair (Model logic > AI flags) fixes that where the data proves it.</p></div>`;
 }
@@ -126,6 +127,8 @@ export function renderReports(el) {
     <div class="sec-title">Best price share<span class="line"></span></div>
     <div class="card">${rows.length ? seqBars([...rows].sort((a, b) => b.bestRate - a.bestRate).slice(0, 15), (r) => r.bestRate, (v) => Math.round(v * 100) + "%") : ""}
       <p class="note">How often each book has the best price on the board for a side. A book you can bet with a high share is where to look first.</p></div>
+    <div class="sec-title">Market signals: line moves, sharp money, splits<span class="line"></span></div>
+    ${marketReport(R?.marketcard) || `<div class="card note">Builds as games with movement history finish.</div>`}
     <div class="sec-title">Model logic: does the model's vote help?<span class="line"></span></div>
     ${logicDeep()}
     <div class="sec-title">AI flags and news: what each is doing to results<span class="line"></span></div>

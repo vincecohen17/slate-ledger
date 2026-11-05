@@ -452,7 +452,8 @@ def side_signals(summ, spl, mk, side):
             if toward and r.get("lagging"):
                 out["lag"] = r["lagging"]
     s = ((spl or {}).get(mk) or {}).get(side)
-    if s:
+    # 100 / 0 splits come from a handful of early bets: shown, but no signal
+    if s and not ({s["h"], s["b"]} & {0, 100}):
         out["h"], out["b"] = s["h"], s["b"]
         out["div"] = s["h"] - s["b"]
         if s["b"] >= PUBLIC:

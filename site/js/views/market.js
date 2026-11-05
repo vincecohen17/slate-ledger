@@ -1,0 +1,142 @@
+// Market behavior (engine market.py): how each game's lines moved, which book moved first, which of your venues haven't
+// followed, and DraftKings' betting splits (share of bets vs share of money). Game page "Market" tab, the Edges page
+// "Market moves" section, chips on edge cards, and the signals' report card on Reports.
+import { S } from "../store.js";
+import { esc, pct, prob, fmtTime, fmtDay, signPt, leagueLogo, oddsP, $$ } from "../util.js";
+
+const MK = { h2h: "Moneyline", spreads: "Spread", totals: "Total" };
+const BOOK = { pinnacle: "Pinnacle", circasports: "Circa", lowvig: "LowVig", betonlineag: "BetOnline", draftkings: "DraftKings",
+  fanduel: "FanDuel", betmgm: "BetMGM", williamhill_us: "Caesars", espnbet: "theScore", fanatics: "Fanatics", betrivers: "BetRivers",
+  hardrockbet: "Hard Rock", bovada: "Bovada", ballybet: "Bally", novig: "Novig", prophetx: "ProphetX", kalshi: "Kalshi",
+  polymarket_us: "Polymarket US", fliff: "Fliff", courtside: "Courtside" };
+const SHARP = new Set(["pinnacle", "circasports", "lowvig", "betonlineag"]);
+const bk = (b) => BOOK[b] || b;
+const tmin = (m) => new Date(m * 60000).toISOString();
+
+function sideName(g, mk, side) {
+  if (mk === "totals") return side === "A" ? "Over" : "Under";
+  return side === "A" ? g.home : g.away;
+}
+
+function lineTxt(mk, pt, side) {
+  if (mk === "h2h") return "";
+  if (mk === "totals") return ` ${pt}`;
+  const p = side === "A" ? pt : pt == null ? null : -pt;
+  return ` ${signPt(p)}`;
+}
+
+// a small step chart of side A's chance over time (sharp consensus), number changes marked
+function pathChart(path, mk) {
+  if (!path || path.length < 2) return "";
+  const W = 320, H = 70, P = 6;
+  const t0 = path[0][0], t1 = Math.max(path[path.length - 1][0], t0 + 1);
+  const ys = path.map((x) => x[2]);
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (hi - lo < 0.04) { const m = (hi + lo) / 2; lo = m - 0.02; hi = m + 0.02; }
+  const X = (t) => P + (t - t0) * (W - 2 * P) / (t1 - t0), Y = (v) => P + (hi - v) * (H - 2 * P) / (hi - lo);
+  let d = "";
+  path.forEach((x, i) => { d += i ? `H${X(x[0]).toFixed(1)}V${Y(x[2]).toFixed(1)}` : `M${X(x[0]).toFixed(1)},${Y(x[2]).toFixed(1)}`; });
+  const ptChanges = path.filter((x, i) => i && x[1] !== path[i - 1][1]);
+  return `<svg class="mkt-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="sharp line path">
+    <path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+    ${ptChanges.map((x) => `<circle cx="${X(x[0]).toFixed(1)}" cy="${Y(x[2]).toFixed(1)}" r="3" fill="var(--venue)"><title>number moved to ${esc(String(x[1]))} at ${fmtTime(tmin(x[0]))}</title></circle>`).join("")}
+  </svg>`;
+}
+
+function splitBars(g, mk, sp) {
+  if (!sp) return "";
+  const row = (side) => {
+    const s = sp[side];
+    if (!s) return "";
+    return `<div class="mkt-split"><span class="ellip">${esc(sideName(g, mk, side))}${s.pt != null ? " " + esc(mk === "totals" ? String(s.pt) : signPt(s.pt)) : ""}</span>
+      <span class="mkt-bar" title="share of bets"><i style="width:${s.b}%"></i></span><b class="num">${s.b}%</b>
+      <span class="mkt-bar money" title="share of money"><i style="width:${s.h}%"></i></span><b class="num">${s.h}%</b></div>`;
+  };
+  const thin = ["A", "B"].some((k) => sp[k] && [sp[k].h, sp[k].b].some((v) => v === 0 || v === 100));
+  return `<div class="mkt-splits ${thin ? "thin" : ""}"><div class="mkt-split mkt-hd"><span class="tiny muted">DraftKings splits</span><span class="tiny muted">bets</span><span></span><span class="tiny muted">money</span><span></span></div>${row("B")}${row("A")}
+    ${thin ? `<div class="tiny muted">Only a few bets in so far (100 / 0): no signal from these yet.</div>` : ""}</div>`;
+}
+
+export function chips(sig) {
+  if (!sig) return "";
+  const t = [];
+  if (sig.mv != null && Math.abs(sig.mv) >= 0.015)
+    t.push(`<span class="pill ${sig.mv > 0 ? "pos" : "neg"}" title="the sharp books' line since we first saw it, on one chance scale (number moves converted at the sport's points-to-chance rate)">${sig.mv > 0 ? "▲" : "▼"} ${(Math.abs(sig.mv) * 100).toFixed(1)} pts ${sig.mv > 0 ? "toward" : "away"}</span>`);
+  if (sig.sl) t.push(`<span class="pill" title="a sharp book (Pinnacle, Circa, LowVig, BetOnline) moved first and the others followed">sharp books first</span>`);
+  if (sig.rlm) t.push(`<span class="pill" title="the line moved toward this side though it holds only ${sig.b}% of DraftKings bets">reverse move · ${sig.b}% of bets</span>`);
+  if (sig.div != null && sig.div >= 10) t.push(`<span class="pill" title="share of money well above share of bets: bigger bettors on this side (DraftKings)">money ${sig.h}% · bets ${sig.b}%</span>`);
+  else if (sig.pub) t.push(`<span class="pill" title="DraftKings: a heavy majority of tickets">public · ${sig.b}% of bets</span>`);
+  return t.join("");
+}
+
+export function edgeChips(e) {
+  return e.mkt ? `<span class="tiny row" style="gap:4px;flex-wrap:wrap">${chips(e.mkt)}</span>` : "";
+}
+
+export function marketTab(g) {
+  const m = g.mkt;
+  if (!m) return `<div class="card muted">No movement history for this game yet: it builds from every price pull, and DraftKings' betting splits appear about a day before the start.</div>`;
+  const out = [];
+  for (const mk of ["spreads", "totals", "h2h"]) {
+    const mv = m.mv?.[mk], sp = m.splits?.[mk];
+    if (!mv && !sp) continue;
+    const sA = m.sides?.[`${mk}|A`] || {}, sB = m.sides?.[`${mk}|B`] || {};
+    const toward = mv && Math.abs(mv.mv) >= 0.015 ? (mv.mv > 0 ? "A" : "B") : null;
+    const first = (mv?.first || []).map(([t, b]) => `<span class="${SHARP.has(b) ? "pos" : ""}">${esc(bk(b))}</span> <span class="faint">${fmtTime(tmin(t))}</span>`).join(" → ");
+    out.push(`<div class="card">
+      <div class="row" style="justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap"><b>${MK[mk]}</b>
+        ${mv ? `<span class="small">open <b class="num">${esc(sideName(g, mk, "A"))}${lineTxt(mk, mv.open.pt, "A")}</b> ${oddsP(mv.open.p)} → now <b class="num">${lineTxt(mk, mv.now.pt, "A").trim() || ""}</b> ${oddsP(mv.now.p)}</span>` : ""}</div>
+      ${mv ? pathChart(m.path?.[mk], mk) : ""}
+      ${toward ? `<div class="small">Moved <b>${(Math.abs(mv.mv) * 100).toFixed(1)} pts toward ${esc(sideName(g, mk, toward))}</b>${mv.sharpLed ? " · <span class=\"pos\">a sharp book moved first</span>" : ""}${mv.sharpLed && mv.softLagMin > 0 ? ` · the big US books followed ${mv.softLagMin} min later` : ""}</div>` : mv ? `<div class="small muted">No real move since we first saw it (under 1.5 pts).</div>` : ""}
+      ${first ? `<div class="tiny muted">First to move: ${first}</div>` : ""}
+      ${mv?.lagging?.length ? `<div class="tiny"><span class="pill pos">still at the old number</span> ${mv.lagging.map(bk).map(esc).join(", ")}: the line moved, these venues haven't followed (check the Lines tab for the price)</div>` : ""}
+      ${splitBars(g, mk, sp)}
+      ${[["B", sB], ["A", sA]].map(([k, sg]) => { const c = chips(sg); return c ? `<div class="row" style="gap:4px;flex-wrap:wrap;align-items:center"><span class="tiny muted">${esc(sideName(g, mk, k))}</span>${c}</div>` : ""; }).join("")}
+    </div>`);
+  }
+  const mc = S.reports?.marketcard;
+  return `<div class="note small">How the market has behaved: the sharp books' line since we first saw it (Pinnacle, Circa, LowVig, BetOnline), who moved first by the books' own update times, and DraftKings' public betting splits. By the close a move is priced in; the value is a venue that hasn't followed yet. ${mc ? `Graded so far: ${mc.n} game sides over ${mc.games} games (Reports > Market signals).` : ""}</div>
+    <div class="grid">${out.join("") || `<div class="card muted">Nothing yet.</div>`}</div>`;
+}
+
+// Edges page: the games where the market is saying something
+export function marketMoves(limit = 14) {
+  const G = S.mkt || {};
+  const items = [];
+  for (const [gid, m] of Object.entries(G)) {
+    if (new Date(m.commence) < new Date()) continue;
+    for (const [k, s] of Object.entries(m.sides || {})) {
+      const [mk, side] = k.split("|");
+      const score = (Math.max(0, s.mv || 0) * 100) + (s.rlm ? 3 : 0) + (s.sl ? 2 : 0) + (s.div >= 10 ? s.div / 10 : 0);
+      if (score < 2 || !(s.mv > 0 || s.rlm || s.div >= 10)) continue;
+      items.push({ gid, m, mk, side, s, score });
+    }
+  }
+  items.sort((a, b) => b.score - a.score);
+  if (!items.length) return "";
+  return `<div class="card"><div class="row" style="justify-content:space-between"><b>Market moves</b><span class="tiny muted">sharp line moves, reverse moves and where the money is (DraftKings splits)</span></div>
+    <div class="mkt-list">${items.slice(0, limit).map(({ gid, m, mk, side, s }) => {
+      const g = { home: m.home, away: m.away };
+      const mv = m.mv?.[mk];
+      return `<a class="mkt-item" href="#/game/${gid}/market">
+        <span class="tiny muted">${esc(m.league || "")} · ${fmtDay(m.commence)} ${fmtTime(m.commence)}</span>
+        <span><b>${esc(sideName(g, mk, side))}</b> <span class="muted">${MK[mk]}${!mv ? "" : mk === "h2h" ? ` ${prob(side === "A" ? mv.open.p : 1 - mv.open.p)} → ${prob(side === "A" ? mv.now.p : 1 - mv.now.p)}` : ` ${esc(lineTxt(mk, mv.open.pt, side).trim())} → ${esc(lineTxt(mk, mv.now.pt, side).trim())}`}</span></span>
+        <span class="row" style="gap:4px;flex-wrap:wrap">${chips(s)}${mv?.lagging?.length && s.mv > 0 ? `<span class="pill pos">not yet at ${esc(mv.lagging.slice(0, 3).map(bk).join(", "))}</span>` : ""}</span>
+      </a>`;
+    }).join("")}</div>
+    <div class="tiny muted">Moves are already in our fair, so a venue still at the old number shows up as an edge. Whether these signals carry anything past that is graded on Reports > Market signals.</div></div>`;
+}
+
+// Reports: how sides with each signal did against their (fresh) close
+export function marketReport(mc) {
+  if (!mc) return "";
+  const row = (r) => `<tr><td>${esc(r.k)}</td><td class="num">${r.n}</td><td class="num">${r.games ?? "–"}</td><td class="num">${prob(r.win, 1)}</td><td class="num">${prob(r.exp, 1)}</td>
+    <td class="num ${r.gap > 0.01 ? "pos" : r.gap < -0.01 ? "neg" : ""}">${r.gap > 0 ? "+" : ""}${(r.gap * 100).toFixed(1)}</td><td class="num">${r.zG ?? "–"}</td>
+    <td class="num ${r.roi > 0 ? "pos" : "neg"}">${pct(r.roi)}</td></tr>`;
+  return `<div class="card"><b>Market signals report card</b>
+    <div class="tiny muted">Every finished game's main-market sides with the market signals they had before the start, against their closing chance (the sharp books' last pre-game number, only when it came within 30 minutes of the start: ${mc.n} sides over ${mc.games} games; ${mc.staleClose ?? 0} left out for an older close). Gap = won minus the close's chance, z clustered by game. A real signal shows a gap that holds as games pile up; by the close most moves are priced in.</div>
+    ${Object.entries(mc.dims || {}).filter(([, v]) => v.length).map(([name, v]) => `<div class="small" style="margin-top:8px"><b>${esc(name)}</b></div>
+      <div style="overflow-x:auto"><table class="l10t" style="width:100%"><thead><tr><th>Bucket</th><th>Sides</th><th>Games</th><th>Won</th><th>Close said</th><th>Gap pts</th><th>z</th><th>ROI at close</th></tr></thead><tbody>${v.map(row).join("")}</tbody></table></div>`).join("")}
+    ${Object.values(mc.dims || {}).some((v) => !v.length) ? `<div class="tiny muted">Splits buckets fill in as games with DraftKings splits finish.</div>` : ""}
+  </div>`;
+}

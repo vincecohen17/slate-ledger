@@ -4,6 +4,7 @@ import { edgeCard, ladder, bindLog, labBtn } from "./common.js";
 import { pickCard } from "./picks.js";
 import { renderMatchup } from "./matchup.js";
 import { renderGameLive } from "./live.js";
+import { marketTab } from "./market.js";
 
 const open = new Set();
 let propMarket = null;
@@ -144,7 +145,7 @@ export function renderGame(el, id, tab) {
   if (!g) { el.innerHTML = `<div class="empty"><h3>Game not on the board</h3><a href="#/">Back to the board</a></div>`; return; }
   loadProps(id);
   const picks = [...S.picks.values()].filter((p) => p.gameId === id);
-  const tabs = [...(isLive ? [["live", "● Live"]] : []), ["matchup", "Matchup"], ["overview", "Best bets"], ["lines", "Lines"], ["props", "Props"], ...(picks.length ? [["pick", `Pick${picks.length > 1 ? "s" : ""}`]] : [])];
+  const tabs = [...(isLive ? [["live", "● Live"]] : []), ["matchup", "Matchup"], ["overview", "Best bets"], ["lines", "Lines"], ["market", "Market"], ["props", "Props"], ...(picks.length ? [["pick", `Pick${picks.length > 1 ? "s" : ""}`]] : [])];
   let h = `<a class="back" href="#/">← Board</a>${hero(g)}
     <div class="bar">${tabs.map(([k, t]) => `<a class="chip ${k === tab ? "on" : ""}" href="#/game/${id}/${k}">${t}</a>`).join("")}
     <span class="spacer"></span><span class="tiny muted">Bars: edge vs sharp fair · <span class="pos">teal</span> = value, <span class="neg">orange</span> = overpriced</span></div>`;
@@ -152,6 +153,7 @@ export function renderGame(el, id, tab) {
   else if (tab === "props") h += props(g);
   else if (tab === "pick") h += `<div class="grid">${picks.map(pickCard).join("")}</div>`;
   else if (tab === "overview") h += overview(g);
+  else if (tab === "market") h += marketTab(g);
   el.innerHTML = h;
   if (tab === "matchup") renderMatchup(el, g);
   if (tab === "live") renderGameLive(el, g);

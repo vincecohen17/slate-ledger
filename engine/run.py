@@ -1401,10 +1401,10 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"snapshot failed: {type(e).__name__}")
     # the edges' report card: log new edges, refresh their fairs to the close, grade finished ones, re-rank by history
     import edgecard
-    ecard, pbook, mcard = None, None, None
+    ecard, pbook, mcard, mboard = None, None, None, None
     try:        # market behavior: line movement by book, who moved first, DraftKings splits -> doc["mkt"], e["mkt"]
         import market
-        market.run(DATA_DIR, game_docs, edge_list, NOW, log)
+        mboard = market.run(DATA_DIR, game_docs, edge_list, NOW, log)
     except Exception as e:
         log(f"market failed: {type(e).__name__}: {str(e)[:100]}")
     try:
@@ -1514,7 +1514,7 @@ def publish(game_docs, prop_docs, status, stamp):
             if rc != 200:
                 raise RuntimeError(f"rules {rc}")
             kb, npcs = rt.publish_pre(game_docs, prop_docs, edge_list, status, DATA_DIR, log, mups=mups, rep=rep, fin=fin, opps=opp_list, pickslive=pl,
-                                      mstats=mstats)
+                                      mstats=mstats, mkt=mboard)
             pre_ok = True
             log(f"realtime database: {npcs} pieces, {kb} KB")
         except Exception as e:
