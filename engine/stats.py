@@ -112,6 +112,67 @@ def _players(lg, bx):
     return list(rows.values())
 
 
+def _pp_names(play):
+    """the scorer and assisters on a scoring play, from participants (goalies left out) or the play text"""
+    names = []
+    for x in play.get("participants") or []:
+        typ = str(x.get("type") or x.get("playerType") or (x.get("athlete") or {}).get("position") or "").lower()
+        if "goalie" in typ or "goaltender" in typ:
+            continue
+        n = (x.get("athlete") or {}).get("displayName") or (x.get("athlete") or {}).get("fullName")
+        if n:
+            names.append(n)
+    if names:
+        return names
+    t = str(play.get("text") or "")                       # "Auston Matthews (12) Wrist Shot, Assists: M. Marner (20), M. Rielly (10)"
+    import re
+    m = re.match(r"\s*([^(]+?)\s*\(\d+\)", t)
+    if m:
+        names.append(m.group(1))
+    a = re.split(r"assists?:", t, flags=re.I)
+    if len(a) > 1:
+        names += [re.sub(r"\s*\(\d+\)\s*", "", x).strip() for x in a[1].split(",") if x.strip()]
+    return names
+
+
+def add_pp_points(rows, s):
+    """NHL power-play points (goals + assists on power-play goals) onto box score rows ({name: row} or [row]), counted
+    from the summary's scoring plays. Every skater gets a number only when the summary has its plays (0 is real then)."""
+    import refs as R
+    plays = s.get("plays") or []
+    if not plays:
+        return 0
+    pp = {}
+    n_pp = 0
+    for p in plays:
+        if not p.get("scoringPlay"):
+            continue
+        st = p.get("strength") or {}
+        lab = f"{st.get('text') or ''} {st.get('abbreviation') or ''} {(p.get('type') or {}).get('text') or ''}".lower() if isinstance(st, dict) else str(st).lower()
+        txt = str(p.get("text") or "").lower()
+        if not ("power" in lab or " ppg" in f" {lab}" or "power play" in txt or "(ppg)" in txt or "pp goal" in txt):
+            continue
+        n_pp += 1
+        for n in _pp_names(p):
+            k = R.norm(n)
+            pp[k] = pp.get(k, 0) + 1
+    it = rows.values() if isinstance(rows, dict) else rows
+    for r in it:
+        if r.get("goalie"):
+            continue
+        r["powerPlayPoints"] = float(pp.get(R.norm(r.get("name") or ""), 0))
+    return n_pp
+
+
+def _pp(lg, rows, s):
+    if lg == "nhl":
+        try:
+            add_pp_points(rows, s)
+        except Exception:
+            pass
+    return rows
+
+
 def parse_summary(lg, s, event):
     comp = s["header"]["competitions"][0]
     teams = {}
@@ -123,7 +184,7 @@ def parse_summary(lg, s, event):
         teams[side]["stats"] = _team_stats(lg, t)
     ot = (event.get("status", {}).get("period") or 0) > {"nba": 4, "wnba": 4, "nhl": 3, "nfl": 4, "cfb": 4}.get(lg, 99)
     return {"id": event["id"], "date": comp.get("date"), "home": teams["home"], "away": teams["away"],
-            "ot": ot, "players": _players(lg, s["boxscore"])}
+            "ot": ot, "players": _pp(lg, _players(lg, s["boxscore"]), s)}
 
 
 def fetch_day(lg, season, d, data_dir, force=False):

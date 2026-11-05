@@ -223,6 +223,9 @@ def stat(sport, market, p):
                 "player_turnovers": lambda: _v(p, "turnovers"), "player_points_rebounds_assists": lambda: _sum(p, "points", "rebounds", "assists"),
                 "player_points_rebounds": lambda: _sum(p, "points", "rebounds"), "player_points_assists": lambda: _sum(p, "points", "assists"),
                 "player_rebounds_assists": lambda: _sum(p, "rebounds", "assists"), "player_blocks_steals": lambda: _sum(p, "blocks", "steals"),
+                "player_field_goals": lambda: _v(p, "fieldGoalsMade-fieldGoalsAttempted", 0),
+                "player_frees_made": lambda: _v(p, "freeThrowsMade-freeThrowsAttempted", 0),
+                "player_frees_attempts": lambda: _v(p, "freeThrowsMade-freeThrowsAttempted", 1),
                 "player_double_double": lambda: 1.0 if tens() >= 2 else 0.0, "player_triple_double": lambda: 1.0 if tens() >= 3 else 0.0,
                 "player_fantasy_points": lambda: _sum(p, "points") + 1.2 * (_v(p, "rebounds") or 0) + 1.5 * (_v(p, "assists") or 0)
                 + 3 * (_v(p, "blocks") or 0) + 3 * (_v(p, "steals") or 0) - (_v(p, "turnovers") or 0)}.get(m, lambda: None)()
@@ -230,7 +233,9 @@ def stat(sport, market, p):
         return {"player_points": lambda: _sum(p, "goals", "assists"), "player_goals": lambda: _v(p, "goals"), "player_assists": lambda: _v(p, "assists"),
                 "player_shots_on_goal": lambda: _v(p, "shotsTotal"), "player_blocked_shots": lambda: _v(p, "blockedShots"),
                 "player_total_saves": lambda: _v(p, "saves"), "player_goal_scorer_anytime": lambda: _v(p, "goals"),
-                "player_faceoffs_won": lambda: _v(p, "faceoffsWon")}.get(m, lambda: None)()
+                "player_faceoffs_won": lambda: _v(p, "faceoffsWon"), "player_time_on_ice": lambda: _v(p, "timeOnIce"),
+                # not in ESPN's box score: counted from the game's power-play scoring plays (stats.add_pp_points)
+                "player_power_play_points": lambda: _v(p, "powerPlayPoints")}.get(m, lambda: None)()
     if sport in ("americanfootball_nfl", "americanfootball_ncaaf"):
         tds = lambda: _sum(p, "rushing.rushingTouchdowns", "receiving.receivingTouchdowns")
         return {"player_pass_yds": lambda: _v(p, "passing.passingYards"), "player_pass_tds": lambda: _v(p, "passing.passingTouchdowns"),

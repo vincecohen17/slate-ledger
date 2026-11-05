@@ -270,7 +270,8 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
             continue
         changed = False
         for p in picks:
-            if p.get("status") not in (None, "open", "pending") or p.get("tier") == "likely":
+            # every tier grades, "likely" too (0 units: no profit, but its result, flat return and CLV are the record)
+            if p.get("status") not in (None, "open", "pending"):
                 continue
             snap = _snap(data_dir, p.get("gameId"))
             if not snap:
@@ -303,6 +304,8 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
             u = p.get("units") or 0
             p["status"] = g["result"]
             p["profit"] = round(u * (dec - 1), 3) if g["result"] == "won" else -u if g["result"] == "lost" else 0
+            # flat 1-unit return at the graded price: compares tiers and sports on one scale whatever the stake
+            p["flat"] = round(dec - 1, 3) if g["result"] == "won" else -1.0 if g["result"] == "lost" else 0.0
             p["gradedAt"], p["gradeSrc"], p["gradeVenue"] = am, src, gv
             p["clv"] = g["clv"]
             p["closeFair"] = g["closeFair"]
@@ -354,15 +357,57 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
             log(f"ledger: bet skipped ({type(e).__name__})")
             continue
         if not g:
+            # a parlay across games or days: each leg's result goes on the bet as soon as its game is final, so the
+            # site shows yesterday's legs as won or lost while the rest are still to play
+            if len(b.get("legs") or []) > 1:
+                try:
+                    done = _legs_done(data_dir, b, fin_by_gid)
+                except Exception:
+                    done = {}
+                if done and done != (b.get("legsDone") or {}):
+                    snap.reference.update({"legsDone": done})
             continue
         if b.get("live"):          # a live bet's yardstick is the live fair minutes later, not the pre-game close
             lc = b.get("liveCheck") or {}
             g["clv"], g["closeFair"] = lc.get("clv"), lc.get("fair")
-        snap.reference.update({"auto": {"result": g["result"], "clv": g["clv"], "closeFair": g["closeFair"],
-                                        "legs": leg_results(legs, g["legs"]), "closeEst": g.get("est") or None,
-                                        "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}})
+        up = {"auto": {"result": g["result"], "clv": g["clv"], "closeFair": g["closeFair"],
+                       "legs": leg_results(legs, g["legs"]), "closeEst": g.get("est") or None,
+                       "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}}
+        lg = last_game(data_dir, legs)
+        if lg and not b.get("lastGame"):
+            up["lastGame"] = lg
+        snap.reference.update(up)
         n += 1
     return n
+
+
+def last_game(data_dir, legs):
+    """the start of the bet's last game (ISO): the day a bet belongs to, however late it was graded"""
+    cs = []
+    for x in legs or []:
+        c = x.get("commence")
+        if not c:
+            sn = _snap(data_dir, x.get("gameId"))
+            c = (sn or {}).get("commence")
+        if c:
+            cs.append(c)
+    return max(cs) if cs else None
+
+
+def _legs_done(data_dir, b, fin_by_gid):
+    """{leg index: {y, stat, void}} for the legs of an open bet whose games are final (index into b["legs"])"""
+    out = {}
+    for i, x in enumerate(b.get("legs") or []):
+        if not x.get("gameId"):
+            continue
+        r = LB.resolve(x, data_dir)
+        if not r:
+            continue
+        g = grade_leg(data_dir, r, fin_by_gid)
+        if g is None:
+            continue
+        out[str(i)] = {"y": g["y"], "stat": g.get("stat"), "void": bool(g.get("void"))}
+    return out
 
 
 def _legs_of(b, data_dir):
@@ -440,6 +485,10 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
                     up["legResults"] = leg_results(legs, g["legs"])
                 if b.get("fairAtLog") is None and g.get("closeFair") is not None:
                     up.update({"fairAtLog": g["closeFair"], "fairAtLogSrc": "close"})
+        if not b.get("lastGame"):          # the day the bet belongs to: its last game, not the day it was graded
+            lg = last_game(data_dir, up.get("legs") or legs)
+            if lg:
+                up["lastGame"] = lg
         if up:
             up["backfilledAt"] = now.isoformat().replace("+00:00", "Z")
             snap.reference.update(up)

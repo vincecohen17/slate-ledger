@@ -7,7 +7,7 @@ import { settleProfit, isBoost } from "../promo.js";
 import { VENUES } from "../lab.js";
 import { projectedCard, betLegs } from "../projected.js";
 import { betImage } from "./common.js";
-import { analysis, bindAnalysis } from "./analysis.js";
+import { analysis, bindAnalysis, gameDay } from "./analysis.js";
 import { picksDeep, bindPicksDeep } from "./picksdeep.js";
 import { walletHtml, bindWallet } from "./wallet.js";
 import { unify, outcomes, arbSheet, unpair, findPairs, autoPair, pairBets } from "../arbs.js";
@@ -260,7 +260,8 @@ function mine(el) {
           <button class="btn sm ghost" data-bin="${b.id}|1">Boost was in the odds <span class="tiny muted">${st === "won" ? `wins ${money(a)}` : ""}</span></button>
           <button class="btn sm ghost" data-bin="${b.id}|0">Normal odds <span class="tiny muted">${st === "won" ? `wins ${money(n)}` : ""}</span></button></div>`; }).join("")}</div></div>` : ""; })()}
     ${pend.length ? `<div class="sec-title">Open bets<span class="line"></span></div>${projectedCard({ items: pend, title: "Projected profit on open bets",
-        settledToday: raw.filter((b) => ["won", "lost", "push"].includes(b.status) && b.settledAt && new Date(b.settledAt).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }) === todayPT()).reduce((x, b) => x + (b.profit || 0), 0) })}` : ""}
+        dayOf: gameDay, today: todayPT(),
+        settledToday: raw.filter((b) => ["won", "lost", "push"].includes(b.status) && gameDay(b) === todayPT()).reduce((x, b) => x + (b.profit || 0), 0) })}` : ""}
     ${ins.length ? `<div class="sec-title">What the numbers say<span class="line"></span></div><div class="card col lg-ins">${ins.map(([t, x]) => `<div class="lg-in ${t}">${t === "pos" ? "▲" : t === "neg" ? "▼" : "●"} ${esc(x)}</div>`).join("")}</div>`
       : `<div class="card note" style="margin-top:12px">Takeaways appear once 8+ bets are settled with a closing price. Bets logged from the Edges, Picks, Promos and Lab screens grade themselves after the game; typed-in bets need a W/L tap.</div>`}
     <div class="sec-title">Running profit<span class="line"></span></div><div class="card">${plChart(settled)}</div>
@@ -278,13 +279,13 @@ function ours() {
   const all = [...S.picks.values()];
   const graded = all.filter((p) => ["won", "lost", "push"].includes(p.status)).sort((a, b) => (a.commence || "").localeCompare(b.commence || ""));
   const asBet = (p) => ({ ...p, stake: p.units || 0, profit: p.profit || 0, label: p.selection, settledAt: p.commence });
-  const tiers = ["bet", "floor"].map((t) => ({ t, ...summarize(graded.filter((p) => p.tier === t).map(asBet)) }));
+  const tiers = ["bet", "floor", "lean"].map((t) => ({ t, ...summarize(graded.filter((p) => p.tier === t).map(asBet)) }));
   const s = summarize(graded.map(asBet));
   const byLeague = new Map();
   graded.forEach((p) => { const k = p.league || "?"; if (!byLeague.has(k)) byLeague.set(k, []); byLeague.get(k).push(asBet(p)); });
   const ub = unify([...S.bets.values()]), tailed = ub.filter((b) => b.pickId || b.source === "pick");
   const ts = summarize(tailed), own = summarize(ub.filter((b) => !(b.pickId || b.source === "pick")));
-  const recent = [...all].filter((p) => p.tier !== "likely").sort((a, b) => (b.commence || "").localeCompare(a.commence || "")).slice(0, 30);
+  const recent = [...all].sort((a, b) => (b.commence || "").localeCompare(a.commence || "")).slice(0, 30);
   const u = (x) => `${x >= 0 ? "+" : ""}${(x || 0).toFixed(2)}u`;
   const openPicks = all.filter((p) => ["open", "pending", undefined, null].includes(p.status) && p.tier !== "likely").map((p) => {
     const ins = (p.playTo || []).filter((v) => v.inRange && typeof v.price === "number");

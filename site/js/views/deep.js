@@ -20,9 +20,11 @@ export function calendar(days, { fmt, short, sel = null, scale = null } = {}) {
     for (let d = 1; d <= nd; d++) {
       const k = `${m}-${String(d).padStart(2, "0")}`, x = days.get(k);
       if (!x) { cells.push(`<div class="cal-d"><span class="cal-n">${d}</span></div>`); continue; }
-      const a = Math.min(1, Math.abs(x.v) / sc) * 0.62 + 0.12, col = x.v >= 0 ? "--pos" : "--neg";
-      cells.push(`<button class="cal-d on ${sel === k ? "sel" : ""}" data-day="${k}" style="background:color-mix(in srgb, var(${col}) ${Math.round(a * 100)}%, transparent)" data-tip="${esc(x.tip || `${k}: ${fmt(x.v)}`)}">
-        <span class="cal-n">${d}</span><b class="num">${esc(sh(x.v))}</b>${x.n != null ? `<span class="cal-c">${x.n}</span>` : ""}</button>`);
+      // x.proj: open bets' projected profit on that day (shown as ≈; a day with only open bets is outlined, not filled)
+      const pOnly = !x.n && x.proj != null, a = Math.min(1, Math.abs(x.v) / sc) * 0.62 + 0.12, col = x.v >= 0 ? "--pos" : "--neg";
+      const bg = pOnly ? "" : `background:color-mix(in srgb, var(${col}) ${Math.round(a * 100)}%, transparent)`;
+      cells.push(`<button class="cal-d on ${pOnly ? "proj" : ""} ${sel === k ? "sel" : ""}" data-day="${k}" style="${bg}" data-tip="${esc(x.tip || `${k}: ${fmt(x.v)}`)}">
+        <span class="cal-n">${d}</span>${pOnly ? "" : `<b class="num">${esc(sh(x.v))}</b>`}${x.proj != null ? `<span class="cal-p num ${x.proj >= 0 ? "pos" : "neg"}">≈${esc(sh(x.proj))}</span>` : ""}${x.n ? `<span class="cal-c">${x.n}</span>` : ""}</button>`);
     }
     return `<div class="cal-m"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${MON[mo - 1]} ${y}</b>
       <span class="tiny muted">${up} up · ${dn} down · <b class="num ${tot >= 0 ? "pos" : "neg"}">${esc(fmt(tot))}</b></span></div>

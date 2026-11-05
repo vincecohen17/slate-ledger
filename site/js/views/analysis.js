@@ -13,6 +13,7 @@ import { unify } from "../arbs.js";
 import { walletAll } from "../wallet.js";
 import { mean, meanCI, wilson, bootRatio, logLoss, brier, calibFit, relBins, ptDay, pTwo, fmtP, fmtT, sd } from "../stats.js";
 import { calendar, relChart, histogram, sortTable, bindSort, td, downloadCsv, chipBar } from "./deep.js";
+import { project } from "../projected.js";
 
 const DFS = new Set(VENUES.filter((v) => v.dfs).map((v) => v.key));
 const DONE = ["won", "lost", "push"];
@@ -40,7 +41,15 @@ function expOf(b) {
 }
 const legsOf = (b) => (b.legs?.length ? b.legs : [b]);
 // the game day (Pacific) a bet belongs to: its last leg's start, else when it settled
-export const gameDay = (b) => { const cs = legsOf(b).map((l) => l.commence || b.commence).filter(Boolean).sort(); return ptDay(cs.at(-1) || b.settledAt || b.createdAt); };
+// the Pacific day a bet belongs to: its last game's day (the engine's lastGame, else each leg's start, from the leg or the
+// board), never the day it happened to be graded or settled by hand
+const startOf = (gid) => gid && (S.games.get(gid)?.commence || S.liveGames.get(gid)?.commence || (S.finals || []).find((x) => x.gameId === gid)?.commence);
+export const gameDay = (b) => {
+  if (b.lastGame) return ptDay(b.lastGame);
+  if (b.legsB?.length) { const ds = b.legsB.map(gameDay).filter(Boolean).sort(); if (ds.length) return ds.at(-1); }
+  const cs = legsOf(b).map((l) => l.commence || startOf(l.gameId) || b.commence || startOf(b.gameId)).filter(Boolean).sort();
+  return ptDay(cs.at(-1) || b.settledAt || b.createdAt);
+};
 const promoKind = (b) => { if (!b.promoId) return "No promo"; const p = promoOf(b); return p ? kindOf(normalize(p).kind).name : "Promo (deleted)"; };
 const hoursBefore = (b) => (b.commence && b.createdAt ? (new Date(b.commence) - new Date(b.createdAt)) / 3600000 : null);
 const timing = (b) => { if (b.live) return "Live (in-game)"; const h = hoursBefore(b); return h == null ? "Unknown" : h < 1 ? "Under 1h before" : h < 3 ? "1-3h before" : h < 12 ? "3-12h before" : h < 36 ? "12-36h before" : "36h+ before"; };
@@ -213,8 +222,16 @@ export function analysis() {
   </div>
 
   <div class="sec-title">Day by day<span class="line"></span></div>
-  <div class="card">${calendar(new Map([...dayM].map(([d, x]) => [d, { v: x.v, n: x.n, tip: x.tip }])), { fmt: money, short: (x) => `${x < 0 ? "-" : "+"}${Math.abs(x) >= 100 ? Math.round(Math.abs(x)) : Math.abs(x).toFixed(0)}`, sel: F.day })}
-    <p class="note">Each day is the Pacific date of the game (a parlay's last game); the number is that day's profit and the small count is bets. Tap a day for its bets.</p>
+  <div class="card">${calendar((() => {
+      // settled profit on each game day, plus what the open bets on that day are projected to make (same day rule)
+      const cm = new Map([...dayM].map(([d, x]) => [d, { v: x.v, n: x.n, tip: x.tip }]));
+      all.filter((b) => b.status === "pending" && !b.isGroup).forEach((b) => {
+        const r = project(b, b.promoId ? S.promos.get(b.promoId) : null); if (!r || r.p == null) return;
+        const d = gameDay(b), x = cm.get(d) || { v: 0, n: 0, tip: "" }; x.proj = (x.proj || 0) + r.ev; x.nOpen = (x.nOpen || 0) + 1; cm.set(d, x);
+      });
+      cm.forEach((x, d) => { if (x.proj != null) x.tip = `${x.tip ? x.tip + " · " : `${d}: `}projected ${money(x.proj)} on ${x.nOpen} open (settled + projected ${money(x.v + x.proj)})`; });
+      return cm; })(), { fmt: money, short: (x) => `${x < 0 ? "-" : "+"}${Math.abs(x) >= 100 ? Math.round(Math.abs(x)) : Math.abs(x).toFixed(0)}`, sel: F.day })}
+    <p class="note">Each day is the Pacific date of the game (a parlay's last game), however late it was graded or settled; the number is that day's profit and the small count is bets. ≈ is what that day's open bets are projected to add. Tap a day for its bets.</p>
     ${selDay ? `<div class="card" style="margin-top:8px;background:var(--panel-2)"><b>${esc(F.day)}</b> · ${money(selDay.v)} on ${selDay.n} bets (expected ${money(selDay.exp)})${selDay.bets.map((b) => mini(b, money(b.profit), b.profit)).join("")}</div>` : ""}
     <div class="row small" style="gap:18px;flex-wrap:wrap;margin-top:10px"><span>Days: <b>${dvals.length}</b></span><span>Up: <b>${up}</b> (${dvals.length ? Math.round(up / dvals.length * 100) : 0}%)</span><span>Best: <b class="pos">${money(Math.max(...dvals))}</b></span><span>Worst: <b class="neg">${money(Math.min(...dvals))}</b></span>
       <span>Mean ± SD: <b>${money(dMean)} ± ${money(dSd)}</b></span><span title="mean daily P/L ÷ its SD; × √days is the t-stat that the daily mean is above zero">Daily Sharpe: <b>${dSd ? (dMean / dSd).toFixed(2) : "–"}</b> (t ${dSd ? fmtT(dMean / dSd * Math.sqrt(dvals.length)) : "–"})</span></div>

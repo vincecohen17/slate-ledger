@@ -102,6 +102,14 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   Period yardage markets are priced with the full-game yardage shape (build.p_over / dist.js pOver). Bet corrections Vince
   asks for go in the private data repo fixes/bets.json (switch a leg's side, or add a leg), applied once by ledger.apply_fixes.
   On the site, a leg on a line no book prices (a pick'em app's own number) is estimated from the player's sharp mean.
+  Parlays across games or days: grade_bets writes legsDone {index: {y, stat, void}} on the open bet as each leg's game goes
+  final, and the site shows those legs as won or lost (projected.legRaw). Bets carry lastGame (their last game's start,
+  written at grading and backfilled hourly): the Pacific day of that game is the bet's day everywhere (analysis gameDay,
+  the calendar, "today" on the projected card), however late it was graded. The Analysis calendar also shows each day's
+  open bets' projected profit (≈). Clock: ESPN's displayClock without a colon is seconds (live._clock_min); reading "45.3"
+  as minutes made every projection spike in the last minute of each period. NHL power-play points aren't in the box score:
+  stats.add_pp_points counts them from the summary's power-play scoring plays (live box and daily stats); also mapped:
+  NBA field goals and free throws, NHL time on ice.
 - Watcher (`run.py watch()`, mode watch, the live lane, up to 50 min a job): every minute until Vince's open bets and prop
   picks are done, app open or not. Each pass is a full live pull while the site is on a live screen (presence.live within
   3 min; the site dispatches "watch" every minute there) and otherwise free: ESPN only, the bet games' small live/g/<id>/m
@@ -201,7 +209,13 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   case (1-2 paragraphs, blank line between), pillars{model,advanced,matchup,role,context,market: support|neutral|against},
   risk (a paragraph on what could go wrong), marketFair, modelP, keyStats[{label,value,note?,tone}], confirm[],
   market (Odds API key), side, point (the side's own line), player?, team?, early? (posted the night before by the early look,
-  earlyAt), checks {logic, model, price} and logicCase (bet tier needs all three; price-only edges are never picks), evidence {lean: [playbook cells], support}; graded by the engine: status, profit, clv, closeFair
+  earlyAt), checks {logic, model, price} and logicCase (bet tier needs all three; price-only edges are never picks), evidence {lean: [playbook cells], support}; graded by the engine: status, profit, clv, closeFair,
+  flat (1u return at the graded price). Tiers: bet, floor (0.25u), lean (0.1u, tracked volume), likely (0u); every tier grades
+  (likely too, since Nov 4). Pick runs (scheduled tasks): morning 7:37, pregame 1:53, and an evening run for late games and
+  overnight tennis/soccer (needs Vince's approval to enable). They aim for 1 pick per 2 games across all sports (8+ a day), work
+  niche sports with logic-led cases (never bet tier under 5 books), and read the fast read first: a sport or tier with 15+
+  graded and CLV t <= -1.5 is cut to leans. Ledger > Our picks "Fast read": CLV (the early signal) by sport and tier, t,
+  beat-the-close, flat ROI, verdict (15+ picks, |t| >= 1.5) and picks still needed to reach t = 2.
 - `.github/workflows/pull.yml` engine run (manual or push to `engine/run-request`; live cron after the 5M upgrade).
   `deploy.yml` deploys site + rules on changes to `site/`, `firebase.json` or the rules template.
 - Private data repo `vincecohen17/slate-ledger-data`: `latest/` (board.json, props.json, edges.json, log_<mode>.txt: the

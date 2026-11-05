@@ -51,7 +51,9 @@ def _clock_min(s):
         if ":" in str(s):
             m, sec = str(s).split(":")
             return int(m) + float(sec) / 60
-        return float(s) / 60 if float(s) > 60 else float(s)
+        # no colon: ESPN shows seconds in the last minute of a period ("45.3"), or total seconds ("720"). It is never
+        # minutes, and reading "45.3" as minutes made every projection jump at the end of each quarter
+        return float(s) / 60
     except Exception:
         return 0.0
 
@@ -192,7 +194,13 @@ def box(sport, espn_id):
           "americanfootball_ncaaf": "cfb", "baseball_mlb": "mlb"}[sport]
     try:
         s = _get(f"{ESPN}/{PATH[sport]}/summary?event={espn_id}")
-        return {R.norm(p["name"]): p for p in ST._players(lg, s.get("boxscore", {}))}, s.get("winprobability")
+        rows = {R.norm(p["name"]): p for p in ST._players(lg, s.get("boxscore", {}))}
+        if lg == "nhl":                     # power-play points aren't in the box score: count them from the scoring plays
+            try:
+                ST.add_pp_points(rows, s)
+            except Exception:
+                pass
+        return rows, s.get("winprobability")
     except Exception:
         return {}, None
 

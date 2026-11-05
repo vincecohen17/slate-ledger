@@ -106,7 +106,8 @@ export function resolveLeg(leg) {
   }
   return leg;
 }
-export const betLegs = (b) => (b.legs && b.legs.length ? b.legs : [b]).map((x, i) => ({ ...resolveLeg(x), _k: `${b.id}#${i}` }));
+// _done: the engine's result for a leg whose game is final while the rest of the bet is still open (a parlay across days)
+export const betLegs = (b) => (b.legs && b.legs.length ? b.legs : [b]).map((x, i) => ({ ...resolveLeg(x), _k: `${b.id}#${i}`, _done: b.legsDone?.[i] ?? b.legsDone?.[String(i)] ?? null }));
 
 // Last known numbers per leg and per game: a live pull that comes back without a game or its props must not wipe
 // what we already knew. Running stats and scores never go backwards, a cleared line stays cleared, and the last live
@@ -143,6 +144,8 @@ export function legNow(leg) {
 }
 
 function legRaw(leg) {
+  const dn = leg._done;
+  if (dn && (dn.y != null || dn.void)) return { p: dn.void || dn.y == null ? 0.5 : dn.y, src: "final", cur: dn.stat ?? null, done: true, dnp: !!dn.void };
   const fin = S.finals.find((x) => x.gameId === leg.gameId);
   const fr = fromFinal(fin, leg);
   if (fr != null) return { p: fr, src: "final" };
@@ -311,7 +314,7 @@ function progress0(leg, r) {
     const res = r.p === 1 ? "Won" : r.p === 0 ? "Lost" : "Push";
     const st0 = gameState(leg.gameId), fs = st0?.home?.score != null ? ` · final ${st0.away.score}–${st0.home.score}` : "";
     const stat = leg.player && r.cur != null ? ` · finished with ${fmtN(r.cur)} (${leg.side === "Under" || leg.side === "No" ? "under" : "over"} ${leg.point})${r.dnp ? " · didn't play: check if the app voids it" : ""}` : fs;
-    return { cls: r.p === 1 ? "pos" : r.p === 0 ? "neg" : "", icon: r.p === 1 ? "✓" : r.p === 0 ? "✗" : "=", text: `${res}${stat} · grading soon`, bar: { done: r.p } };
+    return { cls: r.p === 1 ? "pos" : r.p === 0 ? "neg" : "", icon: r.p === 1 ? "✓" : r.p === 0 ? "✗" : "=", text: `${res}${stat}${r.done ? " · final" : " · grading soon"}`, bar: { done: r.p } };
   }
   const d = S.liveGames.get(leg.gameId), st = gameState(leg.gameId);
   const g = S.games.get(leg.gameId);
@@ -428,11 +431,16 @@ function ring(p, was, cls) {
 }
 
 const pctUp = (x) => (x > 0.995 && x < 0.99995 ? ">99%" : x < 0.005 && x > 0.00005 ? "<1%" : `${Math.round(x * 100)}%`);
-export function projectedCard({ items, title, fmt = money, units = false, settledToday = 0 }) {
+// dayOf(b): the Pacific day a bet belongs to (its last game). With it, "today" counts only bets whose last game is today:
+// what settled today plus today's open bets, never a bet that settles another day or one graded late from yesterday.
+export function projectedCard({ items, title, fmt = money, units = false, settledToday = 0, dayOf = null, today = null }) {
   const rows = items.map((b) => project(b, b.promoId ? S.promos.get(b.promoId) : null, units)).filter(Boolean);
   if (!rows.length) return "";
+  const todayRows = dayOf ? rows.filter((r) => dayOf(r.b) === today) : rows;
+  const sDay = dayOf ? summary(todayRows, units ? 0 : settledToday) : null;
   const s = summary(rows, units ? 0 : settledToday);
-  const day = settledToday + s.ev, locked = s.best - s.worst < 0.01;
+  const dayEv = sDay ? sDay.ev : s.ev, upDay = sDay ? sDay.upDay : s.upDay, later = rows.length - todayRows.length;
+  const day = settledToday + dayEv, locked = s.best - s.worst < 0.01;
   rows.sort((a, b) => (a.b.commence || "").localeCompare(b.b.commence || ""));
   // range bar: worst to best with the projection marked
   const span = (s.best - s.worst) || 1, at = (x) => Math.max(0, Math.min(100, (x - s.worst) / span * 100));
@@ -446,9 +454,9 @@ export function projectedCard({ items, title, fmt = money, units = false, settle
         return `<span class="${mins > 5 ? "neg" : ""}">updated ${mins < 1 ? "just now" : `${mins} min ago`}</span> · every minute`;
       })()}</span></div>
     <div class="pj-top">
-      <div class="pj-big"><div class="k">Projected</div><div class="v ${s.ev >= 0 ? "pos" : "neg"}">${fmt(s.ev)}</div><div class="s">on ${rows.length} open${!units ? ` · today ${fmt(day)} with ${fmt(settledToday)} settled` : ""}</div></div>
+      <div class="pj-big"><div class="k">Projected</div><div class="v ${s.ev >= 0 ? "pos" : "neg"}">${fmt(s.ev)}</div><div class="s">on ${rows.length} open${!units ? ` · today ${fmt(day)}: ${fmt(settledToday)} settled + ${fmt(dayEv)} on ${todayRows.length} open today${later ? ` (${later} settle another day)` : ""}` : ""}</div></div>
       <div class="pj-big"><div class="k">Chance to finish up</div><div class="v">${pctUp(s.up)}</div><div class="pj-meter"><i style="width:${(s.up * 100).toFixed(0)}%"></i></div>
-        ${!units && Math.abs(settledToday) > 0.005 ? `<div class="s">the day: ${pctUp(s.upDay)} to end up with ${fmt(settledToday)} settled</div>` : ""}</div>
+        ${!units && (Math.abs(settledToday) > 0.005 || later) ? `<div class="s">today: ${pctUp(upDay)} to end the day up</div>` : ""}</div>
       <div class="pj-big wide"><div class="k">Range</div>${locked ? `<div class="v ${s.ev >= 0 ? "pos" : "neg"}" style="font-size:18px">${fmt(s.ev)} locked</div><div class="s">every open result pays the same</div>`
         : `<div class="pj-range"><span class="z" style="left:${at(0)}%"></span><b style="left:${at(s.ev)}%"></b></div>
         <div class="row tiny" style="justify-content:space-between"><span class="${s.worst >= 0 ? "pos" : "neg"}">${fmt(s.worst)} worst case</span><span class="pos">${fmt(s.best)} best case</span></div>`}</div>

@@ -14,6 +14,8 @@ const decOf = (a) => (a == null ? null : a > 0 ? 1 + a / 100 : 1 + 100 / -a);
 const u = (x) => `${x >= 0 ? "+" : ""}${(x || 0).toFixed(2)}u`;
 const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
 const day = (p) => ptDay(p.commence) || p.date;
+// flat 1-unit return at the graded price (every tier, "likely" and "lean" included): one scale for comparing groups
+const flatOf = (p) => (p.flat != null ? p.flat : p.status === "won" ? (decOf(p.gradedAt) || 2) - 1 : p.status === "lost" ? -1 : 0);
 const expU = (p) => { const d = decOf(p.gradedAt), f = p.fair; return d && f != null ? f * (p.units || 0) * (d - 1) - (1 - f) * (p.units || 0) : null; };
 const varU = (p) => { const d = decOf(p.gradedAt), f = p.fair, x = p.units || 0; return d && f != null ? f * (1 - f) * (x * d) ** 2 : 0; };
 const sup = (p) => Object.values(p.pillars || {}).filter((x) => x === "support").length;
@@ -22,7 +24,7 @@ const kind = (p) => (p.player ? "Player prop" : /^h2h/.test(p.market || "") ? "M
 const DIMS = [["tier", "Tier"], ["league", "Sport"], ["kind", "Bet type"], ["market", "Market"], ["side", "Side"], ["checks", "Checks passed"], ["pillars", "Pillars"],
   ["gap", "Model − market"], ["edge", "Price edge"], ["fairb", "Fair chance"], ["run", "Posted by"], ["venue", "Graded at"], ["src", "Price source"]];
 const dimFn = {
-  tier: (p) => ({ bet: "Bet tier", floor: "Floor (0.25u)" })[p.tier] || p.tier,
+  tier: (p) => ({ bet: "Bet tier", floor: "Floor (0.25u)", lean: "Lean (0.1u, tracked)", likely: "Likely (0u, tracked)" })[p.tier] || p.tier,
   league: (p) => p.league || "?", kind, market: (p) => mktName(p.market) || "?",
   side: (p) => (p.side === "Over" || p.side === "Under" ? p.side : decOf(p.gradedAt) >= 2 ? "Underdog side" : "Favorite side"),
   checks: (p) => (p.checks ? `${["logic", "model", "price"].filter((k) => p.checks[k]).length} of 3` : "Not recorded"),
@@ -39,17 +41,54 @@ function agg(list) {
   const risk = list.reduce((s, p) => s + (p.units || 0), 0), pl = list.reduce((s, p) => s + (p.profit || 0), 0);
   const c = list.filter((p) => p.clv != null), ex = list.map(expU).filter((x) => x != null), v = list.reduce((s, p) => s + varU(p), 0);
   const plE = list.filter((p) => expU(p) != null).reduce((s, p) => s + (p.profit || 0), 0), e = ex.reduce((a, b) => a + b, 0);
-  return { n: list.length, w: list.filter((p) => p.status === "won").length, l: list.filter((p) => p.status === "lost").length, p: list.filter((p) => p.status === "push").length,
+  const fl = list.map(flatOf);
+  return { flat: fl.reduce((a, b) => a + b, 0), flatRoi: fl.length ? mean(fl) : null, n: list.length, w: list.filter((p) => p.status === "won").length, l: list.filter((p) => p.status === "lost").length, p: list.filter((p) => p.status === "push").length,
     risk, pl, roi: risk ? pl / risk : null, exp: e, luck: plE - e, z: v > 0 ? (plE - e) / Math.sqrt(v) : null, clv: c.length ? mean(c.map((p) => p.clv)) : null, beat: c.length ? c.filter((p) => p.clv > 0).length / c.length : null };
 }
 function table(rows, label) {
-  return sortTable([label, "Picks", "W-L-P", "Units risked", "Units", "ROI", "Expected", "Luck", "z", "Avg CLV", "Beat close"], rows.map(([k, r]) => `<tr><td>${esc(k)}</td>${td(r.n, r.n)}${td(`${r.w}-${r.l}${r.p ? "-" + r.p : ""}`, r.w / Math.max(1, r.w + r.l))}
+  return sortTable([label, "Picks", "W-L-P", "Flat 1u ROI", "Units risked", "Units", "ROI", "Expected", "Luck", "z", "Avg CLV", "Beat close"], rows.map(([k, r]) => `<tr><td>${esc(k)}</td>${td(r.n, r.n)}${td(`${r.w}-${r.l}${r.p ? "-" + r.p : ""}`, r.w / Math.max(1, r.w + r.l))}
+    ${td(`<span class="${cls(r.flatRoi)}">${r.flatRoi != null ? pct(r.flatRoi) : "–"}</span>`, r.flatRoi)}
     ${td(r.risk.toFixed(2), r.risk)}${td(`<span class="${cls(r.pl)}">${u(r.pl)}</span>`, r.pl)}${td(r.roi != null ? pct(r.roi) : "–", r.roi)}${td(u(r.exp), r.exp)}${td(`<span class="${cls(r.luck)}">${u(r.luck)}</span>`, r.luck)}${td(fmtT(r.z), r.z)}
     ${td(`<span class="${cls(r.clv)}">${r.clv != null ? pct(r.clv) : "–"}</span>`, r.clv)}${td(r.beat != null ? Math.round(r.beat * 100) + "%" : "–", r.beat)}</tr>`));
 }
 
+// The fast read: results take hundreds of picks to say anything; CLV (did the closing sharp price move our way) carries
+// the same signal with far less noise, so it is the early indicator. Verdicts per sport and tier need 15+ graded picks and
+// |t| >= 1.5 on CLV; "picks to know" is how many more it takes for the current average to reach t = 2.
+const DAY14 = () => new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10);
+function verdict(c, n) {
+  if (n < 15 || c.t == null) return `<span class="pill">too early</span>`;
+  return c.t >= 1.5 ? `<span class="pill pos">working</span>` : c.t <= -1.5 ? `<span class="pill neg">not working</span>` : `<span class="pill">unclear</span>`;
+}
+function toKnow(c) {
+  if (c.m == null || !c.sd || !c.m) return "–";
+  const need = Math.max(15, Math.ceil((2 * c.sd / Math.abs(c.m)) ** 2));     // never fewer than the 15 the verdict needs
+  return need <= c.n ? "known" : `~${need - c.n} more`;
+}
+function fastRead(g) {
+  const recent = g.filter((p) => (day(p) || "") >= DAY14());
+  const block = (list, lab) => {
+    const c = meanCI(list.filter((p) => p.clv != null).map((p) => p.clv)), f = meanCI(list.map(flatOf));
+    const beat = list.filter((p) => p.clv != null), bt = beat.length ? beat.filter((p) => p.clv > 0).length / beat.length : null;
+    return `<div class="kpi"><div class="k">${lab}</div><div class="v ${cls(c.m)}">${c.m != null ? pct(c.m) : "–"} <span class="tiny muted">CLV</span></div>
+      <div class="s">${list.length} picks · beat the close ${bt != null ? Math.round(bt * 100) + "%" : "–"} · t ${fmtT(c.t)} · flat ROI ${f.m != null ? pct(f.m) : "–"} · ${toKnow(c)}</div></div>`;
+  };
+  const groups = (fn) => { const m = new Map(); g.forEach((p) => { const k = fn(p); if (!m.has(k)) m.set(k, []); m.get(k).push(p); }); return [...m].sort((a, b) => b[1].length - a[1].length); };
+  const rows = (fn, lab) => sortTable([lab, "Picks", "CLV", "t", "Beat close", "Flat 1u ROI", "Verdict", "Picks to know"], groups(fn).map(([k, list]) => {
+    const c = meanCI(list.filter((p) => p.clv != null).map((p) => p.clv)), f = meanCI(list.map(flatOf)), b = list.filter((p) => p.clv != null);
+    const bt = b.length ? b.filter((p) => p.clv > 0).length / b.length : null;
+    return `<tr><td>${esc(k)}</td>${td(list.length, list.length)}${td(`<span class="${cls(c.m)}">${c.m != null ? pct(c.m) : "–"}</span>`, c.m)}${td(fmtT(c.t), c.t)}${td(bt != null ? Math.round(bt * 100) + "%" : "–", bt)}
+      ${td(`<span class="${cls(f.m)}">${f.m != null ? pct(f.m) : "–"}</span>`, f.m)}<td>${verdict(c, list.length)}</td><td>${toKnow(c)}</td></tr>`;
+  }));
+  return `<div class="sec-title">Fast read<span class="line"></span></div>
+    <div class="kpis">${block(recent, "Last 14 days")}${block(g, "All graded picks")}</div>
+    <div class="card"><b class="small">By sport</b>${rows((p) => p.league || "?", "Sport")}</div>
+    <div class="card" style="margin-top:10px"><b class="small">By tier</b>${rows(dimFn.tier, "Tier")}</div>
+    <p class="note">Every tier is graded, including leans (0.1u) and likely calls (0u), at the first real venue price. CLV settles fast: a few dozen picks show whether we beat the closing market, where profit needs hundreds. "Working" or "not working" means CLV with t of 1.5 or more either way on 15+ picks. "Picks to know" is how many more it takes for the current average to reach t = 2. The pick runs read this same record and cut back a sport or tier that isn't working.</p>`;
+}
+
 export function picksDeep() {
-  const g = [...S.picks.values()].filter((p) => G.includes(p.status) && p.tier !== "likely").sort((a, b) => (a.commence || "").localeCompare(b.commence || ""));
+  const g = [...S.picks.values()].filter((p) => G.includes(p.status)).sort((a, b) => (a.commence || "").localeCompare(b.commence || ""));
   if (!g.length) return `<div class="card note">The deep view fills in once picks are graded.</div>`;
   const A = agg(g), boot = bootRatio(g, (p) => p.profit || 0, (p) => p.units || 0), C = meanCI(g.filter((p) => p.clv != null).map((p) => p.clv));
   const real = g.filter((p) => p.gradeSrc === "first seen" || p.gradeSrc === "posted").length;
@@ -76,6 +115,7 @@ export function picksDeep() {
       <div class="kpi"><div class="k">CLV</div><div class="v ${cls(C.m)}">${C.m != null ? pct(C.m) : "–"}</div><div class="s">t ${fmtT(C.t)} · p ${fmtP(C.p)} · n ${C.n}</div></div>
       <div class="kpi"><div class="k">Graded at real prices</div><div class="v">${real} of ${g.length}</div><div class="s">the rest at good-at (before price checks)</div></div>
     </div>
+    ${fastRead(g)}
     <div class="sec-title">Units by day<span class="line"></span></div>
     <div class="card">${calendar(new Map([...dm].map(([d, x]) => [d, { v: x.v, n: x.n, tip: x.tip }])), { fmt: u, short: (x) => `${x >= 0 ? "+" : "-"}${Math.abs(x).toFixed(1)}`, sel: V.day })}
       ${sel ? `<div class="card" style="margin-top:8px;background:var(--panel-2)"><b>${esc(V.day)}</b> · ${u(sel.v)} on ${sel.n} picks (expected ${u(sel.exp)})${sel.picks.map(line).join("")}</div>` : ""}
@@ -103,10 +143,10 @@ export function bindPicksDeep(el, rerender) {
   el.querySelectorAll("[data-day]").forEach((b) => b.onclick = () => { V.day = V.day === b.dataset.day ? null : b.dataset.day; rerender(); });
   const c = el.querySelector("#pk-csv");
   if (c) c.onclick = () => {
-    const g = [...S.picks.values()].filter((p) => p.tier !== "likely");
+    const g = [...S.picks.values()];
     downloadCsv(`slate-ledger-picks-${ptDay(new Date().toISOString())}.csv`, ["id", "game_day", "selection", "league", "market", "side", "point", "player", "tier", "units", "status", "graded_at", "grade_src", "grade_venue",
-      "profit", "fair", "market_fair", "model_p", "close_fair", "clv", "checks_logic", "checks_model", "checks_price", "pillars_support", "early"],
-      g.map((p) => [p.id, day(p), p.selection, p.league, p.market, p.side, p.point, p.player || "", p.tier, p.units, p.status, p.gradedAt, p.gradeSrc || "", p.gradeVenue || "", p.profit, p.fair, p.marketFair, p.modelP,
+      "profit", "flat_1u", "fair", "market_fair", "model_p", "close_fair", "clv", "checks_logic", "checks_model", "checks_price", "pillars_support", "early"],
+      g.map((p) => [p.id, day(p), p.selection, p.league, p.market, p.side, p.point, p.player || "", p.tier, p.units, p.status, p.gradedAt, p.gradeSrc || "", p.gradeVenue || "", p.profit, G.includes(p.status) ? flatOf(p) : "", p.fair, p.marketFair, p.modelP,
         p.closeFair, p.clv, p.checks?.logic, p.checks?.model, p.checks?.price, p.pillars ? sup(p) : "", p.early ? 1 : 0]));
   };
   bindSort(el);

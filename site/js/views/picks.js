@@ -25,7 +25,7 @@ const paras = (t) => String(t || "").split(/\n\s*\n/).filter(Boolean).map((x) =>
 export function pickCard(p) {
   const st = p.status || "pending";
   const stPill = st === "won" ? `<span class="pill pos">won</span>` : st === "lost" ? `<span class="pill neg">lost</span>` : st === "void" ? `<span class="pill neg">withdrawn</span>` : `<span class="pill">${esc(st)}</span>`;
-  const tier = (p.tier === "floor" ? `<span class="pill">floor</span>` : p.tier === "likely" ? `<span class="pill">likely</span>` : `<span class="pill s">bet</span>`)
+  const tier = (p.tier === "floor" ? `<span class="pill">floor</span>` : p.tier === "likely" ? `<span class="pill">likely · 0u</span>` : p.tier === "lean" ? `<span class="pill">lean · tracked</span>` : `<span class="pill s">bet</span>`)
     + (p.early ? ` <span class="pill v" title="posted the night before at the openers${p.earlyAt ? ` (${fmtTime(p.earlyAt)})` : ""}; the morning run re-checks it">early</span>` : "");
   const pillars = PILLARS.map(([k, t]) => {
     const v = p.pillars?.[k]; if (!v) return "";
