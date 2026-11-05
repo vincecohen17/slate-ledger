@@ -107,6 +107,22 @@ def test_calibration_fit_stays_bounded():
         assert abs(a) < 1 and 0.2 <= b <= 1.5, (a, b)
         assert b == 0.2           # the best b is under the floor: held there with a refit for it
 
+def test_team_names_match_espn():
+    """sportsbook team names that ESPN spells differently still resolve (their games never graded before)"""
+    import refs
+    mk = lambda i, ab, name, short: {"id": i, "abbr": ab, "name": name, "short": short}
+    recs = [mk("1", "LAC", "LA Clippers", "LA Clippers"), mk("2", "LAL", "Los Angeles Lakers", "Lakers"),
+            mk("3", "KSU", "Kansas State Wildcats", "Kansas St"), mk("4", "KU", "Kansas Jayhawks", "Kansas"),
+            mk("5", "SLP", "Slavia Prague", "Slavia Prague"), mk("6", "BOU", "AFC Bournemouth", "Bournemouth"),
+            mk("7", "LA", "LA Galaxy", "LA"), mk("8", "LAFC", "LAFC", "LAFC")]
+    teams = {refs.norm(r["name"]): r for r in recs}
+    want = {"Los Angeles Clippers": "LAC", "Los Angeles Lakers": "LAL", "Kansas St Wildcats": "KSU", "Kansas Jayhawks": "KU",
+            "Slavia Praha": "SLP", "Bournemouth": "BOU", "Los Angeles FC": "LAFC", "Duke Blue Devils": None}
+    for name, ab in want.items():
+        t = refs.find(teams, name)
+        assert (t and t["abbr"]) == ab, (name, t)
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

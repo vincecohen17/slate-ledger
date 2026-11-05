@@ -205,7 +205,12 @@ def fetch_day(lg, season, d, data_dir, force=False):
     fn = os.path.join(data_dir, "stats", lg, season, f"{d}.json")
     if not force and os.path.exists(fn):
         try:
-            if json.load(open(fn)).get("final"):
+            old = json.load(open(fn))
+            # NHL days collected before power-play points were counted (Nov 1-3): refetch recent ones once so their
+            # power-play-point bets, picks, edges and model rows can grade
+            stale_pp = (lg == "nhl" and old.get("games") and date.fromisoformat(d) >= today_pt() - timedelta(days=7)
+                        and not any("powerPlayPoints" in r for g in old["games"] for r in g.get("players", [])))
+            if old.get("final") and not stale_pp:
                 return 0
         except Exception:
             pass

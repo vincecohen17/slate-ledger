@@ -179,6 +179,12 @@ def _espn_game(data_dir, snap):
     if not lg:
         return None
     t = datetime.fromisoformat(snap["commence"].replace("Z", "+00:00")) - timedelta(hours=7)
+    if not snap.get("ha") or not snap.get("aa"):        # a team ESPN names differently (older snapshots): resolve from refs
+        import refs as R
+        snap = dict(snap, ha=snap.get("ha") or R.abbr_of(snap["sport"], snap["home"], data_dir),
+                    aa=snap.get("aa") or R.abbr_of(snap["sport"], snap["away"], data_dir))
+        if not snap["ha"] or not snap["aa"]:
+            return None
     want = {ALIAS.get(snap.get("ha"), snap.get("ha")), ALIAS.get(snap.get("aa"), snap.get("aa"))}
     for dd in (0, -1, 1):
         day = (t + timedelta(days=dd)).strftime("%Y-%m-%d")

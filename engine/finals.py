@@ -98,10 +98,59 @@ def _snapshots(data_dir):
     snaps = []
     for fn in glob.glob(os.path.join(data_dir, "track", "open", "*.json")):
         try:
-            snaps.append(json.load(open(fn)))
+            x = json.load(open(fn))
         except Exception:
-            pass
+            continue
+        for side, k in (("home", "ha"), ("away", "aa")):     # older snapshots of teams named differently at ESPN
+            if not x.get(k) and x.get(side):
+                x[k] = R.abbr_of(x.get("sport"), x[side], data_dir)
+        snaps.append(x)
     return snaps
+
+
+def _tennis_match(snaps, games, names, when):
+    """our game id for a tennis match: the board's match with the same two players, else a pre-game snapshot within a day
+    (a finished match is often gone from the board before its final is collected)"""
+    g = next((x for x in games if str(x.get("sport", "")).startswith("tennis_") and {R.norm(x["home"]), R.norm(x["away"])} == names), None)
+    if g:
+        return g
+    for x in snaps:
+        if not str(x.get("sport", "")).startswith("tennis_") or {R.norm(x["home"]), R.norm(x["away"])} != names:
+            continue
+        try:
+            if abs((datetime.fromisoformat(x["commence"].replace("Z", "+00:00")) - when).total_seconds()) < 24 * 3600:
+                return x
+        except Exception:
+            continue
+    return None
+
+
+def rematch(store, snaps, games):
+    """finals stored without our game id (team names that didn't match then): try again; returns how many matched"""
+    n = 0
+    for docs in store.values():
+        for doc in docs.values():
+            if not isinstance(doc, dict) or doc.get("gameId"):
+                continue
+            try:
+                when = datetime.fromisoformat(doc["commence"].replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if doc.get("tennis"):
+                g = _tennis_match(snaps, games, {R.norm(doc["home"].get("name")), R.norm(doc["away"].get("name"))}, when)
+                if g:
+                    doc["gameId"] = g["id"]
+                    if R.norm(g["home"]) != R.norm(doc["home"].get("name")):
+                        doc["home"], doc["away"] = doc["away"], doc["home"]
+                    n += 1
+                continue
+            gid, snap = _match(snaps, games, doc.get("sport"), doc["home"], doc["away"], when)
+            if gid:
+                doc["gameId"] = gid
+                if snap and not doc.get("pre"):
+                    doc["pre"] = _pre(snap)
+                n += 1
+    return n
 
 
 def _pre(snap):
@@ -162,7 +211,7 @@ def _doc(sport, e, s, snaps, games):
             "venue": ((hdr.get("venue") or (s or {}).get("gameInfo", {}).get("venue") or {}).get("fullName"))}
 
 
-def _tennis_doc(sport, ev, c, games=()):
+def _tennis_doc(sport, ev, c, games=(), snaps=()):
     comp = c.get("competitors", [])
     if len(comp) != 2:
         return None
@@ -178,7 +227,7 @@ def _tennis_doc(sport, ev, c, games=()):
     sets = [sum(1 for i, g in enumerate(p["line"]) if g > (pl[1 - j]["line"][i] if i < len(pl[1 - j]["line"]) else 0)) for j, p in enumerate(pl)]
     home, away = dict(pl[0], score=sets[0]), dict(pl[1], score=sets[1])
     names = {R.norm(pl[0]["name"]), R.norm(pl[1]["name"])}
-    g = next((x for x in games if str(x.get("sport", "")).startswith("tennis_") and {R.norm(x["home"]), R.norm(x["away"])} == names), None)
+    g = _tennis_match(snaps, games, names, when)
     if g and R.norm(g["home"]) != R.norm(home["name"]):
         home, away = away, home         # keep our board's home/away order
     return {"key": f"{sport}|{c.get('id')}", "espnId": c.get("id"), "gameId": g["id"] if g else None, "sport": sport, "league": C.label(sport),
@@ -204,6 +253,10 @@ def collect(data_dir, sports, games, now, every_min=10, log=print):
             store[str(day)] = json.load(open(os.path.join(d, f"{day}.json")))
         except Exception:
             store[str(day)] = {}
+    if state.get("v", 1) < 2:       # v2: college basketball reads the whole D-I scoreboard; refetch its finished days
+        state["done"] = {k: v for k, v in state.get("done", {}).items() if "college-basketball" not in k}
+        state["v"] = 2
+        state.pop("at", None)
     last = state.get("at")
     due = not last or (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).total_seconds() >= every_min * 60
     if due:
@@ -213,7 +266,7 @@ def collect(data_dir, sports, games, now, every_min=10, log=print):
             path = _path(sport)
             if not path:
                 continue
-            for day in days[:2]:
+            for day in days:             # all three days until each is complete (a day missed by a failed fetch gets another go)
                 if state.get("done", {}).get(f"{path}|{day}"):
                     continue
                 key = f"{path}|{day}"
@@ -221,7 +274,7 @@ def collect(data_dir, sports, games, now, every_min=10, log=print):
                     continue
                 paths_done.add(key)
                 try:
-                    sb = LV._get(f"{ESPN}/{path}/scoreboard?dates={day.strftime('%Y%m%d')}" + ("&groups=80" if sport == "americanfootball_ncaaf" else ""))
+                    sb = LV._get(f"{ESPN}/{path}/scoreboard?dates={day.strftime('%Y%m%d')}" + ("&groups=80" if sport == "americanfootball_ncaaf" else "&groups=50&limit=500" if sport == "basketball_ncaab" else ""))
                 except Exception:
                     continue
                 evs = sb.get("events", [])
@@ -238,7 +291,7 @@ def collect(data_dir, sports, games, now, every_min=10, log=print):
                                 k = f"{sport}|{c.get('id')}"
                                 if any(k in v for v in store.values()):
                                     continue
-                                doc = _tennis_doc(sport, ev, c, games)
+                                doc = _tennis_doc(sport, ev, c, games, snaps)
                                 if doc and doc["date"] in store:
                                     store[doc["date"]][k] = doc
                                     new += 1
@@ -266,6 +319,12 @@ def collect(data_dir, sports, games, now, every_min=10, log=print):
                         new += 1
                 if all_post and day < today:
                     state.setdefault("done", {})[key] = True
+        try:
+            nre = rematch(store, snaps, games)
+            if nre:
+                log(f"finals: {nre} earlier finals matched to our games")
+        except Exception as ex:
+            log(f"finals: rematch failed ({type(ex).__name__})")
         for day in days:
             json.dump(store[str(day)], open(os.path.join(d, f"{day}.json"), "w"), separators=(",", ":"))
         state["at"] = now.isoformat().replace("+00:00", "Z")
