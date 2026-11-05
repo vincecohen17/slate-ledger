@@ -109,7 +109,7 @@ def observe(data_dir, game_docs, prop_docs, edges, now, log=print):
             continue
         v = ent["obs"].get(e["book"])
         if v is None:
-            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"), "mp": e.get("modelP"), "steam": e.get("fairMove"), "fs": e.get("fairShift"),
+            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"), "mp": e.get("modelP"), "steam": e.get("fairMove"), "fs": e.get("fairShift"), "mkt": e.get("mkt"),
                                      "model": e.get("model"), "est": e.get("est"), "pickem": bool(e.get("pickem")),
                                      "best": round(dec, 4), "bestT": t, "last": round(dec, 4), "lastT": t}
             new += 1
@@ -189,7 +189,7 @@ def grade(data_dir, fin_by_gid, now, log=print):
             kind = ("pick'em" if v.get("pickem") else "prop" if ent.get("player") else "line")
             row = {"d": ent["commence"][:10], "sport": ent.get("sport"), "league": ent.get("league"), "venue": venue,
                    "mk": ent["market"], "kind": kind, "main": ent.get("main", False), "est": bool(v.get("est")), "model": bool(v.get("model")),
-                   "logic": v.get("logic"), "mp": v.get("mp"), "steam": v.get("steam"), "edge": v["edge"],
+                   "logic": v.get("logic"), "mp": v.get("mp"), "steam": v.get("steam"), "mkt": v.get("mkt"), "edge": v["edge"],
                    "gid": ent["gid"], "side": ent["side"], "pt": ent.get("point"), "player": ent.get("player"), "fs": v.get("fs"), "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
                    "clv": round(close * v["dec"] - 1, 4), "clvLast": round(close * v["last"] - 1, 4), "clvBest": round(close * v["best"] - 1, 4),
                    "y": y, "pnl": None if y is None else round(y * (v["dec"] - 1) - (1 - y), 4), "ca": g.get("age")}
@@ -275,6 +275,13 @@ DIMS = {
     "supportSize": lambda r: f"{SUP_NAME[_band(r.get('sup'))]} · {'5%+' if (r.get('edge') or 0) >= 0.05 else 'under 5%'}",
     "supLeague": lambda r: _sup_size(r.get("league"), r.get("sup"), r.get("edge")),
     "fairShift": lambda r: ("Corrected fair · " + ("Over/Yes" if r.get("side") in ("Over", "Yes") else "Under/No")) if r.get("fs") else "Raw fair",
+    # market behavior at the flag (market.py): did the sharp line move toward the side, who moved first, the splits
+    "mktMove": lambda r: None if not r.get("mkt") or r["mkt"].get("mv") is None else (
+        "Sharp-led move toward it" if r["mkt"].get("sl") else "Line moved 1.5+ toward it" if r["mkt"]["mv"] >= 0.015
+        else "Line moved 1.5+ away" if r["mkt"]["mv"] <= -0.015 else "Line flat since open"),
+    "mktSplits": lambda r: None if not r.get("mkt") or r["mkt"].get("b") is None else (
+        "Reverse line move side" if r["mkt"].get("rlm") else "Money 10+ over bets" if (r["mkt"].get("div") or 0) >= 10
+        else "Public side (70%+ bets)" if r["mkt"].get("pub") else "Bets 10+ over money" if (r["mkt"].get("div") or 0) <= -10 else "Splits even"),
     "steam": lambda r: "No fair history" if r.get("steam") is None else "Fair moved 2+ pts toward it" if r["steam"] >= 0.02 else "Fair moved away" if r["steam"] <= -0.01 else "Static gap",
 }
 
@@ -385,7 +392,7 @@ def summarize(data_dir, days=120, now=None):
             by = {}
             for r in rows:
                 by.setdefault(f(r), []).append(r)
-            out[dim] = sorted(({"k": k, **_agg(v)} for k, v in by.items() if len(v) >= 3), key=lambda x: -x["n"])[:150 if dim in ("supLeague", "logicSize") else 60]
+            out[dim] = sorted(({"k": k, **_agg(v)} for k, v in by.items() if len(v) >= 3 and k is not None), key=lambda x: -x["n"])[:150 if dim in ("supLeague", "logicSize") else 60]
         # the last 30 days by day, for a trend line
         by = {}
         for r in rows:

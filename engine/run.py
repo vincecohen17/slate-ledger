@@ -1126,6 +1126,9 @@ def main():
         return watch()
     if MODE == "ppprobe":
         return _ppprobe()
+    if MODE == "marketbackfill":
+        import market
+        return market.backfill(DATA_DIR, NOW, log)
     if MODE == "splitsprobe":
         import market
         return market.probe(DATA_DIR, log)
@@ -1398,7 +1401,12 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"snapshot failed: {type(e).__name__}")
     # the edges' report card: log new edges, refresh their fairs to the close, grade finished ones, re-rank by history
     import edgecard
-    ecard, pbook = None, None
+    ecard, pbook, mcard = None, None, None
+    try:        # market behavior: line movement by book, who moved first, DraftKings splits -> doc["mkt"], e["mkt"]
+        import market
+        market.run(DATA_DIR, game_docs, edge_list, NOW, log)
+    except Exception as e:
+        log(f"market failed: {type(e).__name__}: {str(e)[:100]}")
     try:
         n_moved = edgecard.opens(DATA_DIR, game_docs, prop_docs, NOW)
         try:            # steam: fair moved toward the edge's side in the last hour (graded by the report card)
@@ -1407,6 +1415,15 @@ def publish(game_docs, prop_docs, status, stamp):
             log(f"steam failed: {type(e).__name__}")
         n_new = edgecard.observe(DATA_DIR, game_docs, prop_docs, edge_list, NOW)
         n_eg = edgecard.grade(DATA_DIR, {d["gameId"]: d for d in (fin or {}).values() if d.get("gameId")}, NOW)
+        try:        # grade the market signals on finished games (how sides that moved / got the money did vs their close)
+            import market
+            n_mg = market.grade(DATA_DIR, {d["gameId"]: d for d in (fin or {}).values() if d.get("gameId")}, log)
+            if n_mg or not os.path.exists(os.path.join(DATA_DIR, "stats", "marketcard.json")):
+                mcard = market.card(DATA_DIR, log)
+            else:
+                mcard = json.load(open(os.path.join(DATA_DIR, "stats", "marketcard.json")))
+        except Exception as e:
+            log(f"market grading failed: {type(e).__name__}: {str(e)[:100]}")
         try:        # calibrated CLV: refit how much our closes are really worth when new edges graded (or none yet)
             import closecal
             if n_eg or not os.path.exists(os.path.join(DATA_DIR, "calib", "closecal.json")):
@@ -1464,6 +1481,8 @@ def publish(game_docs, prop_docs, status, stamp):
         rep["models"] = [r for r in card if r.get("llModel") is not None][:80]
         rep["modelsPending"] = [r for r in card if r.get("llModel") is None][:80]
         rep["backtest"] = _backtest_summary()
+        if mcard:
+            rep["marketcard"] = mcard
         if ecard:
             rep["edgecard"] = ecard
             if pbook:
