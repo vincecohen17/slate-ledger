@@ -236,13 +236,18 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   case (1-2 paragraphs, blank line between), pillars{model,advanced,matchup,role,context,market: support|neutral|against},
   risk (a paragraph on what could go wrong), marketFair, modelP, keyStats[{label,value,note?,tone}], confirm[],
   market (Odds API key), side, point (the side's own line), player?, team?, early? (posted the night before by the early look,
-  earlyAt), checks {logic, model, price} and logicCase (bet tier needs all three; price-only edges are never picks), evidence {lean: [playbook cells], support}; graded by the engine: status, profit, clv, closeFair,
+  earlyAt), checks {logic, model, price} and logicCase (bet tier needs all three; price-only edges are never picks), evidence {lean: [playbook cells], support}; graded by the engine: status, profit, clv, closeFair, clvCal, closeAge,
   flat (1u return at the graded price). Tiers: bet, floor (0.25u), lean (0.1u, tracked volume), likely (0u); every tier grades
   (likely too, since Nov 4). Pick runs (scheduled tasks): morning 7:37, pregame 1:53, and an evening run for late games and
   overnight tennis/soccer (needs Vince's approval to enable). They aim for 1 pick per 2 games across all sports (8+ a day), work
   niche sports with logic-led cases (never bet tier under 5 books), and read the fast read first: a sport or tier with 15+
   graded and CLV t <= -1.5 is cut to leans. Ledger > Our picks "Fast read": CLV (the early signal) by sport and tier, t,
   beat-the-close, flat ROI, verdict (15+ picks, |t| >= 1.5) and picks still needed to reach t = 2.
+- Scheduled Claude tasks (Pacific): pick runs 7:37 morning, 10:43 midday, 1:53 pregame, 5:41 evening (late games +
+  overnight tennis/soccer); promo desk hourly at :23 from 8 AM to 11 PM; nightly settlement and live audit 1:17 AM (audit
+  mode, recomputes results from finals, checks watcher/close capture/grading timeliness, fixes via engine or
+  fixes/bets.json); nightly model and logic lab 2:47 AM (one improvement, shipped only if it beats out of sample by 2+ SE;
+  notebook in the data repo lab/notes.md; logs to model_changes / change_log).
 - `.github/workflows/pull.yml` engine run (manual or push to `engine/run-request`; live cron after the 5M upgrade).
   `deploy.yml` deploys site + rules on changes to `site/`, `firebase.json` or the rules template.
 - Private data repo `vincecohen17/slate-ledger-data`: `latest/` (board.json, props.json, edges.json, log_<mode>.txt: the
