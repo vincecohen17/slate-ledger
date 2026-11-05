@@ -117,7 +117,7 @@ def compute(data_dir, today=None, log=print):
         import closecal
         closecal.load(data_dir)
         def fresh_cal(rs):
-            return [closecal.cal(r["close"], r.get("kind") or "prop", data_dir) * r["dec"] - 1 for r in rs
+            return [closecal.cal(r["close"], r.get("kind") or "prop", data_dir, closecal.typ(r)) * r["dec"] - 1 for r in rs
                     if not (r.get("ca") is not None and r["ca"] > CLOSE_OK_MIN)]
         for k, f in (("clv", fresh), ("clvCal", fresh_cal), ("gap", gap), ("roi", roi)):
             a, b = _ms(f(bef)), _ms(f(aft))
@@ -175,7 +175,7 @@ def daily(data_dir, days=45):
             x = by.setdefault(r["d"], {"clv": [], "gap": [], "pclv": [], "cal": []})
             if not (r.get("ca") is not None and r["ca"] > CLOSE_OK_MIN):
                 x["clv"].append(r["clv"])
-                x["cal"].append(closecal.cal(r["close"], r.get("kind") or "prop", data_dir) * r["dec"] - 1)
+                x["cal"].append(closecal.cal(r["close"], r.get("kind") or "prop", data_dir, closecal.typ(r)) * r["dec"] - 1)
             if r.get("y") is not None:
                 x["gap"].append(r["y"] - r["close"])
     for fn in glob.glob(os.path.join(data_dir, "picks", "*.json")):

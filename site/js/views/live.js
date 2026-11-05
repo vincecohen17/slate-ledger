@@ -2,7 +2,7 @@
 import { finalCard } from "./final.js";
 import { projectedCard } from "../projected.js";
 import { S } from "../store.js";
-import { esc, am, prob, pct, both, bothP, teamLogo, headshot, ago, bookLogo, edgeBar, $$ } from "../util.js";
+import { esc, am, prob, pct, both, bothP, teamLogo, headshot, ago, bookLogo, edgeBar, $$, odds } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 
 const TENNIS = (lg) => lg === "ATP" || lg === "WTA";
@@ -94,7 +94,7 @@ export function renderGameLive(el, g) {
     const lg = { label: lab, gameId: g.id, league: g.league, matchup: `${g.away} @ ${g.home}`, commence: g.commence, market: l.market, side: o, point: own,
       team: l.team || null, am: best?.am ?? null, venue: best?.book, venueName: best?.name, fair: fair ?? null, source: "live", live: true };
     return `<div class="lv-row"><span class="ellip">${esc(lab)}</span>
-      <span class="num">${best ? `${bookLogo(best.book, best.name, 13)} ${am(best.am)}` : "–"}</span>
+      <span class="num">${best ? `${bookLogo(best.book, best.name, 13)} ${odds(best.am)}` : "–"}</span>
       <span class="num tiny">${fair != null ? bothP(fair) : "–"}</span>
       <span class="num tiny ${md != null && fair != null ? (md - fair >= 0.03 ? "pos" : md - fair <= -0.03 ? "neg" : "") : ""}">${md != null ? prob(md) : "–"}</span>
       ${edgeBar(best?.edge, 0.08)}<button class="btn sm ghost lv-log" data-log='${esc(JSON.stringify(lg))}' title="log a live bet on this">Log</button></div>`;

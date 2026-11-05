@@ -1,5 +1,5 @@
 import { S } from "../store.js";
-import { esc, am, prob, fmtTime, fmtDay, teamLogo, leagueLogo, signPt, $$ } from "../util.js";
+import { esc, am, prob, fmtTime, fmtDay, teamLogo, leagueLogo, signPt, $$, odds, oddsTxt, oddsTxtP } from "../util.js";
 import { sitText } from "./live.js";
 import { finalCard } from "./final.js";
 
@@ -15,8 +15,8 @@ function q(label, line, side, txt) {
   const b = line?.bestVenue?.[side];
   if (!b) return `<div class="q"><div class="k">${label}</div><div class="v faint">–</div></div>`;
   const good = b.edge != null && b.edge > 0.005;
-  return `<div class="q" title="${esc(b.name)} · fair ${am(line.fairAm?.[side])}"><div class="k">${label}</div>
-    <div class="v ${good ? "good" : ""}"><span>${txt}</span><span>${am(b.am)}</span></div></div>`;
+  return `<div class="q" title="${esc(b.name)} · fair ${oddsTxtP(line.fair?.[side])}"><div class="k">${label}</div>
+    <div class="v ${good ? "good" : ""}"><span>${txt}</span><span>${am(b.am)}</span></div><div class="q3">${oddsTxt(b.am).split(" · ").slice(1).join(" · ")}</div></div>`;
 }
 
 // win chance: the sharp market on top, our model underneath, same scale; soccer gets the draw in the middle
@@ -116,7 +116,7 @@ export function card(g, edgeN, pick) {
     ${ranks(g, mu)}
     ${chips(g, mu)}
     ${pv?.headline ? `<div class="pv"><b>${esc(pv.headline)}</b>${pv.lean ? `<span class="tiny muted">Lean: ${esc(pv.lean)}</span>` : ""}</div>` : ""}
-    ${pick ? `<div class="pkline"><span class="tiny muted">Pick</span> <b>${esc(pick.selection)}</b> <span class="tiny muted">fair ${am(pick.fairAm)}</span></div>` : ""}
+    ${pick ? `<div class="pkline"><span class="tiny muted">Pick</span> <b>${esc(pick.selection)}</b> <span class="tiny muted">fair ${pick.fair != null ? oddsTxtP(pick.fair) : oddsTxt(pick.fairAm)}</span></div>` : ""}
     <div class="quick">
       ${sp ? q(esc(g.awayRef?.abbr || "Away"), sp, g.away, signPt(-sp.point)) : q("Spread", null)}
       ${tot ? q("Over", tot, "Over", tot.point) : q("Total", null)}

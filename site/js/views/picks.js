@@ -1,5 +1,5 @@
 import { S } from "../store.js";
-import { esc, am, pct, prob, fmtTime, fmtShortDay, units, todayPT, bookTag, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, fmtShortDay, units, todayPT, bookTag, $$, odds, oddsP } from "../util.js";
 import { centsTag, kUsd } from "../util.js";
 import { betImage, bindLog, labBtn } from "./common.js";
 
@@ -36,7 +36,7 @@ export function pickCard(p) {
   const vrows = lv ? lv.venues : (p.playTo || []).map((v) => ({ ...v, now: typeof v.price === "number" ? v.price : null, listed: true }));
   const venues = vrows.map((v) => `<div class="lrow" style="grid-template-columns:1fr auto auto">
       <span>${bookTag(v.venue, v.name || v.venue, 15)}${v.line != null ? ` <span class="tiny muted">${esc(v.line)}</span>` : ""}${v.note ? ` <span class="tiny muted">· ${esc(v.note)}</span>` : ""}</span>
-      <span class="px">${v.listed === false ? `<span class="faint">not listed</span>` : esc(v.now != null ? am(v.now) : "–")}${v.listed !== false && v.now != null && centsTag(v.now, v.venue) ? ` <span class="tiny muted">${centsTag(v.now, v.venue)}</span>` : ""}${v.avail != null && v.listed !== false ? ` <span class="tiny ${v.avail < 25 ? "neg" : "muted"}" title="on offer at this price right now">${kUsd(v.avail)}</span>` : ""}</span>
+      <span class="px">${v.listed === false ? `<span class="faint">not listed</span>` : (v.now != null ? odds(v.now) : "–")}${v.listed !== false && v.now != null && centsTag(v.now, v.venue) ? ` <span class="tiny muted">${centsTag(v.now, v.venue)}</span>` : ""}${v.avail != null && v.listed !== false ? ` <span class="tiny ${v.avail < 25 ? "neg" : "muted"}" title="on offer at this price right now">${kUsd(v.avail)}</span>` : ""}</span>
       <span class="${v.inRange ? "pos" : "faint"}">${v.inRange ? "✓ in range" : v.listed === false ? "–" : "wait"}</span></div>`).join("")
     + (lv ? `<div class="tiny muted" style="margin-top:4px">Checked ${fmtTime(lv.at)}${lv.fairNow != null ? ` · sharp fair now ${prob(lv.fairNow, 1)}` : ""}${lv.anyInRange ? "" : ` · <span class="neg">no venue in range right now</span>`}</div>` : "");
   return `<div class="card col ${st === "void" ? "pk-void" : ""}" style="gap:10px">
@@ -58,9 +58,9 @@ export function pickCard(p) {
     ${p.logicCase ? `<div class="small" style="line-height:1.45"><b>The sports case:</b> ${esc(p.logicCase)}</div>` : ""}
     ${p.evidence && ((p.evidence.lean || []).length || p.evidence.support != null) ? `<div class="tiny row" style="gap:4px;flex-wrap:wrap"><span class="muted">On the record:</span>${(p.evidence.lean || []).map((k) => `<span class="pill pos">▲ ${esc(k)}</span>`).join("")}${p.evidence.support != null ? `<span class="pill ${p.evidence.support >= 0 && p.evidence.support < 1.5 ? "pos" : "neg"}" title="where our model sits from the price (0) to the fair (1)">model support ${(+p.evidence.support).toFixed(2)}</span>` : ""}</div>` : ""}
     <div class="playto">
-      <div class="fc"><div class="k">Fair</div><div class="v">${am(p.fairAm)}</div><div class="s">${prob(p.fair, 1)}</div></div>
-      <div class="fc"><div class="k">Good at</div><div class="v">${am(p.goodAt)}</div><div class="s">or better</div></div>
-      <div class="fc"><div class="k">Great at</div><div class="v">${am(p.greatAt)}</div><div class="s">bet bigger</div></div>
+      <div class="fc"><div class="k">Fair</div><div class="v">${p.fair != null ? oddsP(p.fair) : odds(p.fairAm)}</div><div class="s">no-vig fair</div></div>
+      <div class="fc"><div class="k">Good at</div><div class="v">${odds(p.goodAt)}</div><div class="s">or better</div></div>
+      <div class="fc"><div class="k">Great at</div><div class="v">${odds(p.greatAt)}</div><div class="s">bet bigger</div></div>
     </div>
     ${meter(p)}
     ${pillars ? `<div class="pillars">${pillars}</div>` : ""}

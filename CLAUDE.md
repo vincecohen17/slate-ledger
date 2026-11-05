@@ -164,7 +164,11 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   window?, pMiddle?}; `unify()` folds each pair into one row (net profit, total stake, expected profit from the legs' fairs)
   for every ledger stat and the Analysis tab, so the losing leg never counts as a lost bet or skews venues, CLV or Kelly.
 - Prediction-market prices (Kalshi, Polymarket, DK Predictions, FanDuel Predicts) also show the app's cents (util centsTag,
-  fee backed out); odds inputs accept 52c / 52% / .52 (oddsFromInput adds the fee).
+  fee backed out); odds inputs accept 52c / 52% / .52 (oddsFromInput adds the fee) and decimal 2.5x / x2.5 / a bare number under 100.
+- Every price on the site shows three ways, American · implied % · decimal ("+150 · 40.0% · 2.5x"): util odds(am) / oddsP(p)
+  are the HTML (American, the other two small beside it; stacked in narrow cells by the .o3 CSS), oddsTxt / oddsTxtP the plain
+  text for titles, options and textContent; fairs use oddsP(p) so the % is the exact no-vig chance. am() is American only,
+  kept for inputs and placeholders. New price displays use these, never am() alone.
 - Promo funds: bonus_bet / free_entry promos have funds "own" (a set free bet or entry the app hands you: the wallet's bonus
   balance is untouched, winnings land as cash; wallet.freeFunded) or "bonus" (out of the app's bonus balance; wallet
   promos, and promos saved before the field). The reader sets it from the wording; the Promos form has "Paid from".
@@ -181,10 +185,13 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   that pull to the start) on bets (auto.closeAge), picks and graded edges (ca). CLV counts only fresh closes (closeAge <= 30,
   or unknown on older rows) and never estimated closes (site stats.clvOk, edgecard CLOSE_OK_MIN). Mismatched closes (20+
   points from the fair at the flag: feed errors or the wrong side) are dropped everywhere (edgecard._ok, policytest,
-  changes, closecal). Calibrated CLV (`engine/closecal.py` -> calib/closecal.json): our closing fair has been too generous
-  to the sides we flag, so raw CLV overstated edges by ~10 points (walk-forward Nov 5: raw +7.3%, calibrated -2.4%,
-  realized ROI -2.7%). Fit per kind (line / prop / pick'em) P = sigmoid(a + b logit(close)), shrunk by n/(n+500), refit
-  when edges grade; clvCal on edges (edge card), bets (auto.clvCal, backfilled), picks. Headline CLV on the site is the
+  changes, closecal). Calibrated CLV (`engine/closecal.py` -> calib/closecal.json): fit per kind x line type (main / alt /
+  model: a fair moved by our stat model or estimated) P = sigmoid(a + b logit(close)), shrunk by n/(n+500), and used only
+  where walk-forward raw CLV overstated realized ROI by 2+ game-clustered SE and the correction closes the gap (Nov 5: on for
+  model-priced props, raw +8.1% vs ROI -3.9%; main props raw +5.1% vs ROI +3.9% stay raw). The first version fit per kind
+  only, so alt-line behavior dragged main-line bets (a 60.8% closing moneyline read as 48%; Vince's bets -14% instead of
+  +3%). Bet legs carry t (grade_leg: main = the snapshot row with the most fairWeight for that market, alt otherwise, model
+  when estimated); closecal.VERSION bumps make bets and picks recompute clvCal (clvCalV). clvCal on edges, bets, picks. Headline CLV on the site is the
   calibrated one with raw beside it.
 - Change log (`engine/changes.py`): data repo stats/change_log.json (logic, picks, measure) + stats/model_changes.json
   (model fixes with backtests) -> stats/changes.json with each change's 14-day before/after on edges (won vs fair, CLV

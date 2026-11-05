@@ -1,5 +1,5 @@
 import { S, loadProps, propsFor } from "../store.js";
-import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wpBar, signPt, mktName, edgeCls, bindTips, spark, hitRate, both, marketInfo, bookLogo, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wpBar, signPt, mktName, edgeCls, bindTips, spark, hitRate, both, marketInfo, bookLogo, $$, oddsP, oddsTxtP } from "../util.js";
 import { edgeCard, ladder, bindLog, labBtn } from "./common.js";
 import { pickCard } from "./picks.js";
 import { renderMatchup } from "./matchup.js";
@@ -23,8 +23,8 @@ function hero(g) {
     </div>
     ${ml?.fair ? wpBar(g.away, g.home, ml.fair[g.away], ml.fair[g.home], g.awayRef, g.homeRef) : ""}
     <div class="fair-chips">
-      ${ml?.fair ? `<div class="fc"><div class="k">Fair moneyline</div><div class="v">${am(ml.fairAm[g.away])} / ${am(ml.fairAm[g.home])}</div><div class="s">${esc(g.awayRef?.abbr || "away")} / ${esc(g.homeRef?.abbr || "home")}</div></div>` : ""}
-      ${sp?.fair ? `<div class="fc"><div class="k">Spread</div><div class="v">${esc(g.homeRef?.abbr || "")} ${signPt(sp.point)}</div><div class="s">fair ${am(sp.fairAm[g.home])} / ${am(sp.fairAm[g.away])}</div></div>` : ""}
+      ${ml?.fair ? `<div class="fc"><div class="k">Fair moneyline</div><div class="v row" style="gap:10px">${oddsP(ml.fair[g.away])}<span class="faint">/</span>${oddsP(ml.fair[g.home])}</div><div class="s">${esc(g.awayRef?.abbr || "away")} / ${esc(g.homeRef?.abbr || "home")}</div></div>` : ""}
+      ${sp?.fair ? `<div class="fc"><div class="k">Spread</div><div class="v">${esc(g.homeRef?.abbr || "")} ${signPt(sp.point)}</div><div class="s">fair ${oddsTxtP(sp.fair[g.home])} / ${oddsTxtP(sp.fair[g.away])}</div></div>` : ""}
       ${tot?.fair ? `<div class="fc"><div class="k">Total</div><div class="v">${tot.point}</div><div class="s">over ${prob(tot.fair.Over)} · under ${prob(tot.fair.Under)}</div></div>` : ""}
       <div class="fc"><div class="k">Edges</div><div class="v ${nEdges ? "pos" : ""}">${nEdges}</div><div class="s">at your venues</div></div>
     </div></div>`;

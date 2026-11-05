@@ -643,3 +643,13 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 .pb-card .pill { font-size: 11px; }
 .lab-risk { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 4px; }
 .mini .btn.sm { padding: 1px 6px; margin-left: 4px; font-size: 11px; }
+
+/* odds in three formats: American, then implied chance and decimal smaller beside it; stacked in narrow cells */
+.o3 { display: inline-flex; align-items: baseline; gap: .4em; white-space: nowrap; }
+.o3s { font-size: .78em; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+.fc .o3, .kpi .o3, .price .o3, .px .o3, .col .o3, .lt-m .o3 { flex-direction: column; gap: 0; line-height: 1.15; }
+.price .o3, .col .o3 { align-items: flex-end; }
+.fc .o3, .kpi .o3, .lt-m .o3 { align-items: flex-start; }
+.o3s { font-size: 10.5px; }
+.big .o3s, .v .o3s { font-size: 11px; }
+.q .q3 { font: 400 10px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

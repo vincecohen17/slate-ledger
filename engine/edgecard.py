@@ -301,7 +301,7 @@ CLOSE_OK_MIN = 30          # CLV counts only where the close was pulled within t
 
 def _ccal(r):
     import closecal
-    p = closecal.cal(r["close"], r.get("kind") or "prop", None)
+    p = closecal.cal(r["close"], r.get("kind") or "prop", None, closecal.typ(r))
     return p * r["dec"] - 1
 
 

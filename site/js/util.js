@@ -137,8 +137,17 @@ export function sheet(html, onMount) {
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // American odds and implied % together, e.g. "+130 · 43.5%"
-export const both = (a) => a == null || isNaN(a) ? "–" : `${am(a)} · ${(probFromAm(a) * 100).toFixed(1)}%`;
-export const bothP = (p) => p == null || isNaN(p) ? "–" : `${am(amFromProb(p))} · ${(p * 100).toFixed(1)}%`;
+// Every price shows three ways: American, implied chance and decimal ("+150 · 40.0% · 2.5x"). odds()/oddsP() are the
+// HTML (American bold, the other two small beside it, stacked in narrow cells by .o3 CSS); oddsTxt()/oddsTxtP() the plain
+// text for titles, <option>s and textContent. am() stays American only, for inputs and placeholders.
+export const decTxt = (d) => d == null || isNaN(d) ? "–" : `${+d.toFixed(2)}x`;
+const _o3 = (a, p, d) => `<span class="o3"><span class="o3a">${am(a)}</span><span class="o3s">${(p * 100).toFixed(1)}% · ${decTxt(d)}</span></span>`;
+export const odds = (a) => a == null || isNaN(a) || a === 0 ? "–" : _o3(a, probFromAm(a), decFromAm(a));
+export const oddsP = (p) => p == null || isNaN(p) || p <= 0 || p >= 1 ? "–" : _o3(amFromProb(p), p, 1 / p);
+export const oddsTxt = (a) => a == null || isNaN(a) || a === 0 ? "–" : `${am(a)} · ${(probFromAm(a) * 100).toFixed(1)}% · ${decTxt(decFromAm(a))}`;
+export const oddsTxtP = (p) => p == null || isNaN(p) || p <= 0 || p >= 1 ? "–" : `${am(amFromProb(p))} · ${(p * 100).toFixed(1)}% · ${decTxt(1 / p)}`;
+export const both = odds;
+export const bothP = oddsP;
 
 // last-N sparkline with the bet line; returns "" when there is nothing to draw
 export function spark(vals, line, opts = {}) {
@@ -216,6 +225,11 @@ export function oddsFromInput(s, venue) {
   if (p != null) {
     if (!(p > 0 && p < 1)) return NaN;
     const cost = p + predFee(venue || "", p), d = 1 / cost;
+    return Math.round(d >= 2 ? (d - 1) * 100 : -100 / (d - 1));
+  }
+  // decimal: "2.5x", "x2.5", or a bare number under 100 (American odds are never between -100 and +100)
+  if ((m = t.match(/^x?(\d+(?:\.\d+)?)x?$/)) && (/x/.test(t) || +m[1] < 100) && +m[1] > 1) {
+    const d = +m[1];
     return Math.round(d >= 2 ? (d - 1) * 100 : -100 / (d - 1));
   }
   return parseFloat(t.replace(/^\+/, ""));

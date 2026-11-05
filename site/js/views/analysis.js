@@ -5,7 +5,7 @@
 // a breakdown explorer over 14 dimensions, venue x type heatmaps, sizing against Kelly, promos, arbs and middles, the
 // biggest swings, the full bet table (sortable, CSV) and what data each number rests on.
 import { S, saveSettings, sportKeys } from "../store.js";
-import { esc, am, pct, prob, money, fmtShortDay, bookLogo, mktName, bindTips } from "../util.js";
+import { esc, am, pct, prob, money, fmtShortDay, bookLogo, mktName, bindTips, odds } from "../util.js";
 import { settleProfit, kindOf, normalize } from "../promo.js";
 import { VENUES } from "../lab.js";
 import { lineChart, legend, divRows, heat } from "./charts.js";
@@ -204,7 +204,7 @@ export function analysis() {
   const promoTot = [...promoRows.values()].reduce((s, r) => s + r.extra, 0);
   const wal = walletAll().filter((w) => w.tracked), walP = wal.reduce((s, w) => s + (w.real || 0), 0), walAdj = wal.reduce((s, w) => s + (w.adj || 0), 0);
   const swing = [...st].sort((a, b) => (b.profit || 0) - (a.profit || 0)), clvS = st.filter(clvOk).sort((a, b) => b.clv - a.clv);
-  const mini = (b, val, num) => `<div class="an-mini">${bookLogo(b.venue || "any", b.venueName || "", 18)}<span class="ellip">${esc(b.label)}</span><span class="tiny muted">${am(b.am)} · ${esc(gameDay(b) || "")}</span><b class="num ${cls(num)}">${val}</b></div>`;
+  const mini = (b, val, num) => `<div class="an-mini">${bookLogo(b.venue || "any", b.venueName || "", 18)}<span class="ellip">${esc(b.label)}</span><span class="tiny muted">${odds(b.am)} · ${esc(gameDay(b) || "")}</span><b class="num ${cls(num)}">${val}</b></div>`;
   const dq = { n: st.length, fair: st.filter((b) => b.fairAtLog != null && b.fairAtLogSrc !== "close").length, fairC: st.filter((b) => b.fairAtLogSrc === "close").length,
     clv: st.filter((b) => b.clv != null).length, clvE: st.filter((b) => b.clv != null && b.closeEst).length, legs: st.filter((b) => b.legResults?.length).length };
 
@@ -313,7 +313,7 @@ export function analysis() {
   <div class="sec-title">Every settled bet<span class="line"></span></div>
   <div class="card">${sortTable(["Day", "Bet", "Venue", "Type", "Odds", "Stake", "P/L", "Fair at log", "EV at log", "Close", "CLV", "Promo"], st.slice().reverse().map((b) => {
     const ev = edgeAt(b); return `<tr><td data-v="${Date.parse(gameDay(b) || 0) || 0}">${esc(gameDay(b) || "")}</td><td class="ellip" style="max-width:280px;text-align:left" title="${esc(b.label)}">${esc(b.label)}</td><td>${esc(b.venueName || b.venue || "")}</td><td>${esc(betType(b))}</td>
-      ${td(am(b.am), b.dec)}${td(money(b.stake), b.stake)}${td(`<span class="${cls(b.profit)}">${money(b.profit)}</span>`, b.profit)}${td(b.fairAtLog != null ? `${prob(b.fairAtLog)}${b.fairAtLogSrc === "close" ? "*" : ""}` : "–", b.fairAtLog)}
+      ${td(odds(b.am), b.dec)}${td(money(b.stake), b.stake)}${td(`<span class="${cls(b.profit)}">${money(b.profit)}</span>`, b.profit)}${td(b.fairAtLog != null ? `${prob(b.fairAtLog)}${b.fairAtLogSrc === "close" ? "*" : ""}` : "–", b.fairAtLog)}
       ${td(ev != null ? pct(ev) : "–", ev)}${td(b.closeFair != null ? `${prob(b.closeFair)}${b.closeEst ? "~" : ""}` : "–", b.closeFair)}${td(`<span class="${cls(b.clv)}">${b.clv != null ? pct(b.clv) : "–"}</span>`, b.clv)}<td class="small">${esc(b.promoId ? promoKind(b) : "")}</td></tr>`; }))}
     <p class="note">* no fair was logged, so the close stands in. ~ the close is estimated (a pick'em number no book priced: the player's closing mean at that number).</p></div>
 

@@ -1,5 +1,5 @@
 import { S, loadAllProps, saveBet, savePromo } from "../store.js";
-import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, centsTag, oddsFromInput, PRED, kUsd, $, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, centsTag, oddsFromInput, PRED, kUsd, $, $$, odds as odds3, oddsP, oddsTxt, oddsTxtP } from "../util.js";
 import { VENUES } from "../lab.js";
 import { settleProfit, isBoost, promoOpen, singleUse, legs as boardLegs } from "../promo.js";
 import { money } from "../util.js";
@@ -35,7 +35,7 @@ export function edgeCard(e) {
       ${betImage(e)}
       <div class="col"><a class="what" href="${e.live ? `#/game/${e.gameId}/live` : href}" style="text-decoration:none">${e.live ? `<span class="pill live">● LIVE</span> ` : ""}${esc(e.label)}</a>
         <span class="sub ellip">${esc(e.matchup)} · ${fmtTime(e.commence)}</span></div>
-      <div class="price"><div class="big">${e.pickem ? "pick'em" : am(e.am)}</div>${!e.pickem && centsTag(e.am, e.book) ? `<div class="tiny" title="what ${esc(e.bookName)} shows: the contract price${e.book === "kalshi" || /polymarket/.test(e.book) ? " before its fee (the American price includes it)" : ""}">${centsTag(e.am, e.book)} in app</div>` : ""}<div class="tiny muted">${e.pickem ? (e.flex && e.minMult ? `${e.estMult ? `~${e.estMult.toFixed(2)}x est. · ` : ""}take at ≥ ${e.minMult.toFixed(2)}x` : `needs ${prob(e.be ?? 0.5774, 1)}`) : prob(1 / decFromAm(e.am), 1)}</div><div class="tiny muted" style="margin-top:3px">${bookTag(e.book, e.bookName, 14)}</div>${e.avail != null ? `<div class="tiny ${e.avail < 25 ? "neg" : "muted"}" title="what ${esc(e.bookName)} has on offer at this exact price; past it you fill at worse prices">${kUsd(e.avail)} at this price</div>` : ""}</div>
+      <div class="price"><div class="big">${e.pickem ? "pick'em" : odds3(e.am)}</div>${!e.pickem && centsTag(e.am, e.book) ? `<div class="tiny" title="what ${esc(e.bookName)} shows: the contract price${e.book === "kalshi" || /polymarket/.test(e.book) ? " before its fee (the American price includes it)" : ""}">${centsTag(e.am, e.book)} in app</div>` : ""}<div class="tiny muted">${e.pickem ? (e.flex && e.minMult ? `${e.estMult ? `~${e.estMult.toFixed(2)}x est. · ` : ""}take at ≥ ${e.minMult.toFixed(2)}x` : `needs ${prob(e.be ?? 0.5774, 1)}`) : prob(1 / decFromAm(e.am), 1)}</div><div class="tiny muted" style="margin-top:3px">${bookTag(e.book, e.bookName, 14)}</div>${e.avail != null ? `<div class="tiny ${e.avail < 25 ? "neg" : "muted"}" title="what ${esc(e.bookName)} has on offer at this exact price; past it you fill at worse prices">${kUsd(e.avail)} at this price</div>` : ""}</div>
     </div>
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
@@ -48,7 +48,7 @@ export function edgeCard(e) {
         <span class="tiny muted">fair ${bothP(e.fair)} · edge <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill" title="fair moved from the main line with the stat model">alt line</span>` : ""}${e.est ? ` · <span class="pill" title="nobody quotes the other side, so the fair is estimated (first-scorer markets de-vig across the whole field; others strip each book's measured margin)">est. fair</span>` : ""}</span>
         ${e.ctx?.length ? `<span class="tiny muted ellip" title="${esc(e.ctx.join(" · "))}">ⓘ ${esc(e.ctx[0])}${e.ctx.length > 1 ? ` +${e.ctx.length - 1}` : ""}</span>` : ""}
         ${e.last10?.length ? `<span class="l10">${spark(e.last10, e.point, { side: (e.label.match(/ (Over|Under) /) || [])[1] })}<span>last ${e.last10.length}: ${hitRate(e.last10, e.point, (e.label.match(/ (Over|Under) /) || [])[1])}</span></span>` : ""}
-        ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model gives this ${prob(e.modelP, 1)}, a fair price of ${am(amFromProb(e.modelP))}${e.ctx?.length ? ". Context in the model: " + esc(e.ctx.join(" · ")) : ""}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · model ${bothP(e.modelP)}</span>` : ""}</div>
+        ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model gives this ${prob(e.modelP, 1)}, a fair price of ${oddsTxtP(e.modelP)}${e.ctx?.length ? ". Context in the model: " + esc(e.ctx.join(" · ")) : ""}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · model ${bothP(e.modelP)}</span>` : ""}</div>
       <span class="col" style="gap:4px"><button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair, source: e.live ? "live" : "edge", live: !!e.live }))}'>Log</button>
       ${e.live ? "" : labBtn({ gameId: e.gameId, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, pickem: e.pickem ? e.book : null }, { venue: e.book })}</span>
     </div>
@@ -63,12 +63,12 @@ export function ladder(line, side, limit = 8, showAll = false) {
   const shown = showAll ? rows : rows.filter((r) => r.q.venue || r.q.kind === "sharp" || r.q.kind === "exchange").slice(0, limit);
   const max = Math.max(0.03, ...rows.map((r) => Math.abs(r.p.edge ?? 0)).slice(0, 6));
   let h = `<div class="ladder">`;
-  if (line.fair) h += `<div class="lrow fair"><span>Sharp fair</span><span class="px">${am(line.fairAm[side])}</span><span class="tiny muted">${prob(line.fair[side], 1)} chance</span><span></span></div>`;
+  if (line.fair) h += `<div class="lrow fair"><span>Sharp fair</span><span class="px">${oddsP(line.fair[side])}</span><span class="tiny muted">no-vig</span><span></span></div>`;
   for (const { q, p } of shown) {
     const e = p.edge;
-    h += `<div class="lrow ${q.stale ? "stale" : ""}" data-tip="${esc(q.name)}: ${am(p.allInAm ?? p.am)}${p.allInAm ? " all-in (fee)" : ""} · edge ${pct(e)}${p.avail != null ? ` · ${kUsd(p.avail)} on offer at this price` : ""}${q.stale ? " · stale" : ""}">
+    h += `<div class="lrow ${q.stale ? "stale" : ""}" data-tip="${esc(q.name)}: ${oddsTxt(p.allInAm ?? p.am)}${p.allInAm ? " all-in (fee)" : ""} · edge ${pct(e)}${p.avail != null ? ` · ${kUsd(p.avail)} on offer at this price` : ""}${q.stale ? " · stale" : ""}">
       <span class="row ellip" style="gap:6px">${bookTag(q.book, q.name, 16)} ${bookPill(q)}</span>
-      <span class="px">${am(p.allInAm ?? p.am)}${centsTag(p.allInAm ?? p.am, q.book) ? ` <span class="tiny muted">${centsTag(p.allInAm ?? p.am, q.book)}</span>` : ""}${p.avail != null ? ` <span class="tiny ${p.avail < 25 ? "neg" : "muted"}">${kUsd(p.avail)}</span>` : ""}</span>${edgeBar(e, max)}<span class="ed ${e > 0.005 ? "pos" : e < -0.04 ? "neg" : ""}">${pct(e)}</span></div>`;
+      <span class="px">${odds3(p.allInAm ?? p.am)}${centsTag(p.allInAm ?? p.am, q.book) ? ` <span class="tiny muted">${centsTag(p.allInAm ?? p.am, q.book)}</span>` : ""}${p.avail != null ? ` <span class="tiny ${p.avail < 25 ? "neg" : "muted"}">${kUsd(p.avail)}</span>` : ""}</span>${edgeBar(e, max)}<span class="ed ${e > 0.005 ? "pos" : e < -0.04 ? "neg" : ""}">${pct(e)}</span></div>`;
   }
   return h + `</div>`;
 }
@@ -111,7 +111,7 @@ export function logSheet(pre = {}) {
         <span class="small">The odds above already include the boost (what the app showed after boosting). Leave unchecked if you typed the normal price.</span></label>
       ${edit && !pre.group ? (() => {           // legs of an arb or middle logged one at a time: pair them so they count as one result
         const cands = [...S.bets.values()].filter((b) => b.id !== pre.id && !b.group && ((pre.gameId && b.gameId === pre.gameId) || (b.date && b.date === pre.date)));
-        return cands.length ? `<div class="fgrid"><label class="f" style="grid-column:span 2">Other leg of an arb or middle<select id="lb-pair"><option value="">Not paired</option>${cands.map((b) => `<option value="${b.id}">${esc(b.label)} · ${esc(b.venueName || b.venue || "")} ${am(b.am)}</option>`).join("")}</select></label>
+        return cands.length ? `<div class="fgrid"><label class="f" style="grid-column:span 2">Other leg of an arb or middle<select id="lb-pair"><option value="">Not paired</option>${cands.map((b) => `<option value="${b.id}">${esc(b.label)} · ${esc(b.venueName || b.venue || "")} ${oddsTxt(b.am)}</option>`).join("")}</select></label>
           <label class="f">Kind<select id="lb-pairk"><option value="arb">Arb</option><option value="middle">Middle</option></select></label></div>` : ""; })() : ""}
       ${edit && pre.status === "pending" ? (() => {      // logged the wrong side of an over/under leg: switch it here
         const ls = (pre.legs?.length ? pre.legs : [pre]).map((l, i) => [l, i]).filter(([l]) => l.side === "Over" || l.side === "Under");
@@ -140,7 +140,7 @@ export function logSheet(pre = {}) {
     const preview = () => {          // what it pays, so a double-counted boost is easy to spot
       const { odds, stake, promo, boostIn } = read(), boost = isBoost(promo);
       const raw = $("#lb-odds", el).value.trim(), ven = $("#lb-venue", el).value, cv = $(".lb-conv", el);
-      if (cv) cv.textContent = /[c¢%]$|^0?\./i.test(raw) && !isNaN(odds) ? `= ${am(odds)}${PRED.has(ven) && (ven === "kalshi" || /polymarket/.test(ven)) ? " after the fee" : ""}` : PRED.has(ven) && !isNaN(odds) ? `≈ ${centsTag(odds, ven)} in the app` : "";
+      if (cv) cv.textContent = raw && !isNaN(odds) && odds !== 0 ? `= ${oddsTxt(odds)}${/[c¢%]$|^0?\./i.test(raw) && PRED.has(ven) && (ven === "kalshi" || /polymarket/.test(ven)) ? " after the fee" : ""}${PRED.has(ven) && centsTag(odds, ven) ? ` · ≈ ${centsTag(odds, ven)} in the app` : ""}` : "";
       $(".lb-bst", el).hidden = !boost;
       const ur = $(".lb-usedrow", el);
       if (ur) { ur.hidden = !promo || promo.used || promo.wallet; if (promo && ur.dataset.for !== promo.id) { ur.dataset.for = promo.id; $("#lb-used", el).checked = singleUse(promo); } }
@@ -154,7 +154,7 @@ export function logSheet(pre = {}) {
       const b = { stake, dec: decFromAm(odds), boostIn };
       const base = stake * (b.dec - 1), w = settleProfit(b, promo, "won"), l = settleProfit(b, promo, "lost");
       $(".lb-pay", el).innerHTML = `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap">
-        <span class="small">If it wins: <b class="pos num">${money(w)}</b>${boost && w !== base ? ` <span class="tiny muted">(${money(base)} at ${am(odds)} + ${money(w - base)} boost)</span>` : boost ? ` <span class="tiny muted">(boost already in the odds)</span>` : ""}</span>
+        <span class="small">If it wins: <b class="pos num">${money(w)}</b>${boost && w !== base ? ` <span class="tiny muted">(${money(base)} at ${oddsTxt(odds)} + ${money(w - base)} boost)</span>` : boost ? ` <span class="tiny muted">(boost already in the odds)</span>` : ""}</span>
         <span class="small">If it loses: <b class="neg num">${money(l)}</b></span></div>`;
     };
     // adding a leg that was left out: search the board (every game's lines and props), tap to add; saved with the bet

@@ -3,7 +3,7 @@
 // but every stat treats the pair as ONE result: net profit, total staked, expected profit from the fairs. That keeps
 // a guaranteed loser leg out of the record, the venue tables, CLV, calibration and Kelly sizing.
 import { S, saveBet, savePromo } from "./store.js";
-import { esc, am, prob, money, sheet, toast, uid, decFromAm, todayPT, bookLogo, oddsFromInput, centsTag, $, $$ } from "./util.js";
+import { esc, am, prob, money, sheet, toast, uid, decFromAm, todayPT, bookLogo, oddsFromInput, centsTag, $, $$, oddsTxt } from "./util.js";
 import { VENUES } from "./lab.js";
 import { settleProfit, isBoost, promoOpen, singleUse } from "./promo.js";
 
@@ -90,7 +90,7 @@ export function arbSheet(pre = {}) {
         <label class="f">Promo<select class="ab-promo">${promoOpts("")}</select></label>
       </div>
       <label class="row lb-boost ab-bst" style="gap:8px;align-items:center;margin-top:6px" hidden><input type="checkbox" class="ab-boostin"><span class="tiny">odds above already include the boost</span></label>
-      ${l.fair != null ? `<div class="tiny muted" style="margin-top:4px">fair ${prob(l.fair)} when found · ${esc(l.name || "")} ${am(l.am)}${centsTag(l.am, l.book) ? ` (${centsTag(l.am, l.book)} in app)` : ""}${l.holdTo != null ? ` · still works down to ${am(l.holdTo)}${centsTag(l.holdTo, l.book) ? ` (${centsTag(l.holdTo, l.book)})` : ""}` : ""}</div>` : ""}
+      ${l.fair != null ? `<div class="tiny muted" style="margin-top:4px">fair ${prob(l.fair)} when found · ${esc(l.name || "")} ${oddsTxt(l.am)}${centsTag(l.am, l.book) ? ` (${centsTag(l.am, l.book)} in app)` : ""}${l.holdTo != null ? ` · still works down to ${am(l.holdTo)}${centsTag(l.holdTo, l.book) ? ` (${centsTag(l.holdTo, l.book)})` : ""}` : ""}</div>` : ""}
     </div>`;
   sheet(`<h3>Log ${fromBoard ? (kind === "arb" ? "this arb" : "this middle") : "an arb or middle"}</h3>
     <div class="col" style="gap:10px">

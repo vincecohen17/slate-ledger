@@ -1,5 +1,5 @@
 import { S, savePromo, deletePromo, loadAllProps, saveBet, saveWallet , savePromoReq, deletePromoReq } from "../store.js";
-import { esc, am, prob, fmtTime, money, uid, toast, todayPT, bookLogo, sheet, $, $$ } from "../util.js";
+import { esc, am, prob, fmtTime, money, uid, toast, todayPT, bookLogo, sheet, $, $$, odds as odds3 } from "../util.js";
 import { VENUES, venueName, legSpec } from "../lab.js";
 const draftLine = (p, c) => p.promoLine ?? legSpec(c.leg).point;
 import { KINDS, FIELDS, SPORTS, BET_TYPES, PICKEM, FEE_VENUES, kindOf, blank, normalize, parsePromo, describe, optimize, legs,
@@ -162,12 +162,12 @@ function optRow(p, o, i, max) {
         : pick && c.mult != null && Math.abs(c.mult - 1) > 0.01 ? `<span class="pill" title="this pick's payout vs a standard pick">${c.mult.toFixed(2)}x</span>` : ""}
       ${c.capped ? `<span class="tiny muted" title="the line is nearly certain; the 2% left is an early exit or a DNP that doesn't void">capped at 98%</span>` : ""}
       ${pick && c.needs ? `<span class="pill warn" title="skip this pick if the app shows a lower multiplier">needs ≥ ${c.needs.toFixed(2)}x</span>` : ""}
-      ${pick ? "" : `<span class="num small">${c.price?.am != null ? am(c.price.am) : c.price?.standIn ? `~${am(amOf(c.D))}` : am(amOf(c.D))}</span>`}
+      ${pick ? "" : `<span class="num small">${c.price?.am != null ? odds3(c.price.am) : c.price?.standIn ? `~${odds3(amOf(c.D))}` : odds3(amOf(c.D))}</span>`}
       <span class="tiny muted" title="our chance">${prob(c.P)}</span></div>`).join("");
   const bar = `<div class="pr-evb"><i class="${o.ev >= 0 ? "pos" : "neg"}" style="width:${Math.min(100, Math.abs(o.ev) / max * 100).toFixed(0)}%"></i></div>`;
   if (dep) return `<div class="row pr-leg">${legsH.replace(/^<div class="row pr-leg">/, "").replace(/<\/div>$/, "")}<button class="btn sm ghost" data-take="${esc(p.id)}|${i}">Log</button></div>`;
   const head = pick ? `<span>${o.legs.length}-pick · hits all ${prob(o.P, 1)}${p.flex ? " · flex" : o.perPick ? ` · pays ${o.payX.toFixed(2)}x (${o.legs.map((c) => (c.promo ? p.promoMult : c.perX ?? p.otherMult ?? 1.73).toFixed(2) + "x").join(" × ")})${o.assumed ? ` <span class="tiny muted" title="the feed doesn't carry this app's multipliers; type the other pick's real one in the promo">other pick assumed at 1.73x</span>` : ""}` : ` · pays ${o.payX ? `${(+o.payX).toFixed(2)}x` : `${p.mult || payoutFor(p.venue, o.legs.length) || "?"}x`}${k === "bonus_bet" ? " · bonus funds: only the winnings come back" : ""}`}</span>`
-    : `<span>${o.legs.length > 1 ? `${o.legs.length}-leg parlay at ` : "Single at "}<b class="num">${am(amOf(o.D))}</b> · wins ${prob(o.P, 1)}${o.sgp ? " · same-game estimate" : ""}${o.est ? " · chance estimated from the original price" : ""}</span>`;
+    : `<span>${o.legs.length > 1 ? `${o.legs.length}-leg parlay at ` : "Single at "}<b class="num">${odds3(amOf(o.D))}</b> · wins ${prob(o.P, 1)}${o.sgp ? " · same-game estimate" : ""}${o.est ? " · chance estimated from the original price" : ""}</span>`;
   return `<div class="pl pr-opt">${legsH}
     <div class="pl-b" style="margin-top:4px;gap:8px;align-items:center">${head}<span class="row" style="gap:8px"><span class="${o.ev >= 0 ? "pos" : "neg"}"><b>${money(o.ev)}</b> EV</span><button class="btn sm ghost" data-takelab="${esc(p.id)}|${i}" title="open these legs in the Bet Lab with this promo attached">Lab</button><button class="btn sm ghost" data-take="${esc(p.id)}|${i}">Log</button></span></div>${bar}
     ${o.note ? `<div class="tiny muted">${esc(o.note)}</div>` : ""}</div>`;
@@ -304,7 +304,7 @@ function checkerCard() {
         <div class="kpi"><div class="k">Break-even</div><div class="v">${be != null ? prob(be, 1) : "–"}</div><div class="s">at your price</div></div>
         <div class="kpi"><div class="k">Value per $10</div><div class="v ${ev > 0 ? "pos" : "neg"}">${ev != null ? money(ev * 10) : "–"}</div><div class="s">${verdict}</div></div>
       </div>
-      ${tops.length ? `<div class="tiny muted">Best prices now: ${tops.map((v) => `${esc(v.name)} ${am(v.am)}`).join(" · ")}</div>` : ""}`;
+      ${tops.length ? `<div class="tiny muted">Best prices now: ${tops.map((v) => `${esc(v.name)} ${odds3(v.am)}`).join(" · ")}</div>` : ""}`;
   } else {
     out = `<input id="ck-q" placeholder="Search any bet on the board: 'Tatum points', 'Kings ML', 'Over 6.5 Sharks'" value="${esc(checker.q)}">${pickList(search(checker.q, { n: 10 }), "data-check")}`;
   }

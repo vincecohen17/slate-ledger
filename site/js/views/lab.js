@@ -1,5 +1,5 @@
 import { S, loadAllProps, loadAllAlt } from "../store.js";
-import { esc, am, pct, prob, fmtTime, amFromDec, decFromAm, amFromProb, both, bothP, spark, hitRate, bookLogo, money, $, $$ } from "../util.js";
+import { esc, am, pct, prob, fmtTime, amFromDec, decFromAm, amFromProb, both, bothP, spark, hitRate, bookLogo, money, $, $$, odds, oddsP, oddsTxt } from "../util.js";
 import { catalog, parlay, priceAt, evPerDollar, legSpec, venueName } from "../lab.js";
 import { betImage, logSheet } from "./common.js";
 import { normalize, findTarget, pAtLine, promoOpen, payoutFor } from "../promo.js";
@@ -232,8 +232,8 @@ function result() {
   const pairs = r.pairs.map((p) => `<span class="pill ${p.r > 0 ? "pos" : "neg"}" title="estimated correlation">${esc(legs[p.i].label.slice(0, 22))} ↔ ${esc(legs[p.j].label.slice(0, 22))} ${p.r > 0 ? "+" : ""}${p.r.toFixed(2)}</span>`).join("");
   return `<div class="big-out">
       <div class="kpi"><div class="k">Fair chance</div><div class="v">${prob(r.joint, 1)}</div><div class="s">${r.pairs.length ? `independent ${prob(r.indep, 1)}` : "legs independent"}</div></div>
-      <div class="kpi"><div class="k">Fair odds</div><div class="v">${am(amFromProb(r.joint))}</div><div class="s">break-even · ${prob(r.joint, 1)}</div></div>
-      <div class="kpi"><div class="k">Your price</div><div class="v">${dec ? am(amFromDec(dec)) : "–"}</div><div class="s">${dec ? prob(1 / dec, 1) + " implied · " : ""}${!isNaN(custom) ? "entered" : "legs multiplied"}${L.boost ? ` · +${L.boost}% boost` : ""}</div></div>
+      <div class="kpi"><div class="k">Fair odds</div><div class="v">${oddsP(r.joint)}</div><div class="s">break-even</div></div>
+      <div class="kpi"><div class="k">Your price</div><div class="v">${dec ? odds(amFromDec(dec)) : "–"}</div><div class="s">${!isNaN(custom) ? "entered" : "legs multiplied"}${L.boost ? ` · +${L.boost}% boost` : ""}</div></div>
       <div class="kpi"><div class="k">EV</div><div class="v ${ev > 0 ? "pos" : ev < 0 ? "neg" : ""}">${ev != null ? pct(ev) : "–"}</div><div class="s">${ev != null ? `${ev >= 0 ? "+" : ""}$${(ev * L.stake).toFixed(2)} on $${L.stake}` : ""}</div></div>
       <div class="kpi"><div class="k">Kelly ¼</div><div class="v">$${(kelly / 4 * bankroll).toFixed(0)}</div><div class="s">of $${bankroll} bankroll</div></div>
     </div>
@@ -274,7 +274,7 @@ function riskHtml(r, dec, prices) {
 function compareHtml() {
   if (!L.compare.length) return "";
   return `<div class="sec-title">Compare<span class="line"></span></div><div class="panel scroll"><table><thead><tr><th>Bet</th><th>Legs</th><th>Fair</th><th>Price</th><th>Boost</th><th>EV</th><th></th></tr></thead><tbody>
-    ${L.compare.map((c, i) => `<tr><td style="white-space:normal;max-width:340px">${esc(c.label)}</td><td>${c.n}</td><td class="num">${prob(c.p, 1)}</td><td class="num">${am(c.am)}</td><td class="num">${c.boost ? c.boost + "%" : "–"}</td>
+    ${L.compare.map((c, i) => `<tr><td style="white-space:normal;max-width:340px">${esc(c.label)}</td><td>${c.n}</td><td class="num">${prob(c.p, 1)}</td><td class="num">${odds(c.am)}</td><td class="num">${c.boost ? c.boost + "%" : "–"}</td>
       <td class="num ${c.ev > 0 ? "pos" : "neg"}">${pct(c.ev)}</td><td><button class="x" data-rmc="${i}">×</button></td></tr>`).join("")}</tbody></table></div>`;
 }
 
@@ -289,14 +289,14 @@ function bestHtml(cat) {
   return `${pk.length ? `<div class="tiny muted" style="margin-top:10px">Our picks today</div><div class="results">${pk.map(({ p, leg }) => { const v = (p.playTo || []).find((x) => x.inRange);
       return `<button class="res" data-pick="${esc(p.id)}">${betImage({ gameId: leg.gameId, label: leg.label, player: leg.player, headshot: leg.headshot, league: leg.league }, 30)}
       <span class="col"><span class="ellip" style="font-weight:500">${esc(p.selection)}</span><span class="tiny muted ellip">${esc(p.tier)} · ${p.units}u · ${fmtTime(p.commence)}</span></span>
-      <span class="col" style="align-items:flex-end"><span class="num small">${v ? am(v.price) : "–"}</span><span class="tiny muted">${v ? esc(v.name || venueName(v.venue)) : "not in range"}</span></span></button>`; }).join("")}</div>` : ""}
+      <span class="col" style="align-items:flex-end"><span class="num small">${v ? odds(v.price) : "–"}</span><span class="tiny muted">${v ? esc(v.name || venueName(v.venue)) : "not in range"}</span></span></button>`; }).join("")}</div>` : ""}
     ${B.length ? `<div class="tiny muted" style="margin-top:10px">Suggested builds ${L.boost ? `(with your ${L.boost}% boost)` : "(best bets at one venue, different games)"} · ranked by long-run bankroll growth, not raw EV</div><div class="results">${B.map((o, i) => `<button class="res" data-build="${i}">
       <span class="col" style="min-width:0"><span class="ellip" style="font-weight:500">${o.legs.length === 1 ? "Best single" : `Best ${o.legs.length}-leg parlay`}: ${esc(o.legs.map((x) => x.leg.label).join(" + "))}</span>
       <span class="tiny muted">${bookLogo(o.venue, venueName(o.venue), 13)} ${esc(venueName(o.venue))} · cashes ${prob(o.p, 1)} · ¼ Kelly $${(o.kelly / 4 * bankroll).toFixed(0)}</span></span>
-      <span class="col" style="align-items:flex-end"><span class="num small">${am(amFromDec(o.dec))}</span><span class="tiny nowrap ${o.ev > 0 ? "pos" : "neg"}">EV ${pct(o.ev)}</span></span></button>`).join("")}</div>` : ""}
+      <span class="col" style="align-items:flex-end"><span class="num small">${odds(amFromDec(o.dec))}</span><span class="tiny nowrap ${o.ev > 0 ? "pos" : "neg"}">EV ${pct(o.ev)}</span></span></button>`).join("")}</div>` : ""}
     ${best.length ? `<div class="tiny muted" style="margin-top:10px">Best bets now · ranked by edge and what has actually won (muted and skip kinds left out)</div><div class="results">${best.slice(0, 25).map(({ e, leg }) => `<button class="res" data-best="${esc(leg.key)}|${esc(e.book)}">${betImage({ gameId: leg.gameId, label: leg.label, player: leg.player, headshot: leg.headshot, league: leg.league }, 30)}
       <span class="col"><span class="ellip" style="font-weight:500">${esc(leg.label)}</span><span class="tiny muted ellip">${esc(leg.matchup)} · ${fmtTime(leg.commence)}</span><span class="row" style="gap:4px;flex-wrap:wrap">${tag(e)}</span></span>
-      <span class="col" style="align-items:flex-end"><span class="num small">${e.pickem ? "pick'em" : am(e.am)}</span><span class="tiny muted">${bookLogo(e.book, e.bookName, 12)} ${esc(e.bookName)}</span><span class="tiny pos">+${(e.edge * 100).toFixed(1)}%</span></span></button>`).join("")}</div>` : ""}`;
+      <span class="col" style="align-items:flex-end"><span class="num small">${e.pickem ? "pick'em" : odds(e.am)}</span><span class="tiny muted">${bookLogo(e.book, e.bookName, 12)} ${esc(e.bookName)}</span><span class="tiny pos">+${(e.edge * 100).toFixed(1)}%</span></span></button>`).join("")}</div>` : ""}`;
 }
 
 export function renderLab(el) {
@@ -340,7 +340,7 @@ export function renderLab(el) {
         return `<div class="leg">${betImage({ gameId: x.leg.gameId, label: x.leg.label, player: x.leg.player, headshot: x.leg.headshot }, 30)}
           <span class="col"><span class="ellip" style="font-weight:500">${esc(x.leg.label)}</span><span class="tiny muted">fair ${bothP(x.leg.fair)} · ${pr ? `${pr.book ? bookLogo(pr.book, pr.name, 13) + " " : ""}${esc(pr.name)} ${both(pr.am)}` : "no price"}${x.leg.ourModel != null ? ` · our model ${prob(x.leg.ourModel)}` : ""}</span>
             ${x.leg.last10?.length ? `<span class="l10">${spark(x.leg.last10, x.leg.point, { side: x.leg.side, w: 70, h: 20 })}${hitRate(x.leg.last10, x.leg.point, x.leg.side)}</span>` : ""}</span>
-          <select data-ven="${i}" style="padding:5px 6px;font-size:12px">${opts.map((v) => `<option value="${v.book}" ${v.book === x.venue ? "selected" : ""}>${esc(v.name)} ${am(v.am)}</option>`).join("")}
+          <select data-ven="${i}" style="padding:5px 6px;font-size:12px">${opts.map((v) => `<option value="${v.book}" ${v.book === x.venue ? "selected" : ""}>${esc(v.name)} ${oddsTxt(v.am)}</option>`).join("")}
             <option value="any" ${x.venue === "any" ? "selected" : ""}>best yours</option><option value="custom" ${x.venue === "custom" ? "selected" : ""}>custom…</option></select>
           <button class="x" data-rm="${i}" aria-label="remove">×</button></div>
           ${x.venue === "custom" ? `<div class="row" style="padding:4px 0 8px 40px"><input data-cam="${i}" value="${esc(x.am || "")}" placeholder="odds e.g. -115" style="max-width:140px"></div>` : ""}`;

@@ -8,6 +8,7 @@ Bets (Firestore bets/{id}, written by the site) get an `auto` field {result, clv
 A bet or pick names its bet with gameId + market + side (+ point, player, team). Older picks only have the selection text;
 those are matched to the snapshot's rows by player, number and words.
 """
+import closecal
 import glob
 import json
 import os
@@ -143,9 +144,14 @@ def grade_leg(data_dir, leg, fin_by_gid):
     if not res:
         return None
     close, est = None, False
+    t = "main"
     if row is not None:
         fc = row.get("fa", row["f"])          # our fair at the close (the self-corrected one where fairadj applies)
         close = fc if same else 1 - fc
+        # main = the number most books quote for this market (the row with the most weight behind it); else alt
+        peers = [r for r in snap.get("rows", []) if r["mk"] == row["mk"] and r.get("player") == row.get("player") and r.get("team") == row.get("team")]
+        if "alternate" in mk or (peers and (row.get("w") or 0) < max((r.get("w") or 0) for r in peers)):
+            t = "alt"
     elif is_prop:
         close = _close_est(snap, leg)
         est = close is not None
@@ -170,7 +176,7 @@ def grade_leg(data_dir, leg, fin_by_gid):
             y = None
         else:
             y = float(v > pt) if side == "Over" else float(v < pt)
-        return {"y": y, "close": close, "stat": v, "age": T.close_age(snap, True), **({"est": True} if est else {})}
+        return {"y": y, "close": close, "stat": v, "age": T.close_age(snap, True), "t": "model" if est else t, **({"est": True} if est else {})}
     base = mk.replace("alternate_", "")
     pt = leg.get("point")
     canon_side = snap["home"] if base in ("h2h", "spreads") else "Over"
@@ -183,7 +189,7 @@ def grade_leg(data_dir, leg, fin_by_gid):
     if y is not None:
         mine = (T._norm(side or "") == T._norm(canon_side)) if base in ("h2h", "spreads") else side == "Over"
         y = y if mine else 1 - y
-    return {"y": y, "close": close, "score": [res["hs"], res["as"]], "age": T.close_age(snap, base not in ("h2h", "spreads", "totals"))}
+    return {"y": y, "close": close, "score": [res["hs"], res["as"]], "age": T.close_age(snap, base not in ("h2h", "spreads", "totals")), "t": t}
 
 
 def grade_bet(data_dir, legs, dec, fin_by_gid):
@@ -216,7 +222,7 @@ def grade_bet(data_dir, legs, dec, fin_by_gid):
         for leg, g in zip(legs, out):
             if g["y"] is None:
                 continue
-            pk *= closecal.cal(g["close"], "prop" if leg.get("player") else "line", data_dir)
+            pk *= closecal.cal(g["close"], "prop" if leg.get("player") else "line", data_dir, g.get("t") or "main")
         clv_cal = round(pk * dec - 1, 4)
     # the oldest close behind any leg: CLV is only as trustworthy as its stalest close (minutes before the start)
     ages = [g.get("age") for g in live]
@@ -284,7 +290,8 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
         changed = False
         for p in picks:
             # every tier grades, "likely" too (0 units: no profit, but its result, flat return and CLV are the record)
-            refill = p.get("status") in ("won", "lost", "push") and "clvCal" not in p      # graded before calibrated CLV
+            # graded before calibrated CLV, or under an older calibration (closecal.VERSION)
+            refill = p.get("status") in ("won", "lost", "push") and p.get("clvCalV") != closecal.VERSION
             if p.get("status") not in (None, "open", "pending") and not refill:
                 continue
             snap = _snap(data_dir, p.get("gameId"))
@@ -316,7 +323,7 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
             if not g:
                 continue
             if refill:          # keep the posted grade; add the newer measures only
-                p["clvCal"], p["closeAge"] = g.get("clvCal"), g.get("closeAge")
+                p["clvCal"], p["closeAge"], p["clvCalV"] = g.get("clvCal"), g.get("closeAge"), closecal.VERSION
                 if p.get("flat") is None:
                     p["flat"] = round(dec - 1, 3) if p["status"] == "won" else -1.0 if p["status"] == "lost" else 0.0
                 changed = True
@@ -330,7 +337,7 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
             p["clv"] = g["clv"]
             p["closeFair"] = g["closeFair"]
             p["closeAge"] = g.get("closeAge")
-            p["clvCal"] = g.get("clvCal")
+            p["clvCal"], p["clvCalV"] = g.get("clvCal"), closecal.VERSION
             if g["legs"] and g["legs"][0].get("stat") is not None:
                 p["finalStat"] = g["legs"][0]["stat"]
             changed = True
@@ -508,7 +515,7 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
             up.update({k: legs[0].get(k) for k in ("market", "side", "point", "player", "team") if legs[0].get(k) is not None})
         # clvCal / closeAge arrived later: settled pre-game bets get them once (live bets use the live fair instead)
         live = is_live(b, data_dir, legs)
-        need_cal = not live and "clvCal" not in b
+        need_cal = not live and b.get("clvCalV") != closecal.VERSION       # never calibrated, or under an older calibration
         need = b.get("clv") is None or not b.get("legResults") or b.get("fairAtLog") is None or need_cal
         if need:
             try:
@@ -519,7 +526,7 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
                 if g["result"] != b.get("status"):
                     mism.append({"id": snap.id, "status": b.get("status"), "engine": g["result"]})
                 if need_cal:
-                    up.update({"clvCal": g.get("clvCal"), "closeAge": g.get("closeAge")})
+                    up.update({"clvCal": g.get("clvCal"), "closeAge": g.get("closeAge"), "clvCalV": closecal.VERSION})
                 if b.get("clv") is None:
                     if live:
                         lc = b.get("liveCheck") or {}

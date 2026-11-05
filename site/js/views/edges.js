@@ -1,5 +1,5 @@
 import { S, testAlert, saveOppCheck } from "../store.js";
-import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$ } from "../util.js";
+import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$, odds } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 import { arbSheet } from "../arbs.js";
 
@@ -21,8 +21,8 @@ function oppCard(o) {
     <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">${head}<span class="tiny muted">${esc(o.league)} · ${esc(o.matchup)} · ${fmtTime(o.commence)}</span></div>
     ${o.suspect ? `<div class="tiny neg" style="margin-top:4px">Too good to be true? A leg is far from the sharp fair: check the venue's rules (void on DNP, overtime) and that the price is live before placing either side.</div>` : ""}
     <div class="col" style="gap:6px;margin-top:8px">${o.legs.map((l, i) => `<div class="op-leg">${bookLogo(l.book, l.name, 22)}<span class="col" style="gap:0;min-width:0"><b class="op-lab">${esc(l.label)}</b><span class="tiny muted">${esc(l.name)}${l.fair != null ? ` · fair ${prob(l.fair)}` : ""}${l.age != null ? ` · <span class="${l.age > 10 ? "neg" : ""}" title="how long ago we pulled this price">${ageTxt(l.age)}</span>` : ""}</span>
-        <span class="tiny op-hold">${l.holdTo != null ? `works to <b class="num">${am(l.holdTo)}</b>${centsTag(l.holdTo, l.book) ? ` (${centsTag(l.holdTo, l.book)})` : ""}` : ""}${availPill(l, st[i])}</span></span>
-      <span class="col" style="align-items:flex-end;gap:0"><b class="num">${am(l.am)}</b>${centsTag(l.am, l.book) ? `<span class="tiny muted">${centsTag(l.am, l.book)} in app</span>` : ""}</span><span class="num op-stake">${money(st[i])}</span></div>`).join("")}</div>
+        <span class="tiny op-hold">${l.holdTo != null ? `works to <b class="num">${odds(l.holdTo)}</b>${centsTag(l.holdTo, l.book) ? ` (${centsTag(l.holdTo, l.book)})` : ""}` : ""}${availPill(l, st[i])}</span></span>
+      <span class="col" style="align-items:flex-end;gap:0"><b class="num">${odds(l.am)}</b>${centsTag(l.am, l.book) ? `<span class="tiny muted">${centsTag(l.am, l.book)} in app</span>` : ""}</span><span class="num op-stake">${money(st[i])}</span></div>`).join("")}</div>
     ${o.legs.some((l) => l.age > 10) ? `<div class="tiny neg" style="margin-top:6px">Some prices here are over 10 minutes old: refresh, and check the line is still up before placing either leg.</div>` : ""}
     <div class="tiny" style="margin-top:8px">${o.kind === "arb"
       ? `Either way you get back about <b>${money(Math.min(...ret))}</b> on ${money(tot)}: <b class="pos">${money(Math.min(...ret) - tot)}</b> locked.`
@@ -114,7 +114,7 @@ export function renderEdges(el) {
       const kinds = [...new Set(muted.map((e) => e.muted))];
       return `${live.length ? `<div class="grid tight">${live.slice(0, 150).map(edgeCard).join("")}</div>` : `<div class="empty"><h3>Nothing at this threshold</h3>Lower the minimum edge or check back after the next pull.</div>`}
       ${skip.length ? `<div class="sec-title">The record says skip (${skip.length})<span class="line"></span></div>
-        <p class="note">Real price gaps, but in a cell that has lost money by 2.5+ standard errors (each card says which). Not alerted.</p>
+        <p class="note">Real price gaps, but in a cell that has lost to the close by 2+ standard errors, counted by game (each card says which). Not alerted.</p>
         <button class="btn sm ghost" id="ed-skip">${F.showSkip ? "Hide them" : "Show them"}</button>
         ${F.showSkip ? `<div class="grid tight" style="margin-top:10px;opacity:.85">${skip.slice(0, 100).map(edgeCard).join("")}</div>` : ""}` : ""}
       ${muted.length ? `<div class="sec-title">Losing so far (${muted.length})<span class="line"></span></div>

@@ -1,7 +1,7 @@
 // Ledger: Vince's bets and our picks, graded automatically after the games (result + closing line value), with the
 // breakdowns and plain-words takeaways that say what to keep betting and what to stop.
 import { S, saveBet, deleteBet, loadProps, sportKeys } from "../store.js";
-import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, bookLogo, teamLogo, todayPT, toast, $, $$ } from "../util.js";
+import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, bookLogo, teamLogo, todayPT, toast, $, $$, odds } from "../util.js";
 import { logSheet } from "./common.js";
 import { settleProfit, isBoost } from "../promo.js";
 import { VENUES } from "../lab.js";
@@ -104,10 +104,10 @@ function groupTable(list, key) {
   const [, fn] = GROUPS[key];
   const by = new Map();
   list.forEach((b) => { for (const k of [].concat(fn(b))) { if (!by.has(k)) by.set(k, []); by.get(k).push(b); } });
-  const rows = [...by.entries()].map(([k, bs]) => ({ k, ...summarize(bs) })).filter((r) => r.n).sort((a, b) => b.n - a.n);
+  const rows = [...by.entries()].map(([k, bs]) => { const r = summarize(bs); return { k, ...r, clv: r.clvCal ?? r.clv }; }).filter((r) => r.n).sort((a, b) => b.n - a.n);
   if (!rows.length) return `<div class="note">Nothing settled yet.</div>`;
   const maxRoi = Math.max(0.05, ...rows.map((r) => Math.abs(r.roi || 0)));
-  return `<div style="overflow-x:auto"><table class="l10t lg-t"><thead><tr><th></th><th>Bets</th><th>Record</th><th>P/L</th><th style="min-width:120px">ROI</th><th>Avg CLV</th><th>Beat close</th></tr></thead><tbody>
+  return `<div style="overflow-x:auto"><table class="l10t lg-t"><thead><tr><th></th><th>Bets</th><th>Record</th><th>P/L</th><th style="min-width:120px">ROI</th><th title="calibrated where the bets carry it">Avg CLV</th><th>Beat close</th></tr></thead><tbody>
     ${rows.map((r) => `<tr><td>${nameCell(key, r.k, list)}</td><td class="num">${r.n}</td><td class="num">${wl(r)}${r.w}-${r.l}${r.p ? "-" + r.p : ""}</td>
       <td class="num ${r.pl >= 0 ? "pos" : "neg"}">${money(r.pl)}</td>
       <td><div class="lg-roi"><span class="lg-mid"></span><i class="${r.roi >= 0 ? "pos" : "neg"}" style="${r.roi >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(r.roi || 0) / maxRoi * 50).toFixed(0)}%"></i></div><span class="num tiny ${r.roi >= 0 ? "pos" : "neg"}">${r.roi != null ? pct(r.roi) : "–"}</span></td>
@@ -119,7 +119,11 @@ function groupTable(list, key) {
 function insights(list) {
   const out = [], all = summarize(list);
   const MIN = 8;
+  // CLV here is the calibrated one where bets carry it (engine closecal: corrected only for line types whose raw CLV has
+  // overstated realized return), raw otherwise
+  const cv = (x) => x.clvCal ?? x.clv;
   if (all.nClv >= MIN) {
+    all.clv = cv(all);
     if (all.clv > 0.01) out.push(["pos", `You're beating the closing line by ${pct(all.clv)} on average (${Math.round(all.beat * 100)}% of bets). That's the strongest sign your bets are good, whatever the results so far.`]);
     else if (all.clv < -0.01) out.push(["neg", `On average the price moved against you after you bet (${pct(all.clv)} vs the close). Bet earlier in the day, or only take prices the Edges screen shows above fair.`]);
     else out.push(["", `Your prices are about even with the close (${pct(all.clv)}). Fine, but the profit has to come from promos or sharper timing.`]);
@@ -137,6 +141,7 @@ function insights(list) {
     for (const [k, bs] of by) {
       const s = summarize(bs);
       if (s.nClv < MIN) continue;
+      s.clv = cv(s);
       if (s.clv >= 0.02 && s.beat >= 0.55) out.push(["pos", `Keep betting ${k} (${lab.toLowerCase()}): ${pct(s.clv)} CLV over ${s.nClv} bets${s.roi != null ? `, ${pct(s.roi)} ROI so far` : ""}.`]);
       if (s.clv <= -0.02) out.push(["neg", `Rethink ${k} (${lab.toLowerCase()}): ${pct(s.clv)} CLV over ${s.nClv} bets means you're taking worse prices than the close.`]);
     }
@@ -170,7 +175,7 @@ function betRow(b) {
     ${bookLogo(b.venue || "any", b.venueName || b.venue || "", 34)}
     <div class="col" style="gap:3px;min-width:0">
       <div class="row" style="gap:8px;min-width:0">${!multi ? betImage({ gameId: b.gameId || legs[0]?.gameId, label: legs[0]?.label || b.label, player: legs[0]?.player, league: b.league }, 22) : ""}<span class="lt-t ellip">${multi ? `${legs.length}-leg parlay` : esc(b.label)}</span></div>
-      <div class="lt-m"><span><b class="num">${am(b.am)}</b></span><span>${money(b.stake)}${win != null && !done ? ` to win <b class="num">${money(win)}</b>` : ""}</span>
+      <div class="lt-m"><span><b class="num">${odds(b.am)}</b></span><span>${money(b.stake)}${win != null && !done ? ` to win <b class="num">${money(win)}</b>` : ""}</span>
         <span>${esc(b.venueName || b.venue || "")}</span>${b.league ? `<span>${esc(b.league)}</span>` : ""}${b.promoId ? `<span class="pill s">${esc(S.promos.get(b.promoId)?.title || "promo")}${b.boostIn ? " · in odds" : ""}</span>` : ""}${needsCheck(b) ? `<span class="lt-chip neg" title="did the odds you typed already include the boost?">check boost</span>` : ""}
         ${b.fairAtLog != null ? `<span class="lt-chip ${ev > 0 ? "pos" : ev < 0 ? "neg" : ""}" title="our fair when you logged it">fair ${prob(b.fairAtLog)} · ${pct(ev)}</span>` : ""}
         ${b.live ? `<span class="pill live" title="placed during the game">● live${b.liveState?.text ? ` · ${esc(b.liveState.text)}` : ""}</span>` : ""}
@@ -188,7 +193,7 @@ function betRow(b) {
 function legRow(b) {
   const done = ["won", "lost", "push", "void"].includes(b.status);
   return `<div class="lt-gleg">${bookLogo(b.venue || "any", b.venueName || "", 20)}<span class="ellip" title="${esc(b.label)}">${esc(b.label)}</span>
-    <span class="num">${am(b.am)}</span><span class="num muted">${money(b.stake)}</span>
+    <span class="num">${odds(b.am)}</span><span class="num muted">${money(b.stake)}</span>
     <span class="lg-clv">${b.clv != null ? `<span class="lt-chip ${b.clv > 0 ? "pos" : b.clv < 0 ? "neg" : ""}" title="this leg's price at the closing fair">CLV ${pct(b.clv)}</span>` : ""}</span>
     <span class="lg-st">${done ? `<span class="pill ${b.status === "won" ? "pos" : b.status === "lost" ? "neg" : ""}">${b.status}${b.autoSettled ? " · auto" : ""}</span>`
       : `<span class="lt-act">${["won", "lost", "push", "void"].map((s) => `<button class="btn sm ghost" data-set="${b.id}|${s}" title="mark ${s}">${s[0].toUpperCase()}</button>`).join("")}</span>`}</span>
@@ -252,13 +257,13 @@ function mine(el) {
     ${sugg.length ? `<div class="card lg-chk"><b>${sugg.length === 1 ? "These two bets look" : `${sugg.length} pairs of bets look`} like ${sugg.every((p) => p.kind === "middle") ? "a middle" : "an arb or middle"}</b>
       <div class="small muted" style="margin:4px 0 8px">Paired, they count as one result in their own category, so the losing leg isn't a lost bet in your record.</div>
       <div class="col" style="gap:6px">${sugg.map((p, i) => `<div class="row lg-chkr" style="gap:8px;flex-wrap:wrap">${bookLogo(p.a.venue || "any", p.a.venueName || "", 22)}${bookLogo(p.b.venue || "any", p.b.venueName || "", 22)}
-        <span class="grow ellip small" style="min-width:160px">${esc(p.a.label)} <span class="muted">${am(p.a.am)}</span> + ${esc(p.b.label)} <span class="muted">${am(p.b.am)}</span></span>
+        <span class="grow ellip small" style="min-width:160px">${esc(p.a.label)} <span class="muted">${odds(p.a.am)}</span> + ${esc(p.b.label)} <span class="muted">${odds(p.b.am)}</span></span>
         <button class="btn sm ghost" data-pairs="${i}">Pair as ${p.kind}</button></div>`).join("")}</div></div>` : ""}
     ${(() => { const chk = raw.filter(needsCheck); return chk.length ? `<div class="card lg-chk"><b>${chk.length} boosted bet${chk.length > 1 ? "s" : ""} to double-check</b>
       <div class="small muted" style="margin:4px 0 8px">If you typed the price the app showed after the boost, the ledger added the boost a second time. Tap the one that's right for each bet.</div>
       <div class="col" style="gap:6px">${chk.map((b) => { const p = S.promos.get(b.promoId), st = ["won", "lost"].includes(b.status) ? b.status : "won";
         const a = settleProfit({ ...b, boostIn: true }, p, st), n = settleProfit({ ...b, boostIn: false }, p, st);
-        return `<div class="row lg-chkr" style="gap:8px;flex-wrap:wrap">${bookLogo(b.venue || "any", b.venueName || "", 22)}<span class="grow ellip small" style="min-width:140px">${esc(b.label)} <span class="muted">${am(b.am)} · ${money(b.stake)}${b.status !== "pending" ? ` · ${b.status}` : ""}</span></span>
+        return `<div class="row lg-chkr" style="gap:8px;flex-wrap:wrap">${bookLogo(b.venue || "any", b.venueName || "", 22)}<span class="grow ellip small" style="min-width:140px">${esc(b.label)} <span class="muted">${odds(b.am)} · ${money(b.stake)}${b.status !== "pending" ? ` · ${b.status}` : ""}</span></span>
           <button class="btn sm ghost" data-bin="${b.id}|1">Boost was in the odds <span class="tiny muted">${st === "won" ? `wins ${money(a)}` : ""}</span></button>
           <button class="btn sm ghost" data-bin="${b.id}|0">Normal odds <span class="tiny muted">${st === "won" ? `wins ${money(n)}` : ""}</span></button></div>`; }).join("")}</div></div>` : ""; })()}
     ${pend.length ? `<div class="sec-title">Open bets<span class="line"></span></div>${projectedCard({ items: pend, title: "Projected profit on open bets",
@@ -314,7 +319,7 @@ function ours() {
         <div class="col" style="gap:3px;min-width:0"><span class="lt-t">${esc(p.selection)}</span>
           <div class="lt-m"><span class="pill ${p.tier === "bet" ? "s" : ""}">${esc(p.tier)} · ${p.units ?? 0}u</span><span>${esc(p.league || "")}</span><span>${esc(p.date || "")}</span>
             ${v ? `<span class="lg-name">${bookLogo(v.venue, v.name || v.venue, 14)}${esc(v.name || v.venue)}</span>` : ""}
-            ${p.gradedAt != null ? `<span>graded at <b class="num">${am(p.gradedAt)}</b></span>` : ""}
+            ${p.gradedAt != null ? `<span>graded at <b class="num">${odds(p.gradedAt)}</b></span>` : ""}
             ${p.clv != null ? `<span class="lt-chip ${p.clv > 0 ? "pos" : p.clv < 0 ? "neg" : ""}">CLV ${pct(p.clv)}</span>` : ""}
             ${p.finalStat != null ? `<span>finished with <b class="num">${p.finalStat}</b></span>` : ""}</div></div>
         <div class="lt-r">${["won", "lost", "push"].includes(p.status) ? `<span class="pill ${p.status === "won" ? "pos" : p.status === "lost" ? "neg" : ""}">${p.status}</span><span class="lt-res ${(p.profit || 0) >= 0 ? "pos" : "neg"}">${u(p.profit)}</span>`

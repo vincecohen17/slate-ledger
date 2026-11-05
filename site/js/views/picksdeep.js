@@ -3,7 +3,7 @@
 // every attribute a pick carries, and the full pick table (sortable, CSV). Picks grade at real venue prices (the best
 // first seen at a play-to venue, else the first raw pull after posting); older ones may still show good-at.
 import { S } from "../store.js";
-import { esc, pct, prob, am, mktName, bindTips } from "../util.js";
+import { esc, pct, prob, am, mktName, bindTips, odds } from "../util.js";
 import { lineChart, legend } from "./charts.js";
 import { mean, meanCI, wilson, bootRatio, logLoss, brier, calibFit, relBins, ptDay, pTwo, fmtP, fmtT, clvOk, CLOSE_OK_MIN } from "../stats.js";
 import { calendar, relChart, sortTable, bindSort, td, downloadCsv, chipBar } from "./deep.js";
@@ -109,7 +109,7 @@ export function picksDeep() {
   const sel = V.day && dm.get(V.day);
   const by = new Map(); g.forEach((p) => { const k = dimFn[V.dim](p); if (!by.has(k)) by.set(k, []); by.get(k).push(p); });
   let keys = [...by.keys()]; const ord = ORDER[V.dim]; if (ord) keys = ord.filter((k) => by.has(k)).concat(keys.filter((k) => !ord.includes(k)));
-  const line = (p) => `<div class="an-mini"><span></span><span class="ellip">${esc(p.selection)}</span><span class="tiny muted">${am(p.gradedAt)} · ${esc(p.tier)}</span><b class="num ${cls(p.profit)}">${u(p.profit)}</b></div>`;
+  const line = (p) => `<div class="an-mini"><span></span><span class="ellip">${esc(p.selection)}</span><span class="tiny muted">${odds(p.gradedAt)} · ${esc(p.tier)}</span><b class="num ${cls(p.profit)}">${u(p.profit)}</b></div>`;
   return `<div class="kpis" style="margin-top:4px">
       <div class="kpi"><div class="k">ROI on units risked</div><div class="v ${cls(A.roi)}">${pct(A.roi)}</div><div class="s">95% ${boot.lo != null ? `${pct(boot.lo, 0)} to ${pct(boot.hi, 0)}` : "–"} (bootstrap) · ${A.risk.toFixed(2)}u risked</div></div>
       <div class="kpi"><div class="k">Expected at our fair</div><div class="v ${cls(A.exp)}">${u(A.exp)}</div><div class="s">luck ${u(A.luck)} · z ${fmtT(A.z)} · p ${fmtP(pTwo(A.z))}</div></div>
@@ -135,7 +135,7 @@ export function picksDeep() {
       <p class="note">Expected is at our fair and the graded price; luck and z compare the result with it. Checks and pillars are as posted. Small groups swing wildly: read the z and the counts.</p></div>
     <div class="sec-title">Every graded pick<span class="line"></span></div>
     <div class="card">${sortTable(["Day", "Pick", "Tier", "Units", "Graded at", "Venue", "Fair", "Market", "Model", "Close", "CLV", "Result"], g.slice().reverse().map((p) => `<tr><td>${esc(day(p) || "")}</td><td class="ellip" style="max-width:260px;text-align:left" title="${esc(p.selection)}">${esc(p.selection)}</td><td>${esc(p.tier)}</td>${td(p.units, p.units)}
-      ${td(`${am(p.gradedAt)}${p.gradeSrc === "goodAt" || !p.gradeSrc ? "*" : ""}`, decOf(p.gradedAt))}<td>${esc(p.gradeVenue || "")}</td>${td(p.fair != null ? prob(p.fair) : "–", p.fair)}${td(p.marketFair != null ? prob(p.marketFair) : "–", p.marketFair)}${td(p.modelP != null ? prob(p.modelP) : "–", p.modelP)}
+      ${td(`${odds(p.gradedAt)}${p.gradeSrc === "goodAt" || !p.gradeSrc ? "*" : ""}`, decOf(p.gradedAt))}<td>${esc(p.gradeVenue || "")}</td>${td(p.fair != null ? prob(p.fair) : "–", p.fair)}${td(p.marketFair != null ? prob(p.marketFair) : "–", p.marketFair)}${td(p.modelP != null ? prob(p.modelP) : "–", p.modelP)}
       ${td(p.closeFair != null ? prob(p.closeFair) : "–", p.closeFair)}${td(`<span class="${cls(p.clv)}">${p.clv != null ? pct(p.clv) : "–"}</span>`, p.clv)}${td(`<span class="${cls(p.profit)}">${u(p.profit)}</span>`, p.profit)}</tr>`))}
       <div class="row" style="justify-content:space-between;margin-top:6px"><span class="tiny muted">* graded at good-at: no real venue price was found for it</span><button class="btn sm ghost" id="pk-csv">Download CSV</button></div></div>`;
 }

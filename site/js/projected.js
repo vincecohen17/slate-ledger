@@ -5,7 +5,7 @@
 // (spreads and moneylines). An arb can't win both legs; a middle can. Each linked group gets one consistent set of
 // outcomes, so the range, the chance to finish up and the hedge math are exact.
 import { S } from "./store.js";
-import { esc, money, prob, am, fmtTime, mktName, bookLogo, headshot, teamLogo } from "./util.js";
+import { esc, money, prob, am, fmtTime, mktName, bookLogo, headshot, teamLogo, odds } from "./util.js";
 import { settleProfit } from "./promo.js";
 import { sitText } from "./views/live.js";
 import { pOver } from "./dist.js";
@@ -404,7 +404,7 @@ function hedgeHtml(b, r, legs) {
   const H = pay / dh, lock = pay - (b.stake || 0) - H, cost = o.fair != null ? H * (1 - o.fair * dh) : null;
   if (!(H > 0)) return "";
   const half = H / 2;
-  return `<div class="pj-hedge"><b>Down to one leg.</b> To lock a result: bet <b>${money(H)}</b> on ${esc(o.label)} at ${bookLogo(o.q.book, o.q.name, 14)} ${esc(o.q.name)} <b class="num">${am(o.q.am)}</b>
+  return `<div class="pj-hedge"><b>Down to one leg.</b> To lock a result: bet <b>${money(H)}</b> on ${esc(o.label)} at ${bookLogo(o.q.book, o.q.name, 14)} ${esc(o.q.name)} <b class="num">${odds(o.q.am)}</b>
     → <b class="${lock >= 0 ? "pos" : "neg"}">${money(lock)}</b> either way${cost != null ? ` · costs about ${money(cost)} in expectation (it's a bet at ${prob(o.q.cost)} on a ${prob(o.fair)} side)` : ""}.
     <span class="tiny muted">Half hedge (${money(half)}): ${money(pay - b.stake - half)} if the parlay hits, ${money(half * dh - half - b.stake)} if not. Letting it ride keeps the full ${money(pay - b.stake)} at ${prob(open[0].p)}.</span></div>`;
 }
@@ -472,7 +472,7 @@ export function projectedCard({ items, title, fmt = money, units = false, settle
         <div class="pj-hd">
           <span class="pj-ven">${bookLogo(b.venue || "any", b.venueName || b.venue || "", 30)}</span>
           <div class="col" style="gap:2px;min-width:0"><b class="ellip">${multi ? `${legs.length}-leg parlay` : esc(b.label || b.selection)}</b>
-            <span class="tiny muted ellip">${r.link ? `<span class="pill s" title="counted together with the other bets on ${esc(r.link.name)}">linked</span> ` : ""}${b.am != null ? `<b class="num">${am(b.am)}</b> · ` : ""}${pay}${b.venueName ? ` · ${esc(b.venueName)}` : ""}${live ? ` · <span class="pill live">● live</span>` : st ? "" : b.commence ? ` · ${fmtTime(b.commence)}` : ""}</span></div>
+            <span class="tiny muted ellip">${r.link ? `<span class="pill s" title="counted together with the other bets on ${esc(r.link.name)}">linked</span> ` : ""}${b.am != null ? `<b class="num">${odds(b.am)}</b> · ` : ""}${pay}${b.venueName ? ` · ${esc(b.venueName)}` : ""}${live ? ` · <span class="pill live">● live</span>` : st ? "" : b.commence ? ` · ${fmtTime(b.commence)}` : ""}</span></div>
           <div class="pj-rc" title="chance now${was != null ? ` (was ${prob(was)})` : ""}">${r.push ? `<span class="pill">push</span>` : ring(r.p, was, cls)}
             ${d != null && Math.abs(d) >= 0.03 ? `<span class="tiny ${d > 0 ? "pos" : "neg"}">${d > 0 ? "▲" : "▼"} ${Math.round(Math.abs(d) * 100)}</span>` : ""}</div>
           <div class="pj-ev"><span class="tiny muted">exp.</span><b class="num ${r.ev >= 0 ? "pos" : "neg"}">${fmt(r.ev)}</b></div>
