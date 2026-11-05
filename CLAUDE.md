@@ -65,6 +65,25 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   fair moved toward its side 20-75 min ago gets fairMove (and steam: true at 2+ pts). The edge log keeps it ("steam") and the
   report card grades it (dim steam). No boost until it's proven. `leadlag.py` (mode leadlag -> stats/leadlag.json): which books
   move first and stale-after-steam vs static gaps from the raw snapshots (Nov 2026: too sparse to say).
+- Market behavior (`engine/market.py`, each pre-game run via market.run, before the edge log): folds every raw pull
+  (snapshots/<day>/*_lines.json.gz) into per-game book histories (track/market/g/<gameId>.json: book -> h2h/spreads/totals
+  -> [[t (the book's own last_update, minutes), pointA, decA, decB(, draw)]], A = home / Over; only sharp, soft-US and venue
+  books). summarize(): the sharp consensus path (Pinnacle, Circa, LowVig, BetOnline; opens once two quote; quotes with an
+  implausible margin dropped; exchanges left out because back-only prices are junk on thin markets), open / now, mv = the
+  move toward A on one chance scale (point moves at SLOPE per sport; spreads skipped where they're fixed puck/run lines),
+  first movers, sharpLed, softLagMin, lagging (Vince's venues still at the old number). DraftKings' public splits from DK
+  Network (DK_SPLITS, tb_eg per league, 10 games a page, every 20 min; parse_dk; matched to our games by team words with
+  soccer aliases) -> latest/splits.json + history track/market/s/<gameId>.json. Per side signals (side_signals): mv, sl, rlm
+  (moved toward a side with <= 40% of bets), div (money % - bets %), pub (70%+ of bets); 0/100 splits are thin and give no
+  signal. Stamped on game docs (doc.mkt with path), edges (e.mkt, e.mktTags; logged on the edge card: dims mktMove,
+  mktSplits, also playbook dims) and latest/market.json (the pick runs read it); RTDB pre/mkt (site S.mkt). Grading
+  (market.grade on finals): every main-market side with its fresh close (last sharp quote <= 30 min before the start;
+  older closes are counted as staleClose and left out, since a line that kept moving after our last pull looks like
+  momentum) -> track/market/graded/<league>.jsonl, stats/marketcard.json (buckets clustered by game), Reports > Market
+  signals. Graded games' files are pruned. Mode marketbackfill rebuilds from all saved pulls; splitsprobe saves raw pages.
+  Nov 5 first read (88 games with fresh closes): moves are priced in by the close; the value is a venue that hasn't followed.
+  Site: game page Market tab (views/market.js: sharp path chart, first movers, venues still at the old number, DK splits),
+  Edges > Market moves, chips on edge cards.
 - `engine/pickprices.py` real prices for picks: the first real price seen at each play-to venue (picklive each run ->
   latest/pick_first_prices.json), else the first raw pull after posting (snapshots/, posting time from git history), else
   goodAt; grade_picks stores gradedAt, gradeSrc, gradeVenue. Pick6 multipliers are estimated from DraftKings' vigged price
@@ -256,9 +275,11 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   niche sports with logic-led cases (never bet tier under 5 books), and read the fast read first: a sport or tier with 15+
   graded and CLV t <= -1.5 is cut to leans. Ledger > Our picks "Fast read": CLV (the early signal) by sport and tier, t,
   beat-the-close, flat ROI, verdict (15+ picks, |t| >= 1.5) and picks still needed to reach t = 2.
-- Scheduled Claude tasks (Pacific): six pick runs: 4:41 early (European soccer + tennis near start, re-checks the
+- Scheduled Claude tasks (Pacific): seven pick runs: 4:41 early (European soccer + tennis near start, re-checks the
   evening's early picks), 7:37 morning, 10:43 midday, 1:53 pregame, 3:31 late pregame (4-6:30 PM starts), 5:41 evening
-  (late games + overnight tennis/soccer); promo desk hourly at :23 from 8 AM to 11 PM; settlement and live audits twice a
+  (late games + overnight tennis/soccer), 9:17 night (overnight + tomorrow's early games). Each prompt is a short scope
+  line plus "follow runbook/picks.md" in the private data repo: the shared pick procedure (data, market behavior step 3d,
+  research, checks, tiers, venues, schema, publishing, message). Change pick rules there, not in the seven prompts; promo desk hourly at :23 from 8 AM to 11 PM; settlement and live audits twice a
   day, 1:17 AM and 12:17 PM (audit mode, recomputes results from finals, checks watcher/close capture/grading timeliness,
   fixes via engine or fixes/bets.json; the midday pass covers overnight/morning games and skips what the nightly one
   already fixed); nightly model and logic lab 2:47 AM (one improvement, shipped only if it beats out of sample by 2+ SE;
