@@ -93,6 +93,20 @@ def test_live_flag_needs_a_started_game():
     p = {"rushing.rushingTouchdowns": 0, "receiving.receivingTouchdowns": 1}
     assert tracker.stat("americanfootball_nfl", "player_tds", p) == 1
 
+
+def test_calibration_fit_stays_bounded():
+    """heavy-tailed, overconfident model logits made the plain Newton fit diverge (a = -85.9 on NFL pass yds)"""
+    import random, tracker, modelstats, numpy as np
+    rnd = random.Random(7)
+    xs, ys = [], []
+    for _ in range(4000):
+        x = rnd.choice([-6.9, 6.9]) if rnd.random() < 0.1 else rnd.gauss(0, 2.5)
+        xs.append(x)
+        ys.append(1.0 if rnd.random() < 1 / (1 + 2.718281828 ** (-0.05 * x)) else 0.0)
+    for a, b in (tracker._fit_ab(xs, ys), modelstats._fit_ab(np.array(xs), np.array(ys))):
+        assert abs(a) < 1 and 0.2 <= b <= 1.5, (a, b)
+        assert b == 0.2           # the best b is under the floor: held there with a refit for it
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

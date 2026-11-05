@@ -379,10 +379,25 @@ def _ll(ps, ys):
     return -sum(y * math.log(max(1e-6, p)) + (1 - y) * math.log(max(1e-6, 1 - p)) for p, y in zip(ps, ys)) / max(1, len(ys))
 
 
-def _fit_ab(xs, ys, lam=20.0):
-    """ridge logistic: y ~ sigmoid(a + b x), shrunk toward a=0, b=1"""
+def _obj_ab(a, b, xs, ys, lam):
+    """ridge logistic objective (the one _fit_ab minimizes)"""
+    o = 0.5 * lam * (a * a + (b - 1) ** 2)
+    for x, y in zip(xs, ys):
+        z = max(-30.0, min(30.0, a + b * x))
+        o += (z if z > 0 else 0.0) + math.log1p(math.exp(-abs(z))) - y * z
+    return o
+
+
+def _fit_ab(xs, ys, lam=20.0, lo=0.2, hi=1.5):
+    """ridge logistic: y ~ sigmoid(a + b x), shrunk toward a=0, b=1, with b kept in [lo, hi].
+    Damped Newton (step halving until the objective drops): the plain Newton step oscillated and diverged when the
+    model's logits are heavy-tailed (NFL pass yds, Nov 2026: a = -85.9, every Over calibrated to ~0). When the best b
+    falls outside [lo, hi], b is held at the bound and a is refit for it (the old code clamped b but kept a from the
+    unclamped fit)."""
+    xs, ys = list(xs), list(ys)
     a, b = 0.0, 1.0
-    for _ in range(25):
+    f = _obj_ab(a, b, xs, ys, lam)
+    for _ in range(50):
         ga = gb = haa = hab = hbb = 0.0
         for x, y in zip(xs, ys):
             p = _sig(a + b * x)
@@ -391,13 +406,41 @@ def _fit_ab(xs, ys, lam=20.0):
             haa += w; hab += w * x; hbb += w * x * x
         ga += lam * a; gb += lam * (b - 1); haa += lam; hbb += lam
         det = haa * hbb - hab * hab
-        if abs(det) < 1e-9:
+        if abs(det) < 1e-12:
             break
         da, db = (hbb * ga - hab * gb) / det, (haa * gb - hab * ga) / det
-        a, b = a - da, b - db
-        if abs(da) + abs(db) < 1e-6:
+        t = 1.0
+        while t > 1e-6:
+            fn = _obj_ab(a - t * da, b - t * db, xs, ys, lam)
+            if fn <= f:
+                break
+            t /= 2
+        if t <= 1e-6:
             break
-    return a, max(0.2, min(1.5, b))
+        a, b, f = a - t * da, b - t * db, fn
+        if abs(t * da) + abs(t * db) < 1e-7:
+            break
+    if lo <= b <= hi:
+        return a, b
+    b = max(lo, min(hi, b))
+    f = _obj_ab(a, b, xs, ys, lam)
+    for _ in range(50):
+        ga, h = lam * a, lam
+        for x, y in zip(xs, ys):
+            p = _sig(a + b * x)
+            ga += p - y; h += p * (1 - p)
+        da, t = ga / h, 1.0
+        while t > 1e-6:
+            fn = _obj_ab(a - t * da, b, xs, ys, lam)
+            if fn <= f:
+                break
+            t /= 2
+        if t <= 1e-6:
+            break
+        a, f = a - t * da, fn
+        if abs(t * da) < 1e-8:
+            break
+    return a, b
 
 
 def fit(data_dir, force=False):

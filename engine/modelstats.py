@@ -46,22 +46,55 @@ def _ll_rows(p, y):
     return -(y * np.log(p) + (1 - y) * np.log(1 - p))
 
 
-def _fit_ab(x, y, lam=20.0):
-    """ridge logistic y ~ sigmoid(a + b x), shrunk to a=0, b=1 (the same fit the tracker uses)"""
+def _obj_ab(a, b, x, y, lam):
+    z = np.clip(a + b * x, -30, 30)
+    return float((np.logaddexp(0, z) - y * z).sum() + 0.5 * lam * (a * a + (b - 1) ** 2))
+
+
+def _fit_ab(x, y, lam=20.0, lo=0.2, hi=1.5):
+    """ridge logistic y ~ sigmoid(a + b x), shrunk to a=0, b=1, b kept in [lo, hi] (the same fit the tracker uses):
+    damped Newton (the plain step diverged on heavy-tailed model logits), then a refit for b held at a bound"""
+    x, y = np.asarray(x, float), np.asarray(y, float)
     a, b = 0.0, 1.0
-    for _ in range(25):
+    f = _obj_ab(a, b, x, y, lam)
+    for _ in range(50):
         p = _sig(a + b * x)
         r, w = p - y, p * (1 - p)
         ga, gb = r.sum() + lam * a, (r * x).sum() + lam * (b - 1)
         haa, hab, hbb = w.sum() + lam, (w * x).sum(), (w * x * x).sum() + lam
         det = haa * hbb - hab * hab
-        if abs(det) < 1e-9:
+        if abs(det) < 1e-12:
             break
         da, db = (hbb * ga - hab * gb) / det, (haa * gb - hab * ga) / det
-        a, b = a - da, b - db
-        if abs(da) + abs(db) < 1e-7:
+        t = 1.0
+        while t > 1e-6:
+            fn = _obj_ab(a - t * da, b - t * db, x, y, lam)
+            if fn <= f:
+                break
+            t /= 2
+        if t <= 1e-6:
             break
-    return a, float(min(1.5, max(0.2, b)))
+        a, b, f = a - t * da, b - t * db, fn
+        if abs(t * da) + abs(t * db) < 1e-8:
+            break
+    if lo <= b <= hi:
+        return float(a), float(b)
+    b = float(min(hi, max(lo, b)))
+    f = _obj_ab(a, b, x, y, lam)
+    for _ in range(50):
+        p = _sig(a + b * x)
+        da, t = ((p - y).sum() + lam * a) / ((p * (1 - p)).sum() + lam), 1.0
+        while t > 1e-6:
+            fn = _obj_ab(a - t * da, b, x, y, lam)
+            if fn <= f:
+                break
+            t /= 2
+        if t <= 1e-6:
+            break
+        a, f = a - t * da, fn
+        if abs(t * da) < 1e-9:
+            break
+    return float(a), b
 
 
 def _blend(cal, f, w):
