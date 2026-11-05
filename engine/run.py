@@ -1126,6 +1126,9 @@ def main():
         return watch()
     if MODE == "ppprobe":
         return _ppprobe()
+    if MODE == "splitsprobe":
+        import market
+        return market.probe(DATA_DIR, log)
     if MODE == "leadlag":
         import leadlag
         return leadlag.run(DATA_DIR, log)
