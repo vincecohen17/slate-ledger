@@ -139,6 +139,20 @@ def add_pp_points(rows, s):
     """NHL power-play points (goals + assists on power-play goals) onto box score rows ({name: row} or [row]), counted
     from the summary's scoring plays. Every skater gets a number only when the summary has its plays (0 is real then)."""
     import refs as R
+    # first choice: the NHL's own play-by-play (exact situation codes and both assisters on every goal)
+    try:
+        import nhlapi
+        off = nhlapi.pp_from_espn_summary(s)
+    except Exception:
+        off = None
+    if off is not None:
+        n_off = off.pop("_n", 0)
+        it = rows.values() if isinstance(rows, dict) else rows
+        for r in it:
+            if not r.get("goalie"):
+                r["powerPlayPoints"] = float(off.get(R.norm(r.get("name") or ""), 0))
+                r["ppSrc"] = "nhl"
+        return n_off
     plays = s.get("plays") or []
     if not plays:
         return 0

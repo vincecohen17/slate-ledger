@@ -106,6 +106,11 @@ def _feat(l, side):
 def snapshot(data_dir, game_docs, prop_docs, now):
     d = os.path.join(data_dir, "track", "open")
     os.makedirs(d, exist_ok=True)
+    # when these prices were pulled (not when the run happened): the close's age at the start is what CLV can trust
+    try:
+        rs = json.load(open(os.path.join(data_dir, "latest", "refresh_state.json")))
+    except Exception:
+        rs = {}
     props = {}
     for p in prop_docs:
         props.setdefault(p["id"], []).append(p)
@@ -137,7 +142,8 @@ def snapshot(data_dir, game_docs, prop_docs, now):
         if not rows:
             continue
         snap = {"id": g["id"], "sport": g["sport"], "commence": g["commence"], "home": g["home"], "away": g["away"],
-                "ha": (g.get("homeRef") or {}).get("abbr"), "aa": (g.get("awayRef") or {}).get("abbr"), "rows": rows}
+                "ha": (g.get("homeRef") or {}).get("abbr"), "aa": (g.get("awayRef") or {}).get("abbr"), "rows": rows,
+                "linesAt": (rs.get("lines") or {}).get(g["sport"]), "eventAt": (rs.get("events") or {}).get(g["id"])}
         fn = os.path.join(d, f"{g['id']}.json")
         s = json.dumps(snap, separators=(",", ":"), sort_keys=True)
         try:
@@ -148,6 +154,21 @@ def snapshot(data_dir, game_docs, prop_docs, now):
         open(fn, "w").write(s)
         n += 1
     return n
+
+
+def close_age(snap, is_prop):
+    """minutes between the price pull behind this snapshot and the start (None when unknown). Props and alternates come
+    from the event pull, main lines from the sport's line pull (or the event pull when that is fresher)."""
+    try:
+        start = datetime.fromisoformat(snap["commence"].replace("Z", "+00:00"))
+    except Exception:
+        return None
+    ts = [snap.get("eventAt")] if is_prop else [snap.get("linesAt"), snap.get("eventAt")]
+    ts = [datetime.fromisoformat(t.replace("Z", "+00:00")) for t in ts if t]
+    ts = [t for t in ts if t <= start]
+    if not ts:
+        return None
+    return round((start - max(ts)).total_seconds() / 60, 1)
 
 
 # ---------------------------------------------------------------------------

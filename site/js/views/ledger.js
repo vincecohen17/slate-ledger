@@ -8,6 +8,7 @@ import { VENUES } from "../lab.js";
 import { projectedCard, betLegs } from "../projected.js";
 import { betImage } from "./common.js";
 import { analysis, bindAnalysis, gameDay } from "./analysis.js";
+import { clvOk, CLOSE_OK_MIN } from "../stats.js";
 import { picksDeep, bindPicksDeep } from "./picksdeep.js";
 import { walletHtml, bindWallet } from "./wallet.js";
 import { unify, outcomes, arbSheet, unpair, findPairs, autoPair, pairBets } from "../arbs.js";
@@ -23,7 +24,7 @@ export function autoSettle() {
   for (const b of S.bets.values()) {
     if (b.status !== "pending" || !b.auto?.result || inflight.has(b.id)) continue;
     inflight.add(b.id);
-    saveBet({ ...b, status: b.auto.result, profit: profitFor(b, b.auto.result), clv: b.auto.clv ?? null, closeFair: b.auto.closeFair ?? null, legResults: b.auto.legs ?? null, closeEst: b.auto.closeEst ?? null,
+    saveBet({ ...b, status: b.auto.result, profit: profitFor(b, b.auto.result), clv: b.auto.clv ?? null, closeFair: b.auto.closeFair ?? null, legResults: b.auto.legs ?? null, closeEst: b.auto.closeEst ?? null, closeAge: b.auto.closeAge ?? null,
               settledAt: b.auto.at || new Date().toISOString(), autoSettled: true }).finally(() => inflight.delete(b.id));
   }
 }
@@ -63,7 +64,7 @@ const GROUPS = {
 function summarize(list) {
   const g = list.filter((b) => ["won", "lost", "push"].includes(b.status));
   const staked = g.reduce((s, b) => s + (b.stake || 0), 0), pl = g.reduce((s, b) => s + (b.profit || 0), 0);
-  const clv = g.filter((b) => b.clv != null);
+  const clv = g.filter(clvOk);
   const exp = g.filter((b) => evAtLog(b) != null || b.expPl != null);
   return { n: g.length, w: g.filter((b) => b.status === "won").length, l: g.filter((b) => b.status === "lost").length, p: g.filter((b) => b.status === "push").length,
     staked, pl, roi: staked ? pl / staked : null, clv: clv.length ? clv.reduce((s, b) => s + b.clv, 0) / clv.length : null, nClv: clv.length,
@@ -172,7 +173,7 @@ function betRow(b) {
         <span>${esc(b.venueName || b.venue || "")}</span>${b.league ? `<span>${esc(b.league)}</span>` : ""}${b.promoId ? `<span class="pill s">${esc(S.promos.get(b.promoId)?.title || "promo")}${b.boostIn ? " · in odds" : ""}</span>` : ""}${needsCheck(b) ? `<span class="lt-chip neg" title="did the odds you typed already include the boost?">check boost</span>` : ""}
         ${b.fairAtLog != null ? `<span class="lt-chip ${ev > 0 ? "pos" : ev < 0 ? "neg" : ""}" title="our fair when you logged it">fair ${prob(b.fairAtLog)} · ${pct(ev)}</span>` : ""}
         ${b.live ? `<span class="pill live" title="placed during the game">● live${b.liveState?.text ? ` · ${esc(b.liveState.text)}` : ""}</span>` : ""}
-        ${b.clv != null ? `<span class="lt-chip ${b.clv > 0 ? "pos" : b.clv < 0 ? "neg" : ""}" title="${b.live ? "your price at the live fair a few minutes after the bet" : "value of your price at the closing fair"}">CLV ${pct(b.clv)}</span>`
+        ${b.clv != null ? `<span class="lt-chip ${!clvOk(b) ? "" : b.clv > 0 ? "pos" : b.clv < 0 ? "neg" : ""}" title="${b.live ? "your price at the live fair a few minutes after the bet" : "value of your price at the closing fair"}${!clvOk(b) ? (b.closeEst ? " (estimated close: left out of CLV averages)" : ` (the last price we had was ${Math.round(b.closeAge)} min before the start: left out of CLV averages)`) : ""}">CLV ${pct(b.clv)}${!clvOk(b) ? "*" : ""}</span>`
           : b.liveCheck ? `<span class="lt-chip ${b.liveCheck.clv > 0 ? "pos" : b.liveCheck.clv < 0 ? "neg" : ""}" title="the live fair ${Math.round(b.liveCheck.mins)} minutes after you bet: ${prob(b.liveCheck.fair)}">${Math.round(b.liveCheck.mins)}-min check ${pct(b.liveCheck.clv)}</span>`
           : b.live && b.status === "pending" ? `<span class="lt-chip" title="the live fair is checked 5 to 30 minutes after the bet">price check pending</span>` : ""}</div>
     </div>

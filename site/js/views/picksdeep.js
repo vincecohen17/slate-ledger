@@ -5,7 +5,7 @@
 import { S } from "../store.js";
 import { esc, pct, prob, am, mktName, bindTips } from "../util.js";
 import { lineChart, legend } from "./charts.js";
-import { mean, meanCI, wilson, bootRatio, logLoss, brier, calibFit, relBins, ptDay, pTwo, fmtP, fmtT } from "../stats.js";
+import { mean, meanCI, wilson, bootRatio, logLoss, brier, calibFit, relBins, ptDay, pTwo, fmtP, fmtT, clvOk, CLOSE_OK_MIN } from "../stats.js";
 import { calendar, relChart, sortTable, bindSort, td, downloadCsv, chipBar } from "./deep.js";
 
 const G = ["won", "lost", "push"];
@@ -39,7 +39,7 @@ const ORDER = { gap: ["Model below market", "0-2 pts", "2-5 pts", "5-10 pts", "1
 
 function agg(list) {
   const risk = list.reduce((s, p) => s + (p.units || 0), 0), pl = list.reduce((s, p) => s + (p.profit || 0), 0);
-  const c = list.filter((p) => p.clv != null), ex = list.map(expU).filter((x) => x != null), v = list.reduce((s, p) => s + varU(p), 0);
+  const c = list.filter(clvOk), ex = list.map(expU).filter((x) => x != null), v = list.reduce((s, p) => s + varU(p), 0);
   const plE = list.filter((p) => expU(p) != null).reduce((s, p) => s + (p.profit || 0), 0), e = ex.reduce((a, b) => a + b, 0);
   const fl = list.map(flatOf);
   return { flat: fl.reduce((a, b) => a + b, 0), flatRoi: fl.length ? mean(fl) : null, n: list.length, w: list.filter((p) => p.status === "won").length, l: list.filter((p) => p.status === "lost").length, p: list.filter((p) => p.status === "push").length,
@@ -68,14 +68,14 @@ function toKnow(c) {
 function fastRead(g) {
   const recent = g.filter((p) => (day(p) || "") >= DAY14());
   const block = (list, lab) => {
-    const c = meanCI(list.filter((p) => p.clv != null).map((p) => p.clv)), f = meanCI(list.map(flatOf));
-    const beat = list.filter((p) => p.clv != null), bt = beat.length ? beat.filter((p) => p.clv > 0).length / beat.length : null;
+    const c = meanCI(list.filter(clvOk).map((p) => p.clv)), f = meanCI(list.map(flatOf));
+    const beat = list.filter(clvOk), bt = beat.length ? beat.filter((p) => p.clv > 0).length / beat.length : null;
     return `<div class="kpi"><div class="k">${lab}</div><div class="v ${cls(c.m)}">${c.m != null ? pct(c.m) : "–"} <span class="tiny muted">CLV</span></div>
       <div class="s">${list.length} picks · beat the close ${bt != null ? Math.round(bt * 100) + "%" : "–"} · t ${fmtT(c.t)} · flat ROI ${f.m != null ? pct(f.m) : "–"} · ${toKnow(c)}</div></div>`;
   };
   const groups = (fn) => { const m = new Map(); g.forEach((p) => { const k = fn(p); if (!m.has(k)) m.set(k, []); m.get(k).push(p); }); return [...m].sort((a, b) => b[1].length - a[1].length); };
   const rows = (fn, lab) => sortTable([lab, "Picks", "CLV", "t", "Beat close", "Flat 1u ROI", "Verdict", "Picks to know"], groups(fn).map(([k, list]) => {
-    const c = meanCI(list.filter((p) => p.clv != null).map((p) => p.clv)), f = meanCI(list.map(flatOf)), b = list.filter((p) => p.clv != null);
+    const c = meanCI(list.filter(clvOk).map((p) => p.clv)), f = meanCI(list.map(flatOf)), b = list.filter(clvOk);
     const bt = b.length ? b.filter((p) => p.clv > 0).length / b.length : null;
     return `<tr><td>${esc(k)}</td>${td(list.length, list.length)}${td(`<span class="${cls(c.m)}">${c.m != null ? pct(c.m) : "–"}</span>`, c.m)}${td(fmtT(c.t), c.t)}${td(bt != null ? Math.round(bt * 100) + "%" : "–", bt)}
       ${td(`<span class="${cls(f.m)}">${f.m != null ? pct(f.m) : "–"}</span>`, f.m)}<td>${verdict(c, list.length)}</td><td>${toKnow(c)}</td></tr>`;
@@ -90,7 +90,7 @@ function fastRead(g) {
 export function picksDeep() {
   const g = [...S.picks.values()].filter((p) => G.includes(p.status)).sort((a, b) => (a.commence || "").localeCompare(b.commence || ""));
   if (!g.length) return `<div class="card note">The deep view fills in once picks are graded.</div>`;
-  const A = agg(g), boot = bootRatio(g, (p) => p.profit || 0, (p) => p.units || 0), C = meanCI(g.filter((p) => p.clv != null).map((p) => p.clv));
+  const A = agg(g), boot = bootRatio(g, (p) => p.profit || 0, (p) => p.units || 0), C = meanCI(g.filter(clvOk).map((p) => p.clv));
   const real = g.filter((p) => p.gradeSrc === "first seen" || p.gradeSrc === "posted").length;
   // forecasts scored
   const sc = g.filter((p) => p.status !== "push" && p.fair != null), ys = sc.map((p) => (p.status === "won" ? 1 : 0));

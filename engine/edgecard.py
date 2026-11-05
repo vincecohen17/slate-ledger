@@ -191,7 +191,7 @@ def grade(data_dir, fin_by_gid, now, log=print):
                    "logic": v.get("logic"), "mp": v.get("mp"), "steam": v.get("steam"), "edge": v["edge"],
                    "gid": ent["gid"], "side": ent["side"], "pt": ent.get("point"), "player": ent.get("player"), "fs": v.get("fs"), "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
                    "clv": round(close * v["dec"] - 1, 4), "clvLast": round(close * v["last"] - 1, 4), "clvBest": round(close * v["best"] - 1, 4),
-                   "y": y, "pnl": None if y is None else round(y * (v["dec"] - 1) - (1 - y), 4)}
+                   "y": y, "pnl": None if y is None else round(y * (v["dec"] - 1) - (1 - y), 4), "ca": g.get("age")}
             if v.get("mp") is not None and v["fair"] - 1 / v["dec"] >= 0.005:     # support ratio at the flag (see build.edges)
                 row["sup"] = round((v["mp"] - 1 / v["dec"]) / (v["fair"] - 1 / v["dec"]), 3)
                 row["supSrc"] = "flag"
@@ -295,12 +295,21 @@ def _recent(g):
             "roiR": round(sum(wi * r["pnl"] for wi, r in zip(w, g)) / sw, 4), "nR": round(sw * sw / sum(wi * wi for wi in w), 1)}
 
 
+CLOSE_OK_MIN = 30          # CLV counts only where the close was pulled within this many minutes of the start
+
+
 def _agg(rows):
     n = len(rows)
     g = [r for r in rows if r["y"] is not None]
-    clv = sum(r["clv"] for r in rows) / n
-    return {**_recent(g), "n": n, "clv": round(clv, 4), "beat": round(sum(r["clv"] > 0 for r in rows) / n, 3),
-            "clvLast": round(sum(r["clvLast"] for r in rows) / n, 4), "clvBest": round(sum(r["clvBest"] for r in rows) / n, 4),
+    # CLV on a stale close (prices last pulled hours before the start) is just an earlier price: left out of every CLV
+    # number; rows from before close ages were kept (ca missing) count
+    fresh = [r for r in rows if not (r.get("ca") is not None and r["ca"] > CLOSE_OK_MIN)]
+    cr = fresh or rows          # every close stale: report them rather than nothing (staleClose says so)
+    nc = len(cr)
+    clv = sum(r["clv"] for r in cr) / nc
+    return {**_recent(g), "n": n, "nClv": len(fresh), "staleClose": n - len(fresh),
+            "clv": round(clv, 4), "beat": round(sum(r["clv"] > 0 for r in cr) / nc, 3),
+            "clvLast": round(sum(r["clvLast"] for r in cr) / nc, 4), "clvBest": round(sum(r["clvBest"] for r in cr) / nc, 4),
             "edge": round(sum(r["edge"] for r in rows) / n, 4),
             "graded": len(g), "roi": round(sum(r["pnl"] for r in g) / len(g), 4) if g else None,
             "win": round(sum(r["y"] for r in g) / len(g), 3) if g else None,
@@ -310,7 +319,7 @@ def _agg(rows):
             "gap": round((sum(r["y"] for r in g) - sum(r["close"] for r in g)) / len(g), 4) if g else None,
             "zRes": round((sum(r["y"] for r in g) - sum(r["close"] for r in g)) / max(1e-9, sum(r["close"] * (1 - r["close"]) for r in g)) ** 0.5, 2) if len(g) > 2 else None,
             # z of the CLV mean: how sure we are it isn't noise
-            "z": round(clv / ((sum((r["clv"] - clv) ** 2 for r in rows) / max(1, n - 1)) ** 0.5 / n ** 0.5), 2) if n > 2 and len({r["clv"] for r in rows}) > 1 else None}
+            "z": round(clv / ((sum((r["clv"] - clv) ** 2 for r in cr) / max(1, nc - 1)) ** 0.5 / nc ** 0.5), 2) if nc > 2 and len({r["clv"] for r in cr}) > 1 else None}
 
 
 def summarize(data_dir, days=120, now=None):

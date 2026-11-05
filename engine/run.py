@@ -513,10 +513,76 @@ def live(watch=False, full=True, pres=None):
     # a game with an open leg starts later today: the watcher waits for it instead of ending (nothing else would start it
     # in time: GitHub runs the 5-minute cron only every few hours)
     upcoming = any(iso(NOW) < (starts.get(gid) or "") <= iso(NOW + timedelta(hours=WATCH_AHEAD_H)) for gid in watch_ids)
-    return {"need": soon or any(d["id"] in watch_ids and not d.get("final") for d in docs), "upcoming": upcoming}
+    return {"need": soon or any(d["id"] in watch_ids and not d.get("final") for d in docs), "upcoming": upcoming,
+            "inplay": sorted(d["id"] for d in docs if d["id"] in watch_ids and not d.get("final")),
+            "final": sorted(d["id"] for d in docs if d["id"] in watch_ids and d.get("final"))}
 
 
 WATCH_AHEAD_H = 6          # the watcher starts this far ahead of the first game with an open leg and waits for it
+
+
+def _ppprobe():
+    """check the power-play point sources on the last few days of finished NHL games (logs counts only): the NHL
+    play-by-play's power-play goals must match the NHL box score's per-player powerPlayGoals, and ESPN's fallback
+    parse is compared with it"""
+    import nhlapi, stats as ST2, live as LV2
+    games = []
+    for d in range(1, 4):
+        day = (NOW - timedelta(days=d)).strftime("%Y-%m-%d")
+        try:
+            games += [g for g in nhlapi._get(f"{nhlapi.BASE}/score/{day}").get("games") or [] if g.get("gameState") in ("OFF", "FINAL")]
+        except Exception as e:
+            log(f"ppprobe: score {day} failed ({type(e).__name__})")
+    ok = bad = 0
+    esp_ok = esp_bad = esp_none = 0
+    for g in games[:12]:
+        pp = nhlapi.pp_points(g["id"])
+        if pp is None:
+            log("ppprobe: play-by-play missing")
+            continue
+        n_pp = pp.pop("_n", 0)
+        try:
+            bx = nhlapi._get(f"{nhlapi.BASE}/gamecenter/{g['id']}/boxscore")
+            ppg = 0
+            for side in ("homeTeam", "awayTeam"):
+                for grp in ("forwards", "defense"):
+                    ppg += sum(int(p.get("powerPlayGoals") or 0) for p in ((bx.get("playerByGameStats") or {}).get(side) or {}).get(grp) or [])
+        except Exception as e:
+            log(f"ppprobe: boxscore failed ({type(e).__name__})")
+            continue
+        ok, bad = (ok + 1, bad) if ppg == n_pp else (ok, bad + 1)
+        if ppg != n_pp:
+            log(f"ppprobe: mismatch: play-by-play {n_pp} PP goals vs box score {ppg}")
+        # ESPN's own summary for the same game, parsed without the NHL source
+        try:
+            sb = LV2._get(f"{LV2.ESPN}/hockey/nhl/scoreboard?dates={g.get('gameDate', '').replace('-', '')}")
+            ev = next((e for e in sb.get("events") or [] if {nhlapi._ab(c["team"]["abbreviation"]) for c in e["competitions"][0]["competitors"]}
+                       == {nhlapi._ab((g.get("homeTeam") or {}).get("abbrev")), nhlapi._ab((g.get("awayTeam") or {}).get("abbrev"))}), None)
+            if ev:
+                summ = LV2._get(f"{LV2.ESPN}/hockey/nhl/summary?event={ev['id']}")
+                plays = summ.get("plays") or []
+                sc = [p for p in plays if p.get("scoringPlay")]
+                keys = sorted({k for p in sc[:3] for k in p.keys()})
+                st_ex = [str((p.get("strength") or {}).get("text") if isinstance(p.get("strength"), dict) else p.get("strength")) for p in sc[:6]]
+                import nhlapi as _n
+                saved = _n.pp_from_espn_summary
+                _n.pp_from_espn_summary = lambda s_: None          # force the ESPN-only parse
+                try:
+                    rows = {}
+                    n_esp = ST2.add_pp_points(rows, summ)
+                finally:
+                    _n.pp_from_espn_summary = saved
+                if not plays:
+                    esp_none += 1
+                elif n_esp == n_pp:
+                    esp_ok += 1
+                else:
+                    esp_bad += 1
+                    log(f"ppprobe: ESPN parse found {n_esp} PP goals vs NHL {n_pp}; scoring play keys {keys}; strength {st_ex}")
+        except Exception as e:
+            log(f"ppprobe: ESPN check failed ({type(e).__name__}: {str(e)[:80]})")
+    log(f"ppprobe: NHL play-by-play matches box score PP goals in {ok} of {ok + bad} games; ESPN parse agrees in {esp_ok}, "
+        f"differs in {esp_bad}, no plays in {esp_none}")
 
 
 def watch():
@@ -531,9 +597,18 @@ def watch():
     t0 = time.time()
     passes = {True: 0, False: 0}
     idle, r = 0, {}
+    asked, seen_live, graded_ask, last_grade = set(), set(), set(), 0.0
+    st0 = load_state()
     while True:
         NOW = datetime.now(timezone.utc)
         t1 = time.time()
+        # closing prices: a game starting within CLOSE_ASK_MIN gets an auto run (its close capture pulls anything over
+        # CLOSE_STALE_MIN old), whether or not the site is open. CLV and the report cards are only as good as the close.
+        try:
+            board_soon = _closer(asked, st0)
+        except Exception as e:
+            log(f"watch: close check failed ({type(e).__name__})")
+            board_soon = True
         pres = presence_doc()
         site_live = bool(pres.get("live")) and _age_min(pres.get("at")) <= 3
         waiting = r.get("upcoming") and not r.get("need") and not site_live
@@ -547,8 +622,18 @@ def watch():
                 log(f"watch: pass failed ({type(e).__name__}: {str(e)[:120]})")
                 r = {"need": True}
             passes[site_live] += 1
-        if not (r.get("need") or r.get("upcoming") or site_live):
-            log("watch: nothing left in play")
+        # settle promptly: a watched game that was in play and is now final (or gone) gets a rebuild run, which collects
+        # the final and grades every bet and pick on it, instead of waiting for the next auto run
+        now_live = set(r.get("inplay") or [])
+        ended = (seen_live - now_live) | (set(r.get("final") or []) - graded_ask)
+        seen_live |= now_live
+        if ended and time.time() - last_grade > 120:
+            if _dispatch("rebuild", "grade finals"):
+                graded_ask |= ended
+                seen_live -= ended
+                last_grade = time.time()
+        if not (r.get("need") or r.get("upcoming") or site_live or board_soon):
+            log("watch: nothing left in play and no game starting soon")
             break
         if time.time() - t0 > 50 * 60:
             log("watch: 50 minutes up; starting the next watcher")
@@ -587,9 +672,66 @@ def _watch_wanted():
                        and lo <= (pk.get("commence") or "") <= hi for pk in load_picks(2))
         except Exception:
             pass
+    if not want:            # no open bet soon: still keep the watcher up for close capture when any game starts soon
+        hz = iso(NOW + timedelta(hours=WATCH_AHEAD_H))
+        want = any(iso(NOW) < (v or "") <= hz for v in starts.values())
     if not want:
         return False
     return _dispatch_watch()
+
+
+CLOSE_ASK_MIN = 12          # ask for a close capture this long before a start
+
+
+def _closer(asked, st0):
+    """dispatch an auto run when a board game starts within CLOSE_ASK_MIN minutes and its prices are older than the
+    close threshold; returns whether any board game starts within WATCH_AHEAD_H hours (the watcher stays up for those)"""
+    import glob
+    games = []                  # light: ids, sports and starts from the cached line pulls (no prop building every minute)
+    for fn in glob.glob(RAW("lines_*.json")):
+        try:
+            games += [{"id": ev["id"], "sport": os.path.basename(fn)[6:-5], "commence": ev.get("commence_time")} for ev in json.load(open(fn))]
+        except Exception:
+            pass
+    lo, hi = NOW + timedelta(minutes=1), NOW + timedelta(minutes=CLOSE_ASK_MIN)
+    due = []
+    for g in games:
+        try:
+            t = datetime.fromisoformat(g["commence"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if lo < t <= hi and g["id"] not in asked:
+            due.append(g)
+    if due:
+        stale = [g for g in due if _age_min((st0.get("lines") or {}).get(g["sport"])) > C.CLOSE_STALE_MIN
+                 or _age_min((st0.get("events") or {}).get(g["id"])) > C.CLOSE_STALE_MIN]
+        if stale and _dispatch("auto", f"close for {len(stale)} games"):
+            asked |= {g["id"] for g in due}
+        elif not stale:
+            asked |= {g["id"] for g in due}
+    horizon = iso(NOW + timedelta(hours=WATCH_AHEAD_H))
+    return any(iso(NOW) < (g.get("commence") or "") <= horizon for g in games)
+
+
+def _dispatch(mode, why=""):
+    """start an engine run in `mode` unless one is already waiting to start"""
+    if not os.environ.get("GITHUB_TOKEN"):
+        return False
+    import urllib.request
+    h = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}", "Accept": "application/vnd.github+json"}
+    base = "https://api.github.com/repos/vincecohen17/slate-ledger/actions/workflows/pull.yml"
+    try:
+        for stt in ("queued", "pending", "waiting"):
+            runs = json.load(urllib.request.urlopen(urllib.request.Request(f"{base}/runs?status={stt}&per_page=20", headers=h), timeout=20))
+            if any((r.get("display_title") or "") == mode for r in runs.get("workflow_runs") or []):
+                return True            # one is already on its way
+        urllib.request.urlopen(urllib.request.Request(f"{base}/dispatches", data=json.dumps({"ref": "main", "inputs": {"mode": mode}}).encode(),
+                                                      method="POST", headers=h), timeout=20)
+        log(f"watch: started a {mode} run ({why})")
+        return True
+    except Exception as e:
+        log(f"watch: could not start a {mode} run ({type(e).__name__})")
+        return False
 
 
 def _dispatch_watch(chain=False):
@@ -967,6 +1109,8 @@ def main():
         return live()
     if MODE == "watch":
         return watch()
+    if MODE == "ppprobe":
+        return _ppprobe()
     if MODE == "leadlag":
         import leadlag
         return leadlag.run(DATA_DIR, log)

@@ -11,7 +11,7 @@ import { VENUES } from "../lab.js";
 import { lineChart, legend, divRows, heat } from "./charts.js";
 import { unify } from "../arbs.js";
 import { walletAll } from "../wallet.js";
-import { mean, meanCI, wilson, bootRatio, logLoss, brier, calibFit, relBins, ptDay, pTwo, fmtP, fmtT, sd } from "../stats.js";
+import { mean, meanCI, wilson, bootRatio, logLoss, brier, calibFit, relBins, ptDay, pTwo, fmtP, fmtT, sd, clvOk, CLOSE_OK_MIN } from "../stats.js";
 import { calendar, relChart, histogram, sortTable, bindSort, td, downloadCsv, chipBar } from "./deep.js";
 import { project } from "../projected.js";
 
@@ -71,7 +71,7 @@ function agg(list) {
   const risk = g.reduce((s, b) => s + riskOf(b), 0), pl = g.reduce((s, b) => s + (b.profit || 0), 0);
   // ROI is on money actually risked: bonus bets and free entries (nothing at risk) are profit but not in the ratio
   const plRisk = g.filter((b) => riskOf(b) > 0).reduce((s, b) => s + (b.profit || 0), 0);
-  const c = g.filter((b) => b.clv != null), ex = g.map(expOf).filter(Boolean);
+  const c = g.filter(clvOk), ex = g.map(expOf).filter(Boolean);
   const rets = g.filter((b) => riskOf(b) > 0).map((b) => (b.profit || 0) / riskOf(b));
   const r = meanCI(rets), e = ex.reduce((s, x) => s + x.ev, 0), v = ex.reduce((s, x) => s + x.v, 0);
   const plE = g.filter(expOf).reduce((s, b) => s + (b.profit || 0), 0);
@@ -154,7 +154,7 @@ export function analysis() {
   const rets = st.filter((b) => riskOf(b) > 0), R = meanCI(rets.map((b) => (b.profit || 0) / riskOf(b)));
   const boot = bootRatio(rets, (b) => b.profit || 0, riskOf);
   const free = st.filter((b) => riskOf(b) === 0), freePl = free.reduce((s, b) => s + (b.profit || 0), 0);
-  const C = meanCI(st.filter((b) => b.clv != null).map((b) => b.clv)), beatW = wilson(st.filter((b) => b.clv > 0).length, A.nClv);
+  const C = meanCI(st.filter(clvOk).map((b) => b.clv)), beatW = wilson(st.filter((b) => clvOk(b) && b.clv > 0).length, A.nClv);
   const scored = st.filter((b) => b.fairAtLog != null && b.status !== "push" && b.dec > 1);
   const ys = scored.map((b) => (b.status === "won" ? 1 : 0)), ps = scored.map((b) => b.fairAtLog);
   const plain = scored.filter((b) => !b.promoId), yP = plain.map((b) => (b.status === "won" ? 1 : 0));
@@ -202,7 +202,7 @@ export function analysis() {
     const r = promoRows.get(title) || { k: title, kind, n: 0, extra: 0, pl: 0, ev: 0, nev: 0 }; r.n++; r.extra += extra; r.pl += b.profit || 0; if (x) { r.ev += x.ev; r.nev++; } promoRows.set(title, r); });
   const promoTot = [...promoRows.values()].reduce((s, r) => s + r.extra, 0);
   const wal = walletAll().filter((w) => w.tracked), walP = wal.reduce((s, w) => s + (w.real || 0), 0), walAdj = wal.reduce((s, w) => s + (w.adj || 0), 0);
-  const swing = [...st].sort((a, b) => (b.profit || 0) - (a.profit || 0)), clvS = st.filter((b) => b.clv != null).sort((a, b) => b.clv - a.clv);
+  const swing = [...st].sort((a, b) => (b.profit || 0) - (a.profit || 0)), clvS = st.filter(clvOk).sort((a, b) => b.clv - a.clv);
   const mini = (b, val, num) => `<div class="an-mini">${bookLogo(b.venue || "any", b.venueName || "", 18)}<span class="ellip">${esc(b.label)}</span><span class="tiny muted">${am(b.am)} · ${esc(gameDay(b) || "")}</span><b class="num ${cls(num)}">${val}</b></div>`;
   const dq = { n: st.length, fair: st.filter((b) => b.fairAtLog != null && b.fairAtLogSrc !== "close").length, fairC: st.filter((b) => b.fairAtLogSrc === "close").length,
     clv: st.filter((b) => b.clv != null).length, clvE: st.filter((b) => b.clv != null && b.closeEst).length, legs: st.filter((b) => b.legResults?.length).length };
@@ -215,7 +215,7 @@ export function analysis() {
     ${free.length ? `<div class="kpi"><div class="k">Free bets</div><div class="v ${cls(freePl)}">${money(freePl)}</div><div class="s">${free.length} bonus bets and free entries (nothing risked)</div></div>` : ""}
     <div class="kpi"><div class="k">Expected</div><div class="v ${cls(A.exp)}">${money(A.exp)}</div><div class="s">at the fair when logged (${A.n - st.filter((b) => !expOf(b)).length} of ${A.n} have one)</div></div>
     <div class="kpi"><div class="k">Luck</div><div class="v ${cls(A.luck)}">${money(A.luck)}</div><div class="s">z ${fmtT(zL)} · p ${fmtP(pTwo(zL))}</div></div>
-    <div class="kpi"><div class="k">Avg CLV</div><div class="v ${cls(A.clv)}">${A.clv != null ? pct(A.clv) : "–"}</div><div class="s">t ${fmtT(C.t)} · beat close ${A.beat != null ? Math.round(A.beat * 100) + "%" : "–"} of ${A.nClv}</div></div>
+    <div class="kpi"><div class="k">Avg CLV</div><div class="v ${cls(A.clv)}">${A.clv != null ? pct(A.clv) : "–"}</div><div class="s">t ${fmtT(C.t)} · beat close ${A.beat != null ? Math.round(A.beat * 100) + "%" : "–"} of ${A.nClv}${(() => { const out = st.filter((b) => b.clv != null && !clvOk(b)).length; return out ? ` · ${out} left out (stale or estimated close)` : ""; })()}</div></div>
     <div class="kpi"><div class="k">Per day</div><div class="v ${cls(dMean)}">${money(dMean)}</div><div class="s">SD ${money(dSd)} · ${up} of ${dvals.length} days up</div></div>
     <div class="kpi"><div class="k">Streaks</div><div class="v small">${kt === "won" ? "W" : "L"}${k} now</div><div class="s">longest ${longW}W · ${longL}L · ${dlMax} losing days in a row</div></div>
     <div class="kpi"><div class="k">Promo value</div><div class="v ${cls(promoTot)}">${money(promoTot)}</div><div class="s">over the same bets without the promo</div></div>
@@ -258,9 +258,9 @@ export function analysis() {
     <p class="note">Inside the shaded range the results are variance around what your prices earned. With a few dozen bets almost nothing is significant: read the intervals, not the point estimates. CLV converges far faster than profit, which is why it leads.</p></div>
 
   <div class="sec-title">Closing line value<span class="line"></span></div>
-  <div class="an-grid2"><div class="card"><b>Distribution</b>${histogram(st.filter((b) => b.clv != null).map((b) => b.clv), { nb: 14, fmt: (x) => pct(x, 0) })}
-      <p class="note">Each bet's price valued at the closing fair. Mean ${C.m != null ? pct(C.m) : "–"}, median ${(() => { const s = st.filter((b) => b.clv != null).map((b) => b.clv).sort((a, b) => a - b); return s.length ? pct(s[Math.floor(s.length / 2)]) : "–"; })()}, SD ${C.sd != null ? pct(C.sd) : "–"}.</p></div>
-    <div class="card"><b>Rolling</b>${(() => { const wc2 = st.filter((b) => b.clv != null), RR = Math.min(20, Math.max(5, Math.floor(wc2.length / 3)));
+  <div class="an-grid2"><div class="card"><b>Distribution</b>${histogram(st.filter(clvOk).map((b) => b.clv), { nb: 14, fmt: (x) => pct(x, 0) })}
+      <p class="note">Each bet's price valued at the closing fair. Mean ${C.m != null ? pct(C.m) : "–"}, median ${(() => { const s = st.filter(clvOk).map((b) => b.clv).sort((a, b) => a - b); return s.length ? pct(s[Math.floor(s.length / 2)]) : "–"; })()}, SD ${C.sd != null ? pct(C.sd) : "–"}.</p></div>
+    <div class="card"><b>Rolling</b>${(() => { const wc2 = st.filter(clvOk), RR = Math.min(20, Math.max(5, Math.floor(wc2.length / 3)));
       const roll = wc2.map((b, i) => { const s = wc2.slice(Math.max(0, i - RR + 1), i + 1); return { i, y: mean(s.map((x) => x.clv)), tip: `${b.label}: ${pct(b.clv)} · last ${s.length} avg ${pct(mean(s.map((x) => x.clv)))}` }; });
       return lineChart([{ pts: roll, color: "var(--pos)" }], { h: 170, fmt: (x) => pct(x) }) + legend([["var(--pos)", `average over the last ${RR} bets`]]); })()}</div></div>
 

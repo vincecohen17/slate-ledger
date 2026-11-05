@@ -98,3 +98,9 @@ export function drawdown(vals) {
 
 export const fmtP = (p) => (p == null ? "–" : p < 0.001 ? "<0.001" : p.toFixed(3));
 export const fmtT = (t) => (t == null || !isFinite(t) ? "–" : `${t >= 0 ? "+" : ""}${t.toFixed(2)}`);
+
+// CLV only counts when the close behind it is trustworthy: pulled within CLOSE_OK_MIN of the start (closeAge, minutes;
+// unknown on older rows) and not an estimated close (a pick'em number no book priced). A stale "close" is just an earlier
+// price, and CLV against it overstates or understates the edge at random.
+export const CLOSE_OK_MIN = 30;
+export const clvOk = (x) => x != null && x.clv != null && !(x.closeAge > CLOSE_OK_MIN) && !x.closeEst;
