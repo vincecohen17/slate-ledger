@@ -208,11 +208,21 @@ def grade_bet(data_dir, legs, dec, fin_by_gid):
         for c in cl:
             pc *= c
         clv = round(pc * dec - 1, 4)          # expected return per $1 at the price taken, valued at the closing fair
+    # calibrated CLV: each leg's close corrected to how our closes have actually done (closecal); the honest version
+    clv_cal = None
+    if clv is not None:
+        import closecal
+        pk = 1.0
+        for leg, g in zip(legs, out):
+            if g["y"] is None:
+                continue
+            pk *= closecal.cal(g["close"], "prop" if leg.get("player") else "line", data_dir)
+        clv_cal = round(pk * dec - 1, 4)
     # the oldest close behind any leg: CLV is only as trustworthy as its stalest close (minutes before the start)
     ages = [g.get("age") for g in live]
     age = max(ages) if live and all(a is not None for a in ages) else None
     return {"result": result, "clv": clv, "closeFair": round(pc, 4) if clv is not None else None, "legs": out,
-            "est": any(g.get("est") for g in live), "closeAge": age}
+            "est": any(g.get("est") for g in live), "closeAge": age, "clvCal": clv_cal}
 
 
 def leg_results(legs, out):
@@ -274,7 +284,8 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
         changed = False
         for p in picks:
             # every tier grades, "likely" too (0 units: no profit, but its result, flat return and CLV are the record)
-            if p.get("status") not in (None, "open", "pending"):
+            refill = p.get("status") in ("won", "lost", "push") and "clvCal" not in p      # graded before calibrated CLV
+            if p.get("status") not in (None, "open", "pending") and not refill:
                 continue
             snap = _snap(data_dir, p.get("gameId"))
             if not snap:
@@ -304,6 +315,12 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
             g = grade_bet(data_dir, [leg], dec, fin_by_gid)
             if not g:
                 continue
+            if refill:          # keep the posted grade; add the newer measures only
+                p["clvCal"], p["closeAge"] = g.get("clvCal"), g.get("closeAge")
+                if p.get("flat") is None:
+                    p["flat"] = round(dec - 1, 3) if p["status"] == "won" else -1.0 if p["status"] == "lost" else 0.0
+                changed = True
+                continue
             u = p.get("units") or 0
             p["status"] = g["result"]
             p["profit"] = round(u * (dec - 1), 3) if g["result"] == "won" else -u if g["result"] == "lost" else 0
@@ -313,6 +330,7 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
             p["clv"] = g["clv"]
             p["closeFair"] = g["closeFair"]
             p["closeAge"] = g.get("closeAge")
+            p["clvCal"] = g.get("clvCal")
             if g["legs"] and g["legs"][0].get("stat") is not None:
                 p["finalStat"] = g["legs"][0]["stat"]
             changed = True
@@ -374,7 +392,7 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
         if b.get("live"):          # a live bet's yardstick is the live fair minutes later, not the pre-game close
             lc = b.get("liveCheck") or {}
             g["clv"], g["closeFair"] = lc.get("clv"), lc.get("fair")
-        up = {"auto": {"result": g["result"], "clv": g["clv"], "closeFair": g["closeFair"], "closeAge": g.get("closeAge"),
+        up = {"auto": {"result": g["result"], "clv": g["clv"], "closeFair": g["closeFair"], "closeAge": g.get("closeAge"), "clvCal": g.get("clvCal"),
                        "legs": leg_results(legs, g["legs"]), "closeEst": g.get("est") or None,
                        "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}}
         lg = last_game(data_dir, legs)
@@ -469,7 +487,9 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
                 up["legs"] = new
         elif not b.get("market") and legs[0].get("market"):
             up.update({k: legs[0].get(k) for k in ("market", "side", "point", "player", "team") if legs[0].get(k) is not None})
-        need = b.get("clv") is None or not b.get("legResults") or b.get("fairAtLog") is None
+        # clvCal / closeAge arrived later: settled pre-game bets get them once (live bets use the live fair instead)
+        need_cal = not b.get("live") and "clvCal" not in b
+        need = b.get("clv") is None or not b.get("legResults") or b.get("fairAtLog") is None or need_cal
         if need:
             try:
                 g = grade_bet(data_dir, legs, b.get("dec"), fin_by_gid)
@@ -478,13 +498,15 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
             if g:
                 if g["result"] != b.get("status"):
                     mism.append({"id": snap.id, "status": b.get("status"), "engine": g["result"]})
+                if need_cal:
+                    up.update({"clvCal": g.get("clvCal"), "closeAge": g.get("closeAge")})
                 if b.get("clv") is None:
                     if b.get("live"):
                         lc = b.get("liveCheck") or {}
                         if lc.get("clv") is not None:
                             up.update({"clv": lc["clv"], "closeFair": lc.get("fair")})
                     elif g["clv"] is not None:
-                        up.update({"clv": g["clv"], "closeFair": g["closeFair"], "closeEst": g.get("est") or None, "closeAge": g.get("closeAge")})
+                        up.update({"clv": g["clv"], "closeFair": g["closeFair"], "closeEst": g.get("est") or None, "closeAge": g.get("closeAge"), "clvCal": g.get("clvCal")})
                 if not b.get("legResults"):
                     up["legResults"] = leg_results(legs, g["legs"])
                 if b.get("fairAtLog") is None and g.get("closeFair") is not None:

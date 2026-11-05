@@ -89,6 +89,8 @@ def muting(data_dir, min_n=100, z_cut=-2.0, logic=False, support=False):
                 continue
             if r.get("y") is None or (r.get("hrs") or 0) < 0 or r.get("fair") is None or r.get("pnl") is None:
                 continue
+            if r.get("close") is not None and abs(r["close"] - r["fair"]) > 0.20:      # mismatched close (closecal.MISMATCH)
+                continue
             r["k"] = _kind(r)
             r["vk"] = f"{r.get('venue')} · {r['k']}"
             rows.append(r)
@@ -259,6 +261,8 @@ def _edge_rows(data_dir):
             except Exception:
                 continue
             if r.get("y") is None or (r.get("hrs") or 0) < 0 or r.get("fair") is None or r.get("pnl") is None or r.get("close") is None:
+                continue
+            if r.get("close") is not None and abs(r["close"] - r["fair"]) > 0.20:      # mismatched close (closecal.MISMATCH)
                 continue
             r["k"] = _kind(r)
             rows.append(r)

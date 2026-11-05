@@ -21,6 +21,7 @@ service cloud.firestore {
     // owner-written data
     match /bets/{id}   { allow read, write: if owner(); }
     match /promos/{id} { allow read, write: if owner(); }
+    match /promoreq/{id} { allow read, write: if owner(); }
     match /presence/{id} { allow read, write: if owner(); }
     match /settings/{id} { allow read, write: if owner(); }
     match /wallet/{id} { allow read, write: if owner(); }

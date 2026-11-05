@@ -24,7 +24,7 @@ export function autoSettle() {
   for (const b of S.bets.values()) {
     if (b.status !== "pending" || !b.auto?.result || inflight.has(b.id)) continue;
     inflight.add(b.id);
-    saveBet({ ...b, status: b.auto.result, profit: profitFor(b, b.auto.result), clv: b.auto.clv ?? null, closeFair: b.auto.closeFair ?? null, legResults: b.auto.legs ?? null, closeEst: b.auto.closeEst ?? null, closeAge: b.auto.closeAge ?? null,
+    saveBet({ ...b, status: b.auto.result, profit: profitFor(b, b.auto.result), clv: b.auto.clv ?? null, closeFair: b.auto.closeFair ?? null, legResults: b.auto.legs ?? null, closeEst: b.auto.closeEst ?? null, closeAge: b.auto.closeAge ?? null, clvCal: b.auto.clvCal ?? null,
               settledAt: b.auto.at || new Date().toISOString(), autoSettled: true }).finally(() => inflight.delete(b.id));
   }
 }
@@ -69,6 +69,7 @@ function summarize(list) {
   return { n: g.length, w: g.filter((b) => b.status === "won").length, l: g.filter((b) => b.status === "lost").length, p: g.filter((b) => b.status === "push").length,
     staked, pl, roi: staked ? pl / staked : null, clv: clv.length ? clv.reduce((s, b) => s + b.clv, 0) / clv.length : null, nClv: clv.length,
     beat: clv.length ? clv.filter((b) => b.clv > 0).length / clv.length : null,
+    clvCal: clv.some((b) => b.clvCal != null) ? clv.filter((b) => b.clvCal != null).reduce((s2, b) => s2 + b.clvCal, 0) / clv.filter((b) => b.clvCal != null).length : null,
     expPl: exp.reduce((s, b) => s + (b.isGroup ? b.expPl : b.stake * evAtLog(b)), 0), nExp: exp.length };
 }
 
@@ -243,7 +244,7 @@ function mine(el) {
       <div class="kpi"><div class="k">Profit / loss</div><div class="v ${s.pl + sa.pl >= 0 ? "pos" : "neg"}">${money(s.pl + sa.pl)}</div><div class="s">${sa.n ? `bets ${money(s.pl)} · arbs ${money(sa.pl)}` : `${s.n} settled · ${s.w}-${s.l}${s.p ? "-" + s.p : ""}`}</div></div>
       <div class="kpi"><div class="k">ROI</div><div class="v">${s.roi != null ? pct(s.roi) : "–"}</div><div class="s">${s.w}-${s.l}${s.p ? "-" + s.p : ""} on ${money(s.staked)} staked${arbsL.length ? " · arbs apart" : ""}</div></div>
       <div class="kpi"><div class="k">Expected profit</div><div class="v ${s.expPl >= 0 ? "pos" : "neg"}">${s.nExp ? money(s.expPl) : "–"}</div><div class="s">from the prices you got</div></div>
-      <div class="kpi"><div class="k">Avg CLV</div><div class="v ${s.clv > 0 ? "pos" : s.clv < 0 ? "neg" : ""}">${s.clv != null ? pct(s.clv) : "–"}</div><div class="s">beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
+      <div class="kpi"><div class="k">Avg CLV${s.clvCal != null ? ", calibrated" : ""}</div><div class="v ${(s.clvCal ?? s.clv) > 0 ? "pos" : (s.clvCal ?? s.clv) < 0 ? "neg" : ""}">${s.clvCal != null ? pct(s.clvCal) : s.clv != null ? pct(s.clv) : "–"}</div><div class="s">${s.clvCal != null ? `raw ${pct(s.clv)} · ` : ""}beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
       <div class="kpi"><div class="k">At risk</div><div class="v">${money(atRisk)}</div><div class="s">${openB.length} open bet${openB.length === 1 ? "" : "s"}${openB.some((b) => lose(b) < (b.stake || 0) - 0.005) ? " · bonus stakes not counted" : ""}</div></div>
       ${openG.length ? `<div class="kpi"><div class="k">In open arbs</div><div class="v">${money(inArbs)}</div><div class="s">${openG.length} pair${openG.length === 1 ? "" : "s"} · ${Math.abs(lockHi - lockLo) < 0.01 ? `locks <b class="${lockLo >= 0 ? "pos" : "neg"}">${money(lockLo)}</b>` : `makes <b class="${lockLo >= 0 ? "pos" : "neg"}">${money(lockLo)}</b> to <b class="pos">${money(lockHi)}</b>`}</div></div>` : ""}
       ${sa.n ? `<div class="kpi"><div class="k">Arbs & middles</div><div class="v ${sa.pl >= 0 ? "pos" : "neg"}">${money(sa.pl)}</div><div class="s">${sa.n} settled pair${sa.n === 1 ? "" : "s"} · own category</div></div>` : ""}
@@ -297,7 +298,7 @@ function ours() {
   return `<div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="k">Units</div><div class="v ${s.pl >= 0 ? "pos" : "neg"}">${u(s.pl)}</div><div class="s">${s.n} graded · ${s.w}-${s.l}${s.p ? "-" + s.p : ""}</div></div>
       <div class="kpi"><div class="k">ROI</div><div class="v">${s.roi != null ? pct(s.roi) : "–"}</div><div class="s">per unit risked</div></div>
-      <div class="kpi"><div class="k">Avg CLV</div><div class="v ${s.clv > 0 ? "pos" : s.clv < 0 ? "neg" : ""}">${s.clv != null ? pct(s.clv) : "–"}</div><div class="s">beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
+      <div class="kpi"><div class="k">Avg CLV${s.clvCal != null ? ", calibrated" : ""}</div><div class="v ${(s.clvCal ?? s.clv) > 0 ? "pos" : (s.clvCal ?? s.clv) < 0 ? "neg" : ""}">${s.clvCal != null ? pct(s.clvCal) : s.clv != null ? pct(s.clv) : "–"}</div><div class="s">${s.clvCal != null ? `raw ${pct(s.clv)} · ` : ""}beat the close: ${s.beat != null ? Math.round(s.beat * 100) + "%" : "–"}</div></div>
       <div class="kpi"><div class="k">Withdrawn</div><div class="v">${all.filter((p) => p.status === "void").length}</div><div class="s">before the game</div></div>
     </div>
     ${openPicks.length ? `<div class="sec-title">Open picks<span class="line"></span></div>${projectedCard({ items: openPicks, title: "Projected units on open picks", fmt: u, units: true })}` : ""}

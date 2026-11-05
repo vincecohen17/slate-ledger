@@ -118,6 +118,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   running). Before the first game starts it waits (a check every 5 min, presence every minute); at 50 min it dispatches the
   next watcher itself (_dispatch_watch(chain=True)), because GitHub runs the */5 cron only every few hours (Nov 2026: ~6 h).
   Live sports: NBA, WNBA, NCAAB (D-I scoreboard groups=50, halves 2 x 20), NHL, NFL, NCAAF, MLB, soccer, tennis.
+  The watcher also stays up while any board game starts within 6 h and: (a) closes: a game starting within CLOSE_ASK_MIN
+  (12) minutes whose prices are older than CLOSE_STALE_MIN gets an auto run (_closer), so closes don't depend on the cron;
+  (b) settlement: a watched game that leaves play (final) gets a rebuild run that collects the final and grades its bets
+  and picks (_dispatch). NHL power-play points: nhlapi.py (api-web.nhle.com play-by-play: situationCode skaters, a pulled
+  goalie's extra attacker excluded, shootouts excluded; scorer + both assisters), ESPN plays as fallback; mode ppprobe
+  checks both against the NHL box score (Nov 5: 12 of 12 games exact).
 - `engine/rt.py` Realtime Database (free, no daily write count; 10 GB/month download allowance): the board the engine
   publishes under `pre/` (status, edges, reports, g/<id> a game with main lines, ga/<id> alternate lines, p/<id>/<market>
   main prop rows, pa/<id>/<market> alternate rows, mu/<id> matchups, fin/board + fin/d/<key> finals) and in-play data
@@ -165,6 +171,27 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   nonSports), Result (open / won / lost / push / sold early) and Paid out $ (total back): profit = paid - stake, cashedOut,
   paidOut; odds optional once a payout is typed (a win's price = paid / stake). The ledger's W/L taps on them open the sheet
   prefilled instead of computing from the odds.
+- CLV accuracy. Snapshots carry linesAt / eventAt (when their prices were pulled); grading stores closeAge (minutes from
+  that pull to the start) on bets (auto.closeAge), picks and graded edges (ca). CLV counts only fresh closes (closeAge <= 30,
+  or unknown on older rows) and never estimated closes (site stats.clvOk, edgecard CLOSE_OK_MIN). Mismatched closes (20+
+  points from the fair at the flag: feed errors or the wrong side) are dropped everywhere (edgecard._ok, policytest,
+  changes, closecal). Calibrated CLV (`engine/closecal.py` -> calib/closecal.json): our closing fair has been too generous
+  to the sides we flag, so raw CLV overstated edges by ~10 points (walk-forward Nov 5: raw +7.3%, calibrated -2.4%,
+  realized ROI -2.7%). Fit per kind (line / prop / pick'em) P = sigmoid(a + b logit(close)), shrunk by n/(n+500), refit
+  when edges grade; clvCal on edges (edge card), bets (auto.clvCal, backfilled), picks. Headline CLV on the site is the
+  calibrated one with raw beside it.
+- Change log (`engine/changes.py`): data repo stats/change_log.json (logic, picks, measure) + stats/model_changes.json
+  (model fixes with backtests) -> stats/changes.json with each change's 14-day before/after on edges (won vs fair, CLV
+  cal., ROI), picks (CLV, flat) and model skill vs the close, with t; mstats.changes + mstats.timeline (daily). Reports >
+  Models in depth "What changed, and what happened after" (timeline with markers + table). Add an entry for every
+  model, logic, pick-rule or measurement change.
+- Promo desk (`engine/promodesk.py`): Promos > "Send to Claude" saves Firestore promoreq/{id} {text, status, thread};
+  each auto / rebuild run writes waiting requests to the data repo promodesk/inbox.json (+ promos.json) and applies the
+  desk's answers from promodesk/outbox/<reqId>.json {reqId, action create | question | failed, promo, text, atThread}
+  (create saves promos/{id} with fromDesk). The hourly desk task builds promos with the site's own engine and checks them
+  under Node: `node tests/node/promo_check.mjs promo <file>` (kind, missing fields via promo.missingFields, describe,
+  settlement) and `... corpus` (the reader, 81/81). It may add a promo kind to site/js/promo.js when nothing fits, only
+  with the corpus passing.
 - `engine/alerts.py` phone alerts via ntfy (topic only in the private data repo config/alerts.json; shared to the owner-only
   Firestore private/alerts so the site's Phone alerts card can show setup and send a test): arbs/middles, strong new
   edges (logic agrees, outside quiet hours), optional bet results; each item once (latest/alerts_state.json).

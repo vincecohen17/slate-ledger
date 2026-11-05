@@ -80,7 +80,8 @@ def _sane(dec, fair):
 
 
 def _ok(r):
-    return r.get("hrs", -1) >= 0 and _sane(r.get("dec"), r.get("fair"))
+    # a close 20+ points from the fair at the flag is a mismatch (feed error or the other side), not a market move
+    return r.get("hrs", -1) >= 0 and _sane(r.get("dec"), r.get("fair")) and (r.get("close") is None or abs(r["close"] - r["fair"]) <= 0.20)
 
 
 def observe(data_dir, game_docs, prop_docs, edges, now, log=print):
@@ -298,6 +299,12 @@ def _recent(g):
 CLOSE_OK_MIN = 30          # CLV counts only where the close was pulled within this many minutes of the start
 
 
+def _ccal(r):
+    import closecal
+    p = closecal.cal(r["close"], r.get("kind") or "prop", None)
+    return p * r["dec"] - 1
+
+
 def _agg(rows):
     n = len(rows)
     g = [r for r in rows if r["y"] is not None]
@@ -309,6 +316,8 @@ def _agg(rows):
     clv = sum(r["clv"] for r in cr) / nc
     return {**_recent(g), "n": n, "nClv": len(fresh), "staleClose": n - len(fresh),
             "clv": round(clv, 4), "beat": round(sum(r["clv"] > 0 for r in cr) / nc, 3),
+            # calibrated CLV: the close corrected to how our closes have actually done (closecal); the honest one
+            "clvCal": round(sum(_ccal(r) for r in cr) / nc, 4),
             "clvLast": round(sum(r["clvLast"] for r in cr) / nc, 4), "clvBest": round(sum(r["clvBest"] for r in cr) / nc, 4),
             "edge": round(sum(r["edge"] for r in rows) / n, 4),
             "graded": len(g), "roi": round(sum(r["pnl"] for r in g) / len(g), 4) if g else None,
@@ -334,6 +343,8 @@ def summarize(data_dir, days=120, now=None):
                 continue
             if r.get("d", "") >= cut and _ok(r):       # history logged before the fixes: drop in-play and junk-quote rows
                 rows.append(r)
+    import closecal
+    closecal.load(data_dir)
     _REF["d"] = max((r["d"] for r in rows if r.get("y") is not None), default=None)
     out = {"updated": _iso(now), "n": len(rows), "since": min((r["d"] for r in rows), default=None), "recentHL": RECENT_HL}
     if rows:

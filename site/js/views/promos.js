@@ -1,9 +1,9 @@
-import { S, savePromo, deletePromo, loadAllProps, saveBet, saveWallet } from "../store.js";
+import { S, savePromo, deletePromo, loadAllProps, saveBet, saveWallet , savePromoReq, deletePromoReq } from "../store.js";
 import { esc, am, prob, fmtTime, money, uid, toast, todayPT, bookLogo, sheet, $, $$ } from "../util.js";
 import { VENUES, venueName, legSpec } from "../lab.js";
 const draftLine = (p, c) => p.promoLine ?? legSpec(c.leg).point;
 import { KINDS, FIELDS, SPORTS, BET_TYPES, PICKEM, FEE_VENUES, kindOf, blank, normalize, parsePromo, describe, optimize, legs,
-  bonusConv, convCurve, findTarget, pAtLine, autoTarget, decOf, amOf, payoutFor, venueHasFeed, fundsOf } from "../promo.js";
+  bonusConv, convCurve, findTarget, pAtLine, autoTarget, decOf, amOf, payoutFor, venueHasFeed, fundsOf , missingFields } from "../promo.js";
 const vname = (p) => (p.venue === "other" && p.venueOther ? p.venueOther : venueName(p.venue));
 import { betImage, logSheet } from "./common.js";
 import { labWithPromo, addToLab } from "./lab.js";
@@ -73,22 +73,7 @@ function explain(p) {
     default: return describe(p);
   }
 }
-function missing(p) {
-  const k = kindOf(p.kind).key, out = [];
-  const need = (f, lab) => { if (p[f] == null || p[f] === "" || p[f] === 0) out.push([f, lab]); };
-  if (["discounted_line", "pickem_boost", "free_entry"].includes(k) && (!p.venue || p.venue === "any")) out.push(["venue", "which app"]);
-  if (k === "discounted_line") { if (!p.target) out.push(["target", "the player (pick them below)"]); need("promoLine", "the promo line"); }
-  if (k === "pickem_boost") { need("picks", "picks in the entry"); if (!p.mult && !p.boost) out.push(["mult", "what the entry pays"]); }
-  if (k === "free_entry") need("amount", "the entry amount");
-  if (["profit_boost", "parlay_boost"].includes(k)) need("boost", "the boost %");
-  if (k === "odds_boost") need("boostedOdds", "the boosted odds");
-  if (k === "bonus_bet") need("amount", "the bonus amount");
-  if (k === "bet_and_get") { need("qualStake", "the bet you place"); need("amount", "the bonus you get"); }
-  if (["no_sweat", "parlay_insurance"].includes(k) && p.refundMax == null && p.stake == null) out.push(["refundMax", "the max refund"]);
-  if (k === "deposit_match") { need("amount", "the bonus"); need("playthrough", "the playthrough"); }
-  if (k === "manual") { if (!p.what) out.push(["what", "what it is"]); if (p.venue === "other" && !p.venueOther) out.push(["venueOther", "the app's name"]); }
-  return out;
-}
+const missing = (p) => missingFields(p);
 function readout(p) {
   const miss = missing(p);
   return `<div class="pr-read"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="pill s">${esc(kindOf(p.kind).name)}</span>${p.venue && p.venue !== "any" ? `<span class="lg-name">${bookLogo(p.venue, venueName(p.venue), 16)}${esc(venueName(p.venue))}</span>` : ""}</div>
@@ -326,6 +311,22 @@ function checkerCard() {
   return `<div class="card col" style="gap:10px"><div class="tiny muted">For specials, boosted prices, discounted lines or anything else: pick the bet, type the app's price or line, see if it's worth it.</div>${out}</div>`;
 }
 
+// Claude's promo desk: requests written in words, their status, Claude's questions and what it set up
+function deskHtml() {
+  const reqs = [...S.promoreq.values()].filter((r) => r.at && Date.now() - Date.parse(r.at) < 7 * 864e5).sort((a, b) => (b.at || "").localeCompare(a.at || "")).slice(0, 6);
+  if (!reqs.length) return "";
+  const pill = { waiting: ["", "waiting for Claude"], question: ["s", "Claude has a question"], done: ["pos", "set up"], failed: ["neg", "couldn't set up"] };
+  return `<div class="card col" style="gap:8px;margin-top:10px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>Promo desk</b><span class="tiny muted">Claude checks every hour, 8 AM to 11 PM</span></div>
+    ${reqs.map((r) => { const [c, t] = pill[r.status] || ["", r.status], last = (r.thread || []).filter((x) => x.from === "claude").at(-1);
+      const p = r.promoId && S.promos.get(r.promoId);
+      return `<div class="pd-row col" style="gap:4px;border-top:1px solid var(--line);padding-top:8px">
+        <div class="row" style="gap:8px;align-items:flex-start"><span class="pill ${c}">${esc(t)}</span><span class="small grow" style="min-width:0">${esc(r.text)}</span><button class="x" data-pddel="${r.id}" title="remove">×</button></div>
+        ${last ? `<div class="small" style="padding-left:6px;border-left:2px solid var(--accent)">${esc(last.text)}</div>` : ""}
+        ${p ? `<div class="tiny muted">Saved as <b>${esc(p.title || kindOf(p.kind).name)}</b> below${r.status === "done" ? "" : ""}</div>` : ""}
+        ${r.status === "question" ? `<div class="row" style="gap:6px"><input class="grow" data-pdans="${r.id}" placeholder="Your answer"><button class="btn sm" data-pdsend="${r.id}">Answer</button></div>` : ""}
+      </div>`; }).join("")}</div>`;
+}
+
 export function renderPromos(el) {
   loadAllProps();
   syncWalletPromos();          // bonus funds in the Wallet show up here as a promo
@@ -347,9 +348,10 @@ export function renderPromos(el) {
       <b>Add a promo</b>
       <textarea id="pr-text" placeholder="Paste it from the app, e.g. 'Kalshi: no fees on NFL trades this weekend' · 'Bet $25 get $100 in bonus bets' · 'PrizePicks: LeBron 18.5 points discounted, more only' · 'FanDuel 30% SGP boost, 3+ legs, max $25'"></textarea>
       <div id="pr-live"></div>
-      <div class="row" style="flex-wrap:wrap"><button class="btn" id="pr-read">Set it up</button><span class="tiny muted">or start from a type:</span>
+      <div class="row" style="flex-wrap:wrap"><button class="btn" id="pr-read">Set it up</button><button class="btn ghost" id="pr-claude" title="Claude reads it, programs it in exactly as written (adding a new promo type if none fits) and checks the math">Send to Claude</button><span class="tiny muted">or start from a type:</span>
         ${groups.map((g) => KINDS.filter((k) => k.group === g).map((k) => `<button class="chip sm" data-new="${k.key}" title="${esc(k.blurb)}">${esc(k.name)}</button>`).join("")).join("")}</div>
     </div>
+    ${deskHtml()}
     ${draft ? form(draft) : ""}
     <div class="sec-title">Your promos<span class="line"></span></div>
     ${live.length ? `<div class="grid pr-grid">${live.map(promoCard).join("")}</div>` : `<div class="empty"><h3>${old.length ? "No promos to use right now" : "No promos saved"}</h3>Paste one above and I'll value it and find the best bet for it on the live board.</div>`}
@@ -403,6 +405,20 @@ function bind(el) {
     };
   }
   $$("[data-open]", el).forEach((b) => b.onclick = () => { const id = b.dataset.open; open.has(id) ? open.delete(id) : open.add(id); rerender(); });
+  const pc = $("#pr-claude", el);
+  if (pc) pc.onclick = async () => {
+    const text = ($("#pr-text", el)?.value || "").trim();
+    if (!text) { toast("Write the promo first"); return; }
+    const r = { id: uid(), text, at: new Date().toISOString(), status: "waiting", thread: [{ from: "vince", text, at: new Date().toISOString() }] };
+    try { await savePromoReq(r); $("#pr-text", el).value = ""; toast("Sent to Claude's promo desk"); } catch (e) { toast("Could not send: " + e.message); }
+  };
+  $$("[data-pdsend]", el).forEach((b) => b.onclick = async () => {
+    const r = S.promoreq.get(b.dataset.pdsend), inp = $(`[data-pdans="${b.dataset.pdsend}"]`, el), ans = (inp?.value || "").trim();
+    if (!r || !ans) return;
+    await savePromoReq({ ...r, status: "waiting", thread: [...(r.thread || []), { from: "vince", text: ans, at: new Date().toISOString() }] });
+    toast("Answer sent");
+  });
+  $$("[data-pddel]", el).forEach((b) => b.onclick = () => deletePromoReq(b.dataset.pddel));
   $$("[data-take]", el).forEach((b) => b.onclick = () => {
     const [id, i] = b.dataset.take.split("|");
     const p = normalize(S.promos.get(id)), o = best(p)[+i], k = kindOf(p.kind).key;

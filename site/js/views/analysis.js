@@ -77,7 +77,8 @@ function agg(list) {
   const plE = g.filter(expOf).reduce((s, b) => s + (b.profit || 0), 0);
   return { n: g.length, w: g.filter((b) => b.status === "won").length, l: g.filter((b) => b.status === "lost").length, p: g.filter((b) => b.status === "push").length,
     risk, pl, plRisk, plFree: pl - plRisk, roi: risk ? plRisk / risk : null, ret: r, clv: c.length ? mean(c.map((b) => b.clv)) : null, nClv: c.length,
-    beat: c.length ? c.filter((b) => b.clv > 0).length / c.length : null, exp: e, luck: plE - e, z: v > 0 ? (plE - e) / Math.sqrt(v) : null };
+    beat: c.length ? c.filter((b) => b.clv > 0).length / c.length : null, exp: e, luck: plE - e, z: v > 0 ? (plE - e) / Math.sqrt(v) : null,
+    clvCal: c.filter((b) => b.clvCal != null).length ? mean(c.filter((b) => b.clvCal != null).map((b) => b.clvCal)) : null, nCal: c.filter((b) => b.clvCal != null).length };
 }
 const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
 function groupRows(list, keyFn, order) {
@@ -215,7 +216,7 @@ export function analysis() {
     ${free.length ? `<div class="kpi"><div class="k">Free bets</div><div class="v ${cls(freePl)}">${money(freePl)}</div><div class="s">${free.length} bonus bets and free entries (nothing risked)</div></div>` : ""}
     <div class="kpi"><div class="k">Expected</div><div class="v ${cls(A.exp)}">${money(A.exp)}</div><div class="s">at the fair when logged (${A.n - st.filter((b) => !expOf(b)).length} of ${A.n} have one)</div></div>
     <div class="kpi"><div class="k">Luck</div><div class="v ${cls(A.luck)}">${money(A.luck)}</div><div class="s">z ${fmtT(zL)} · p ${fmtP(pTwo(zL))}</div></div>
-    <div class="kpi"><div class="k">Avg CLV</div><div class="v ${cls(A.clv)}">${A.clv != null ? pct(A.clv) : "–"}</div><div class="s">t ${fmtT(C.t)} · beat close ${A.beat != null ? Math.round(A.beat * 100) + "%" : "–"} of ${A.nClv}${(() => { const out = st.filter((b) => b.clv != null && !clvOk(b)).length; return out ? ` · ${out} left out (stale or estimated close)` : ""; })()}</div></div>
+    <div class="kpi"><div class="k">Avg CLV${A.nCal ? ", calibrated" : ""}</div><div class="v ${cls(A.nCal ? A.clvCal : A.clv)}">${A.nCal ? pct(A.clvCal) : A.clv != null ? pct(A.clv) : "–"}</div><div class="s">${A.nCal ? `raw ${pct(A.clv)} · calibrated on ${A.nCal} · ` : ""}t ${fmtT(C.t)} · beat close ${A.beat != null ? Math.round(A.beat * 100) + "%" : "–"} of ${A.nClv}${(() => { const out = st.filter((b) => b.clv != null && !clvOk(b)).length; return out ? ` · ${out} left out (stale or estimated close)` : ""; })()}</div></div>
     <div class="kpi"><div class="k">Per day</div><div class="v ${cls(dMean)}">${money(dMean)}</div><div class="s">SD ${money(dSd)} · ${up} of ${dvals.length} days up</div></div>
     <div class="kpi"><div class="k">Streaks</div><div class="v small">${kt === "won" ? "W" : "L"}${k} now</div><div class="s">longest ${longW}W · ${longL}L · ${dlMax} losing days in a row</div></div>
     <div class="kpi"><div class="k">Promo value</div><div class="v ${cls(promoTot)}">${money(promoTot)}</div><div class="s">over the same bets without the promo</div></div>

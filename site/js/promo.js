@@ -679,3 +679,21 @@ export function autoTarget(p) {
   }
   return p;
 }
+
+// what a promo still needs before it can be valued and settled (the Promos page and the promo desk's checks)
+export function missingFields(p) {
+  const k = kindOf(p.kind).key, out = [];
+  const need = (f, lab) => { if (p[f] == null || p[f] === "" || p[f] === 0) out.push([f, lab]); };
+  if (["discounted_line", "pickem_boost", "free_entry"].includes(k) && (!p.venue || p.venue === "any")) out.push(["venue", "which app"]);
+  if (k === "discounted_line") { if (!p.target) out.push(["target", "the player (pick them below)"]); need("promoLine", "the promo line"); }
+  if (k === "pickem_boost") { need("picks", "picks in the entry"); if (!p.mult && !p.boost) out.push(["mult", "what the entry pays"]); }
+  if (k === "free_entry") need("amount", "the entry amount");
+  if (["profit_boost", "parlay_boost"].includes(k)) need("boost", "the boost %");
+  if (k === "odds_boost") need("boostedOdds", "the boosted odds");
+  if (k === "bonus_bet") need("amount", "the bonus amount");
+  if (k === "bet_and_get") { need("qualStake", "the bet you place"); need("amount", "the bonus you get"); }
+  if (["no_sweat", "parlay_insurance"].includes(k) && p.refundMax == null && p.stake == null) out.push(["refundMax", "the max refund"]);
+  if (k === "deposit_match") { need("amount", "the bonus"); need("playthrough", "the playthrough"); }
+  if (k === "manual") { if (!p.what) out.push(["what", "what it is"]); if (p.venue === "other" && !p.venueOther) out.push(["venueOther", "the app's name"]); }
+  return out;
+}

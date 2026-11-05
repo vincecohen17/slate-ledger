@@ -585,6 +585,17 @@ def _ppprobe():
         f"differs in {esp_bad}, no plays in {esp_none}")
 
 
+def _promodesk():
+    """promo requests to Claude's desk and its answers back (promodesk.py); one Firestore query"""
+    try:
+        import promodesk
+        db = firestore_db()
+        if db:
+            promodesk.sync(db, DATA_DIR, log=log)
+    except Exception as e:
+        log(f"promodesk failed: {type(e).__name__}: {str(e)[:80]}")
+
+
 def watch():
     """The watcher: one long job (Actions minutes are free on this public repo) that keeps Vince's open bets current
     every minute until they're done, app open or not. While the site is on a live screen (presence.live in the last 3
@@ -886,6 +897,7 @@ def auto():
             _watch_wanted()
         except Exception as e:
             log(f"watch: check failed ({type(e).__name__})")
+    _promodesk()
     st = load_state()
     try:
         st["historyLeft"] = max(0, C.HISTORY_RESERVE - json.load(open(os.path.join(DATA_DIR, "history", "state.json"))).get("spent", 0))
@@ -1104,6 +1116,7 @@ def main():
     if MODE == "stats":
         return run_stats(backfill="backfill" in open(os.path.join(os.path.dirname(__file__), "run-request")).read())
     if MODE == "rebuild":
+        _promodesk()
         return rebuild()
     if MODE == "live":
         return live()
@@ -1347,10 +1360,20 @@ def publish(game_docs, prop_docs, status, stamp):
                                     "mutingSupport": {k: pt["mutingSupport"][k] for k in ("all", "kept", "muted")} | {"days": pt["mutingSupport"]["days"]},
                                     "blending": pt["blending"], "residual": pt.get("residual"), "logic": pt.get("logic"), "ai": pt.get("ai")}
                 json.dump(mstats, open(os.path.join(DATA_DIR, "stats", "modelstats.json"), "w"), separators=(",", ":"))
-            try:        # the model change log (before / after numbers for each fix), shown on Reports > Models
-                mstats["changes"] = json.load(open(os.path.join(DATA_DIR, "stats", "model_changes.json")))
-            except Exception:
-                pass
+            try:        # every model / logic / pick-rule change with its before-after effect (changes.py), Reports > Models
+                import changes as CH
+                fn_ch = os.path.join(DATA_DIR, "stats", "changes.json")
+                if mnew or not os.path.exists(fn_ch) or _age_min(datetime.fromtimestamp(os.path.getmtime(fn_ch), timezone.utc).isoformat()) > 180:
+                    mstats["changes"] = CH.compute(DATA_DIR, log=log)
+                else:
+                    mstats["changes"] = json.load(open(fn_ch))
+                mstats["timeline"] = CH.daily(DATA_DIR)
+            except Exception as e:
+                log(f"changes failed: {type(e).__name__}: {str(e)[:80]}")
+                try:
+                    mstats["changes"] = json.load(open(os.path.join(DATA_DIR, "stats", "model_changes.json")))
+                except Exception:
+                    pass
             try:        # the self-correcting fair: what's live, and the walk-forward test behind it
                 fa = json.load(open(os.path.join(DATA_DIR, "calib", "fairadj.json")))
                 mstats["fairadj"] = {k: fa.get(k) for k in ("at", "halfLife", "shifts", "eval")}
@@ -1379,7 +1402,19 @@ def publish(game_docs, prop_docs, status, stamp):
             log(f"steam failed: {type(e).__name__}")
         n_new = edgecard.observe(DATA_DIR, game_docs, prop_docs, edge_list, NOW)
         n_eg = edgecard.grade(DATA_DIR, {d["gameId"]: d for d in (fin or {}).values() if d.get("gameId")}, NOW)
+        try:        # calibrated CLV: refit how much our closes are really worth when new edges graded (or none yet)
+            import closecal
+            if n_eg or not os.path.exists(os.path.join(DATA_DIR, "calib", "closecal.json")):
+                closecal.compute(DATA_DIR, log=log)
+        except Exception as e:
+            log(f"closecal failed: {type(e).__name__}: {str(e)[:80]}")
         ecard = edgecard.summarize(DATA_DIR, now=NOW)
+        try:
+            import closecal
+            cc = closecal.load(DATA_DIR) or {}
+            ecard["closecal"] = {"wf": cc.get("wf"), "params": cc.get("params")}
+        except Exception:
+            pass
         edgecard.rerank(edge_list, ecard)
         edgecard.annotate_moves(edge_list, game_docs, prop_docs)
         try:        # what the record says to lean on and avoid right now (Edges page, pick runs), stamped on each edge

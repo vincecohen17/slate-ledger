@@ -2,7 +2,8 @@
 import { esc } from "../util.js";
 
 // lines over a shared x (index); a series may carry a band [{lo, hi}] drawn behind it
-export function lineChart(series, { h = 220, fmt = (v) => v.toFixed(2), zero = true, labels = null } = {}) {
+// marks: [{i, label}] draws a dashed vertical line at x position i (a change, an event) with a short label
+export function lineChart(series, { h = 220, fmt = (v) => v.toFixed(2), zero = true, labels = null, marks = [] } = {}) {
   const pts = series.flatMap((s) => s.pts.flatMap((p) => [p.y, ...(s.band ? [s.band[p.i]?.lo, s.band[p.i]?.hi] : [])])).filter((v) => v != null && isFinite(v));
   const nX = Math.max(...series.map((s) => s.pts.length ? Math.max(...s.pts.map((p) => p.i)) + 1 : 0), labels ? labels.length : 0);     // series may skip x positions
   if (nX < 2 || !pts.length) return `<div class="note">Needs a few more settled bets.</div>`;
@@ -21,6 +22,7 @@ export function lineChart(series, { h = 220, fmt = (v) => v.toFixed(2), zero = t
     ${series.map((s) => `<path d="${path(s)}" fill="none" stroke="${s.color}" stroke-width="2" ${s.dash ? 'stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`).join("")}
     ${series[0].pts.map((p) => `<circle cx="${X(p.i)}" cy="${Y(p.y)}" r="8" fill="transparent" data-tip="${esc(p.tip || fmt(p.y))}"/>`).join("")}
     ${labels ? labels.map((l, i) => l ? `<text x="${X(i)}" y="${h - 6}" text-anchor="middle">${esc(l)}</text>` : "").join("") : ""}
+    ${marks.filter((m) => m.i != null && m.i >= 0 && m.i < nX).map((m, k) => `<line x1="${X(m.i).toFixed(1)}" x2="${X(m.i).toFixed(1)}" y1="${P.t}" y2="${h - P.b}" stroke="var(--muted)" stroke-dasharray="3 3" opacity=".7"/><text x="${(X(m.i) + 3).toFixed(1)}" y="${P.t + 10 + (k % 3) * 11}" class="tiny" style="font-size:10px">${esc(m.label || "")}</text><rect x="${(X(m.i) - 6).toFixed(1)}" y="${P.t}" width="12" height="${h - P.t - P.b}" fill="transparent" data-tip="${esc(m.tip || m.label || "")}"/>`).join("")}
   </svg>`;
 }
 export const legend = (items) => `<div class="row tiny muted" style="gap:14px;flex-wrap:wrap">${items.map(([c, t, dash]) => `<span><i class="lg-line${dash ? " dash" : ""}" style="${dash ? "" : `background:${c}`}"></i>${esc(t)}</span>`).join("")}</div>`;

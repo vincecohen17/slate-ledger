@@ -11,6 +11,39 @@ import { fmtT } from "../stats.js";
 const SPORT = { basketball_nba: "NBA", basketball_wnba: "WNBA", icehockey_nhl: "NHL", americanfootball_nfl: "NFL", americanfootball_ncaaf: "NCAAF", baseball_mlb: "MLB",
   soccer_epl: "EPL", soccer_usa_mls: "MLS", soccer_italy_serie_a: "Serie A", soccer_spain_la_liga: "La Liga", soccer_germany_bundesliga: "Bundesliga",
   soccer_france_ligue_one: "Ligue 1", soccer_mexico_ligamx: "Liga MX", "*": "All sports" };
+// every model, decision-rule, pick-rule and measurement change, with what the record did in the two weeks either side
+const KIND = { model: ["Model", "s"], logic: ["Edge logic", ""], picks: ["Pick rules", "pos"], measure: ["Measurement", ""] };
+function changesAfter(M) {
+  const C = M.changes || [], T = M.timeline || [];
+  if (!C.length) return "";
+  const pp = (x) => (x == null ? "–" : `${x > 0 ? "+" : ""}${(x * 100).toFixed(1)}`);
+  const cell = (e, unit = "") => {
+    if (!e || (!e.before && !e.after)) return `<td class="num">–</td>`;
+    const b = e.before?.m, a = e.after?.m, d = e.diff;
+    return `<td class="num" data-v="${d?.d ?? ""}"><span class="tiny muted">${pp(b)}${unit} → </span><b class="${d?.d > 0 ? "pos" : d?.d < 0 ? "neg" : ""}">${pp(a)}${unit}</b>${d?.t != null ? `<div class="tiny ${Math.abs(d.t) >= 2 ? "" : "muted"}">t ${d.t > 0 ? "+" : ""}${d.t}${e.after?.n != null ? ` · n ${e.after.n}` : ""}</div>` : e.after?.n != null ? `<div class="tiny muted">n ${e.after.n}</div>` : ""}</td>`;
+  };
+  // timeline: each game day's edges (calibrated CLV and won-vs-expected) and our picks, with the changes marked
+  const idx = Object.fromEntries(T.map((x, i) => [x.d, i]));
+  const byDay = new Map(); C.forEach((c) => { const i = idx[c.date.slice(0, 10)]; if (i == null) return; if (!byDay.has(i)) byDay.set(i, []); byDay.get(i).push(c); });
+  const marks = [...byDay].map(([i, cs]) => ({ i, label: cs.length > 1 ? `${cs.length} changes` : cs[0].area, tip: `${C.length ? T[i].d : ""}: ${cs.map((c) => c.area).join(" · ")}` }));
+  const chart = T.length >= 3 ? `${lineChart([
+      { pts: T.map((x, i) => ({ i, y: x.gap ?? 0, tip: `${x.d}: edges won ${pp(x.gap)} pts vs their fair (${x.ng})` })), color: "var(--accent)" },
+      { pts: T.map((x, i) => ({ i, y: x.clvCal ?? 0 })), color: "var(--muted)", dash: true },
+      { pts: T.filter((x) => x.pclv != null).map((x) => ({ i: idx[x.d], y: x.pclv })), color: "var(--pos)" }],
+    { h: 190, fmt: (x) => `${(x * 100).toFixed(0)}`, marks, labels: T.map((x, i) => (i % Math.ceil(T.length / 7) === 0 ? x.d.slice(5) : "")) })}
+    ${legend([["var(--accent)", "edges: won vs expected (pts)"], ["var(--muted)", "edges: calibrated CLV (%)", true], ["var(--pos)", "our picks: CLV (%)"]])}` : "";
+  return `<div class="card" style="margin-bottom:10px"><b>What changed, and what happened after</b>
+    <span class="tiny muted"> · ${C.length} changes · each compared with the ${C[0].window || 14} days before (only the sports and markets it touched)</span>
+    ${chart}
+    ${sortTable(["Date", "Change", "Edges: won vs fair", "Edges: CLV cal.", "Edges: ROI", "Picks: CLV", "Picks: flat ROI", "Model vs close"], C.slice().reverse().map((c) => {
+      const e = c.effects || {}, k = KIND[c.kind] || [c.kind, ""];
+      return `<tr><td class="nowrap" data-v="${esc(c.date)}">${esc(c.date.slice(5, 10))}</td><td style="text-align:left;min-width:220px"><span class="pill ${k[1]}">${esc(k[0])}</span> <b>${esc(c.area)}</b>
+        <div class="tiny muted" style="max-width:380px;white-space:normal">${esc(c.change)}${c.through ? ` · after = through ${esc(c.through.slice(5))}` : ""}</div></td>
+        ${c.kind === "picks" ? `<td class="num">–</td><td class="num">–</td><td class="num">–</td>` : `${cell(e.edges?.gap, "")}${cell(e.edges?.clvCal, "%")}${cell(e.edges?.roi, "%")}`}${cell(e.picks?.clv, "%")}${cell(e.picks?.flat, "%")}${c.kind === "model" ? cell(e.model?.skill, "") : `<td class="num">–</td>`}</tr>`;
+    }))}
+    <p class="note">Before → after for each change: edges' win rate minus their fair (points), calibrated CLV and flat ROI; our picks' CLV and flat return; and the model's log-loss edge over the closing line (×100, above 0 = the model beat the close). t over about 2 is a real difference. Changes made the same day share their windows, so read them together, and the "after" side fills in over two weeks. Edges on the same game aren't independent, so a t near 2 on edges is weaker than it looks.</p></div>`;
+}
+
 export function groupName(g) {
   const [sp, kind, mk] = g.split("|");
   const s = SPORT[sp] || sp;
@@ -41,12 +74,14 @@ export function modelsDeep() {
   const mur = (m) => m ? `REL ${m.rel.toFixed(4)} · RES ${m.res.toFixed(4)} · UNC ${m.unc.toFixed(4)}` : "–";
   const P = M.policy;
   const btBy = Object.fromEntries((M.sources?.bt || []).map((r) => [r.group, r]));
-  const changes = (M.changes || []).length ? `<div class="card" style="margin-bottom:10px"><b>Model changes</b> <span class="tiny muted">(backtest log loss on the closing lines, lower is better; a coin flip is 0.693)</span>
-    ${sortTable(["Date", "What changed", "Market", "Before", "After", "Now", "Market (close)"], M.changes.flatMap((c) => (c.groups.length ? c.groups : [null]).map((g, i) => { const now = g ? btBy[g.g] : null;
+  const effects = changesAfter(M);
+  const mc = (M.changes || []).filter((c) => (c.groups || []).length);
+  const changes = effects + (mc.length ? `<div class="card" style="margin-bottom:10px"><b>Model fixes, backtested</b> <span class="tiny muted">(backtest log loss on the closing lines, lower is better; a coin flip is 0.693)</span>
+    ${sortTable(["Date", "What changed", "Market", "Before", "After", "Now", "Market (close)"], mc.flatMap((c) => (c.groups.length ? c.groups : [null]).map((g, i) => { const now = g ? btBy[g.g] : null;
       return `<tr><td class="nowrap">${i ? "" : esc(c.date.slice(5))}</td><td style="text-align:left">${i ? "" : `<b>${esc(c.area)}</b><div class="tiny muted" style="max-width:420px;white-space:normal">${esc(c.change)}</div>`}</td>
         <td style="text-align:left">${g ? esc(groupName(g.g)) : "–"}</td>${td(g ? g.before.toFixed(4) : "–", g?.before)}${td(g ? `<span class="${g.after < g.before ? "pos" : "neg"}">${g.after.toFixed(4)}</span>` : "–", g?.after)}
         ${td(now ? now.llModel.toFixed(4) : "–", now?.llModel)}${td(now ? now.llMarket.toFixed(4) : "–", now?.llMarket)}</tr>`; })))}
-    <p class="note">Before and after come from rerunning the full walk-forward backtest with the fix; "Now" is the current backtest. These models still lose to the close, so their weight in fairs stays 0 until the out-of-sample blend gain clears 2 SE. The fixes matter for the model's vote on edges (Model logic, above).</p></div>` : "";
+    <p class="note">Before and after come from rerunning the full walk-forward backtest with the fix; "Now" is the current backtest. These models still lose to the close, so their weight in fairs stays 0 until the out-of-sample blend gain clears 2 SE. The fixes matter for the model's vote on edges (Model logic, above).</p></div>` : "");
   return `${changes}<div class="card">
     <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>Our model against the closing market</b><span class="tiny muted">computed ${M.at ? ago(M.at) : ""}</span></div>
     ${chipBar("msrc", [["live", "Live record"], ["bt", "Backtests (walk-forward replays)"]], V.src)}
