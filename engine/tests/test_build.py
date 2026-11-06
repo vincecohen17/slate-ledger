@@ -151,6 +151,22 @@ def test_nba_points_shape():
     assert abs(build.p_over("player_rebounds", 8, 9.5, "basketball_nba", inplay=True) - build.p_over("player_rebounds", 8, 9.5, "basketball_nba")) < 1e-12
 
 
+def test_suspended_tennis_is_not_final():
+    import finals, json, tempfile
+    from datetime import datetime, timezone
+    now = datetime(2026, 11, 6, 20, 0, tzinfo=timezone.utc)
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "finals"))
+    day = "2026-11-05"
+    susp = {"tennis": True, "home": {"name": "A B", "winner": False, "score": 1}, "away": {"name": "C D", "winner": False, "score": 0}}
+    wo = {"tennis": True, "home": {"name": "E F", "winner": False, "score": 0}, "away": {"name": "G H", "winner": True, "score": 0}}
+    json.dump({"tennis_atp_x|1": susp, "tennis_atp_x|2": wo}, open(os.path.join(d, "finals", f"{day}.json"), "w"))
+    json.dump({"v": 2, "at": now.isoformat(), "done": {f"tennis/atp|{day}": True}}, open(os.path.join(d, "finals", "state.json"), "w"))
+    out = finals.collect(d, [], [], now, log=lambda *a: None)
+    assert "tennis_atp_x|1" not in out and "tennis_atp_x|2" in out
+    assert not json.load(open(os.path.join(d, "finals", "state.json"))).get("done", {}).get(f"tennis/atp|{day}")
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

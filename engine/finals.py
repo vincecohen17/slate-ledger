@@ -211,6 +211,11 @@ def _doc(sport, e, s, snaps, games):
             "venue": ((hdr.get("venue") or (s or {}).get("gameInfo", {}).get("venue") or {}).get("fullName"))}
 
 
+def _tennis_decided(doc):
+    """a stored tennis final with a winner (a finished, retired or walkover match), not one ESPN left suspended"""
+    return bool((doc.get("home") or {}).get("winner") or (doc.get("away") or {}).get("winner"))
+
+
 def _tennis_doc(sport, ev, c, games=(), snaps=()):
     comp = c.get("competitors", [])
     if len(comp) != 2:
@@ -253,6 +258,13 @@ def collect(data_dir, sports, games, now, every_min=10, log=print):
             store[str(day)] = json.load(open(os.path.join(d, f"{day}.json")))
         except Exception:
             store[str(day)] = {}
+    # a tennis match ESPN shows as over with no winner (suspended overnight, postponed) is not final: drop it so the
+    # resumed match is collected (and a bet never grades from the score at the suspension), and refetch that day
+    for day in days:
+        for k in [k for k, v in store[str(day)].items() if v.get("tennis") and not _tennis_decided(v)]:
+            store[str(day)].pop(k)
+            state.get("done", {}).pop(f"{_path(k.split('|')[0])}|{day}", None)
+            state.pop("at", None)
     if state.get("v", 1) < 2:       # v2: college basketball reads the whole D-I scoreboard; refetch its finished days
         state["done"] = {k: v for k, v in state.get("done", {}).items() if "college-basketball" not in k}
         state["v"] = 2
@@ -285,8 +297,8 @@ def collect(data_dir, sports, games, now, every_min=10, log=print):
                             if "doubles" in str((gr.get("grouping") or {}).get("slug", "")).lower():
                                 continue
                             for c in gr.get("competitions", []):
-                                if ((c.get("status") or {}).get("type") or {}).get("state") != "post":
-                                    all_post = all_post and ((c.get("status") or {}).get("type") or {}).get("state") == "post"
+                                if ((c.get("status") or {}).get("type") or {}).get("state") != "post" or not any(x.get("winner") for x in c.get("competitors") or []):
+                                    all_post = False        # still to play, or over with no winner (suspended): not done
                                     continue
                                 k = f"{sport}|{c.get('id')}"
                                 if any(k in v for v in store.values()):
