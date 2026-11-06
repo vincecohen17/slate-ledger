@@ -100,6 +100,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   deduped, same filters) above the pre-game list, Arbs & middles a "Live now" section (LIVE pill, never alerted; the tab
   count includes them). The Lab catalog swaps in-play games' pre-game lines/props for their live ones (labels "LIVE · ",
   leg.live, state, now), lists open picks on games in play with live prices, and a "Live now" best-bets group (liveBets).
+  Live screen: under each game card a "Log a live bet" row (views/live.js quickLog): ML and total at the best live price,
+  More -> spread, team totals, a player-prop search (only the results box re-renders, so typing keeps focus) and
+  "Something else" (a blank live bet on that game); every button opens logSheet with source "live", live true (score and
+  clock saved as liveState). Picks: "Our picks in play" (projectedCard in units over open picks with a live game state,
+  projected.pickAsBet shared with the Ledger) and a live strip on each pick card (score, the stat's progress from betLegs
+  "<pickId>#0", live chance, expected units) until it grades.
 - `engine/pickprices.py` real prices for picks: the first real price seen at each play-to venue (picklive each run ->
   latest/pick_first_prices.json), else the first raw pull after posting (snapshots/, posting time from git history), else
   goodAt; grade_picks stores gradedAt, gradeSrc, gradeVenue. Pick6 multipliers are estimated from DraftKings' vigged price

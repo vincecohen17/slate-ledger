@@ -107,6 +107,14 @@ export function resolveLeg(leg) {
   return leg;
 }
 // _done: the engine's result for a leg whose game is final while the rest of the bet is still open (a parlay across days)
+// an open pick as a bet for project(): units at the best in-range play-to price, else goodAt
+const decA = (a) => a > 0 ? 1 + a / 100 : 1 + 100 / -a;
+export function pickAsBet(p) {
+  const ins = (p.playTo || []).filter((v) => v.inRange && typeof v.price === "number");
+  const best = ins.length ? ins.reduce((x, y) => (decA(y.price) > decA(x.price) ? y : x)) : null;
+  const a = best ? best.price : p.goodAt;
+  return a == null ? null : { ...p, label: p.selection, dec: decA(a), am: a, venue: best?.venue, venueName: best?.name || best?.venue };
+}
 export const betLegs = (b) => (b.legs && b.legs.length ? b.legs : [b]).map((x, i) => ({ ...resolveLeg(x), _k: `${b.id}#${i}`, _done: b.legsDone?.[i] ?? b.legsDone?.[String(i)] ?? null }));
 
 // Last known numbers per leg and per game: a live pull that comes back without a game or its props must not wipe
@@ -375,7 +383,7 @@ function barHtml(b) {
   }
   return `<span class="pj-trk"><i style="width:${(Math.min(1, b.cur) * 100).toFixed(1)}%"></i>${b.line != null ? `<s style="left:${(b.line * 100).toFixed(1)}%"></s>` : ""}${b.proj != null ? `<b style="left:${(b.proj * 100).toFixed(1)}%"></b>` : ""}</span>`;
 }
-const progressHtml = (pg) => `<div class="pj-pg ${pg.cls}"><span class="pj-ic">${pg.icon}</span><span class="pj-tx">${esc(pg.text)}${pg.held ? ` <span class="tiny muted">(last live reading)</span>` : ""}</span>${barHtml(pg.bar)}</div>`;
+export const progressHtml = (pg) => `<div class="pj-pg ${pg.cls}"><span class="pj-ic">${pg.icon}</span><span class="pj-tx">${esc(pg.text)}${pg.held ? ` <span class="tiny muted">(last live reading)</span>` : ""}</span>${barHtml(pg.bar)}</div>`;
 
 // the other side of a leg at the best price Vince can get, with its fair (live if the game is on)
 function opposite(leg) {

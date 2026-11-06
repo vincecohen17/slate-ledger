@@ -6,7 +6,7 @@ import { esc, am, pct, prob, money, fmtShortDay, bindTips, bookTag, bookLogo, te
 import { logSheet } from "./common.js";
 import { settleProfit, isBoost } from "../promo.js";
 import { VENUES } from "../lab.js";
-import { projectedCard, betLegs } from "../projected.js";
+import { projectedCard, betLegs, pickAsBet } from "../projected.js";
 import { betImage } from "./common.js";
 import { analysis, bindAnalysis, gameDay } from "./analysis.js";
 import { clvOk, CLOSE_OK_MIN } from "../stats.js";
@@ -296,12 +296,7 @@ function ours() {
   const ts = summarize(tailed), own = summarize(ub.filter((b) => !(b.pickId || b.source === "pick")));
   const recent = [...all].sort((a, b) => (b.commence || "").localeCompare(a.commence || "")).slice(0, 30);
   const u = (x) => `${x >= 0 ? "+" : ""}${(x || 0).toFixed(2)}u`;
-  const openPicks = all.filter((p) => ["open", "pending", undefined, null].includes(p.status) && p.tier !== "likely").map((p) => {
-    const ins = (p.playTo || []).filter((v) => v.inRange && typeof v.price === "number");
-    const best = ins.length ? ins.reduce((x, y) => (decA(y.price) > decA(x.price) ? y : x)) : null;
-    const a = best ? best.price : p.goodAt;
-    return a == null ? null : { ...p, label: p.selection, dec: decA(a), am: a, venue: best?.venue, venueName: best?.name || best?.venue };
-  }).filter(Boolean);
+  const openPicks = all.filter((p) => ["open", "pending", undefined, null].includes(p.status) && p.tier !== "likely").map(pickAsBet).filter(Boolean);
   return `<div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="k">Units</div><div class="v ${s.pl >= 0 ? "pos" : "neg"}">${u(s.pl)}</div><div class="s">${s.n} graded · ${s.w}-${s.l}${s.p ? "-" + s.p : ""}</div></div>
       <div class="kpi"><div class="k">ROI</div><div class="v">${s.roi != null ? pct(s.roi) : "–"}</div><div class="s">per unit risked</div></div>

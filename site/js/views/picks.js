@@ -3,6 +3,8 @@ import { S } from "../store.js";
 import { esc, am, pct, prob, fmtTime, fmtShortDay, units, todayPT, bookTag, $$, odds, oddsP } from "../util.js";
 import { centsTag, kUsd } from "../util.js";
 import { betImage, bindLog, labBtn } from "./common.js";
+import { projectedCard, pickAsBet, betLegs, legNow, progress, progressHtml, gameState } from "../projected.js";
+import { sitText } from "./live.js";
 
 const PILLARS = [["model", "Model"], ["advanced", "Adv stats"], ["matchup", "Matchup"], ["role", "Role"], ["context", "Context"], ["market", "Market"]];
 const ICON = { support: "▲", neutral: "•", against: "▼" };
@@ -23,6 +25,26 @@ function meter(p) {
 const decOf = (a) => a > 0 ? 1 + a / 100 : 1 + 100 / Math.abs(a);
 const paras = (t) => String(t || "").split(/\n\s*\n/).filter(Boolean).map((x) => `<p>${esc(x)}</p>`).join("");
 
+// in play: score and clock, the pick's own stat now -> projected finish (the engine's betLegs "<pickId>#0" every live run),
+// its live chance to cash, and units projected; shown from the start until the pick grades
+const isOpen = (p) => ["open", "pending", undefined, null].includes(p.status);
+function pickLive(p) {
+  if (!isOpen(p) || !p.gameId) return "";
+  const st = gameState(p.gameId);
+  if (!st) return "";
+  const leg = betLegs({ ...p, label: p.selection })[0];
+  const r = legNow({ ...leg, fair: p.fair ?? null });
+  const pg = progress(leg, r);
+  const b = pickAsBet(p), chance = r.p != null && r.src !== "final" ? r.p : null;
+  const exp = b && chance != null ? chance * (p.units || 0) * (b.dec - 1) - (1 - chance) * (p.units || 0) : null;
+  const final = S.liveGames.get(p.gameId)?.final || r.src === "final";
+  return `<div class="pk-live">
+    <div class="row" style="justify-content:space-between;gap:6px;flex-wrap:wrap">
+      <span class="row" style="gap:6px">${final ? `<span class="pill">final · grading</span>` : `<span class="pill live">● LIVE</span>`}<span class="small num">${st.away?.score ?? ""}–${st.home?.score ?? ""}</span><span class="tiny muted">${esc(sitText(st, p.league))}</span></span>
+      ${chance != null ? `<span class="tiny"><span class="muted">live chance</span> <b class="num">${prob(chance)}</b>${exp != null && p.units ? ` · <span class="muted">exp.</span> <b class="num ${exp >= 0 ? "pos" : "neg"}">${exp >= 0 ? "+" : ""}${exp.toFixed(2)}u</b>` : ""}</span>` : ""}</div>
+    ${progressHtml(pg)}</div>`;
+}
+
 export function pickCard(p) {
   const st = p.status || "pending";
   const stPill = st === "won" ? `<span class="pill pos">won</span>` : st === "lost" ? `<span class="pill neg">lost</span>` : st === "void" ? `<span class="pill neg">withdrawn</span>` : `<span class="pill">${esc(st)}</span>`;
@@ -32,6 +54,7 @@ export function pickCard(p) {
     const v = p.pillars?.[k]; if (!v) return "";
     return `<span class="pillar ${v === "support" ? "sup" : v === "against" ? "ag" : ""}">${ICON[v] || ""} ${t}</span>`;
   }).join("");
+  const liveRow = pickLive(p);
   // live check from the engine (every run): current price, still listed, still worth taking; else what the run posted
   const lv = S.picksLive?.[p.id];
   const vrows = lv ? lv.venues : (p.playTo || []).map((v) => ({ ...v, now: typeof v.price === "number" ? v.price : null, listed: true }));
@@ -48,6 +71,7 @@ export function pickCard(p) {
     <div class="bet">${betImage({ gameId: p.gameId, label: p.selection, player: p.player, headshot: p.headshot, league: p.league })}
       <div class="col"><span class="what">${esc(p.selection)}</span><span class="sub">${esc(p.matchup || "")}${p.commence ? ` · ${fmtTime(p.commence)}` : ""}</span></div>
       <div class="col" style="align-items:flex-end">${units(p.units)}<span class="tiny muted">${p.units ?? "–"}u${S.settings?.unit && p.units ? ` · $${Math.round(p.units * S.settings.unit)}` : ""}</span></div></div>
+    ${liveRow}
     ${whyHtml}
     <div class="row" style="gap:6px;flex-wrap:wrap">${tier}${stPill}${p.clv != null ? `<span class="pill ${p.clv > 0 ? "pos" : "neg"}">CLV ${pct(p.clv)}</span>` : ""}
       ${(() => {      // the checks as posted, with the model check recomputed from the pick's own numbers
@@ -93,6 +117,12 @@ export function renderPicks(el) {
     <div class="kpi"><div class="k">Units</div><div class="v ${units_ >= 0 ? "pos" : "neg"}">${units_ >= 0 ? "+" : ""}${units_.toFixed(2)}</div><div class="s">all picks</div></div>
     <div class="kpi"><div class="k">Avg CLV</div><div class="v">${clvs.length ? pct(clvs.reduce((s, p) => s + p.clv, 0) / clvs.length) : "–"}</div><div class="s">${clvs.length} with a close</div></div>
     <div class="kpi"><div class="k">Today</div><div class="v">${all.filter((p) => p.date === todayPT()).length}</div><div class="s">picks posted${all.some((p) => p.date === todayPT() && p.status === "void") ? ` · ${all.filter((p) => p.date === todayPT() && p.status === "void").length} withdrawn` : ""}</div></div></div>`;
+  const inPlay = all.filter((p) => isOpen(p) && p.tier !== "likely" && p.gameId && gameState(p.gameId));
+  if (inPlay.length) {
+    const u = (x) => `${x >= 0 ? "+" : ""}${(x || 0).toFixed(2)}u`;
+    h += `<div class="sec-title"><span class="neg">●</span>&nbsp;Our picks in play (${inPlay.length})<span class="line"></span></div>
+      ${projectedCard({ items: inPlay.map(pickAsBet).filter(Boolean), title: "Live tracking: projected units on picks in play", fmt: u, units: true })}`;
+  }
   h += `<div class="bar">${days.slice(0, 10).map((d) => `<button class="chip ${d === day ? "on" : ""}" data-day="${d}">${d === todayPT() ? "Today" : d > todayPT() ? `Tomorrow · early` : fmtShortDay(d + "T12:00:00")}</button>`).join("")}</div>`;
   h += shown.length ? `<div class="grid">${shown.map(pickCard).join("")}</div>`
     : `<div class="empty"><h3>No picks posted yet</h3>Claude's daily run posts picks here with the full case, the six pillars and play-to prices at each venue.</div>`;

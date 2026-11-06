@@ -2,7 +2,7 @@
 import { finalCard } from "./final.js";
 import { projectedCard } from "../projected.js";
 import { S } from "../store.js";
-import { esc, am, prob, pct, both, bothP, teamLogo, headshot, ago, bookLogo, edgeBar, $$, odds } from "../util.js";
+import { esc, am, prob, pct, both, bothP, teamLogo, headshot, ago, bookLogo, edgeBar, $$, odds, oddsTxt } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 
 const TENNIS = (lg) => lg === "ATP" || lg === "WTA";
@@ -62,6 +62,56 @@ export function liveCard(x) {
       ${x.edges ? `<span class="pill">${x.edges} live edge${x.edges > 1 ? "s" : ""}</span>` : ""}</div></a>`;
 }
 
+// ---------- log a live bet straight off the Live screen
+// one spec per side of a live line, named like the ledger (gameId, market, side, the side's own point), at the best live price
+const pts = (x) => (x > 0 ? "+" : "") + x;
+function lineSpec(g, l, o) {
+  const best = l.bestVenue?.[o];
+  const short = (t) => t === g.home ? (g.homeRef?.abbr || t) : t === g.away ? (g.awayRef?.abbr || t) : t;
+  const label = l.market === "h2h" ? `${o} ML` : l.market === "spreads" ? `${o} ${pts(o === g.home ? l.point : -l.point)}`
+    : l.market === "team_totals" ? `${l.team} ${o} ${l.point}` : `${o} ${l.point}`;
+  const chip = l.market === "h2h" ? `${short(o)} ML` : l.market === "spreads" ? `${short(o)} ${pts(o === g.home ? l.point : -l.point)}`
+    : l.market === "team_totals" ? `${short(l.team)} ${o[0]} ${l.point}` : `${o[0]} ${l.point}`;
+  return { chip, best, spec: { label, gameId: g.id, league: g.league, matchup: `${g.away} @ ${g.home}`, commence: g.commence, market: l.market, side: o,
+    point: l.market === "spreads" ? (o === g.home ? l.point : -l.point) : l.point ?? null, team: l.team || null,
+    am: best?.am ?? null, venue: best?.book, venueName: best?.name, fair: l.fair?.[o] ?? null, source: "live", live: true } };
+}
+function propSpec(g, r, market, o) {
+  const best = r.bestVenue?.[o];
+  return { best, spec: { label: `${r.player} ${o} ${r.point} ${market.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " ")}`, gameId: g.id, league: g.league,
+    matchup: `${g.away} @ ${g.home}`, commence: g.commence, market, side: o, point: r.point, player: r.player,
+    am: best?.am ?? null, venue: best?.book, venueName: best?.name, fair: r.fair?.[o] ?? null, source: "live", live: true } };
+}
+const logBtn = ({ chip, best, spec }, cls = "") => `<button class="btn sm ghost lv-q ${cls}" data-log='${esc(JSON.stringify(spec))}' title="${esc(`Log ${spec.label}${best ? ` at ${best.name} ${oddsTxt(best.am)}` : ""}`)}"><b>${esc(chip || spec.label)}</b><span class="tiny muted num">${best ? `${bookLogo(best.book, best.name, 12)} ${esc(oddsTxt(best.am))}` : "type the price"}</span></button>`;
+const mainOf = (d, mk, team) => { const ls = (d.lines || []).filter((l) => l.market === mk && l.fair && (!team || l.team === team)); return ls.find((l) => l.isMain) || ls.sort((a, b) => (b.nBooks || 0) - (a.nBooks || 0))[0]; };
+const QO = new Set(), QQ = {};       // games with the full log panel open, and each panel's prop search
+function propHits(d, q) {
+  q = (q || "").trim().toLowerCase();
+  const rows = (d.props || []).flatMap((p) => (p.rows || []).filter((r) => r.fair && (!q ? r.isMain : `${r.player} ${p.market.replace(/_/g, " ")}`.toLowerCase().includes(q))).map((r) => ({ r, market: p.market })));
+  return rows.sort((a, b) => (b.r.isMain ? 1 : 0) - (a.r.isMain ? 1 : 0)).slice(0, q ? 16 : 6);
+}
+const propRows = (d, q) => { const h = propHits(d, q);
+  return h.length ? h.map(({ r, market }) => `<div class="lv-qp"><span class="small ellip"><b>${esc(r.player)}</b> ${esc(market.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " "))} ${r.point ?? ""}${r.live?.cur != null ? ` <span class="tiny muted">· ${r.live.cur} now</span>` : ""}</span>
+    <span class="lv-qr">${["Over", "Under"].filter((o) => r.fair[o] != null).map((o) => logBtn({ chip: `${o} ${r.point ?? ""}`, ...propSpec(d, r, market, o) })).join("")}</span></div>`).join("")
+    : `<div class="tiny muted">${q ? "No live prop matches that." : "No live props priced for this game yet."}</div>`; };
+function quickLog(x) {
+  const d = S.liveGames.get(x.id);
+  const g = { ...x, ...(d || {}) };
+  const free = `<button class="btn sm ghost lv-q" data-log='${esc(JSON.stringify({ label: "", gameId: g.id, league: g.league, matchup: `${g.away} @ ${g.home}`, commence: g.commence, source: "live", live: true }))}'>Something else</button>`;
+  if (!d || !(d.lines || []).length) return `<div class="lv-quick"><span class="tiny muted">Log a live bet</span><div class="row lv-qr">${free}</div></div>`;
+  const ml = mainOf(d, "h2h"), tot = mainOf(d, "totals");
+  const quick = [...(ml ? ml.outcomes.filter((o) => o !== "Draw" || ml.outcomes.length === 3).map((o) => lineSpec(g, ml, o)) : []), ...(tot ? tot.outcomes.map((o) => lineSpec(g, tot, o)) : [])];
+  const open = QO.has(g.id);
+  const more = open ? (() => {
+    const sp = mainOf(d, "spreads"), tts = [g.away, g.home].map((t) => mainOf(d, "team_totals", t)).filter(Boolean);
+    const others = [...(sp ? sp.outcomes.map((o) => lineSpec(g, sp, o)) : []), ...tts.flatMap((l) => l.outcomes.map((o) => lineSpec(g, l, o)))];
+    return `<div class="lv-more">${others.length ? `<div class="row lv-qr">${others.map((q) => logBtn(q)).join("")}</div>` : ""}
+      ${(d.props || []).length ? `<input class="lv-qs" data-qs="${esc(g.id)}" placeholder="Find a player prop" value="${esc(QQ[g.id] || "")}"><div class="col lv-qh" data-qh="${esc(g.id)}" style="gap:2px">${propRows(d, QQ[g.id])}</div>` : ""}
+      <div class="row lv-qr">${free}<a class="btn sm ghost" href="#/game/${esc(g.id)}/live">Whole game</a></div></div>`; })() : "";
+  return `<div class="lv-quick"><span class="tiny muted">Log a live bet <span class="muted">· best price at your venues now</span></span>
+    <div class="row lv-qr">${quick.map((q) => logBtn(q)).join("")}<button class="btn sm ghost" data-qo="${esc(g.id)}">${open ? "Less" : "More"}</button></div>${more}</div>`;
+}
+
 export function renderLive(el) {
   const L = S.live;
   const games = L?.games || [];
@@ -71,12 +121,18 @@ export function renderLive(el) {
     <p class="note">Live prices move in seconds and our feed is about a minute behind, so treat every live edge as a lead: open the app, check the price is still there, then decide.</p>
     ${(() => { const open = [...S.bets.values()].filter((b) => b.status === "pending" && b.commence && Date.now() - new Date(b.commence) > -3600000);
       return open.length ? projectedCard({ items: open, title: "Your open bets right now" }) : ""; })()}
-    ${games.length ? `<div class="grid">${games.map(liveCard).join("")}</div>` : `<div class="empty"><h3>No games in play</h3>Games show up here once they start.</div>`}
+    ${games.length ? `<div class="grid">${games.map((x) => `<div class="col lv-cell">${liveCard(x)}${quickLog(x)}</div>`).join("")}</div>` : `<div class="empty"><h3>No games in play</h3>Games show up here once they start.</div>`}
     ${(() => { const fin = (S.finals || []).filter((x) => Date.now() - new Date(x.commence) < 10 * 3600000 && (!x.tennis || x.gameId)).slice(0, 12);
       return fin.length ? `<div class="sec-title">Just finished<span class="line"></span></div><div class="grid tight">${fin.map(finalCard).join("")}</div>` : ""; })()}
     <div class="sec-title">Live edges<span class="line"></span></div>
     ${edges.length ? `<div class="grid tight">${edges.slice(0, 60).map(edgeCard).join("")}</div>` : `<div class="card note">Nothing beats the live fair right now.</div>`}`;
   bindLog(el);
+  $$("[data-qo]", el).forEach((b) => b.onclick = () => { const id = b.dataset.qo; QO.has(id) ? QO.delete(id) : QO.add(id); renderLive(el); });
+  $$("[data-qs]", el).forEach((i) => i.oninput = () => {          // search updates only its results, so typing keeps focus
+    const id = i.dataset.qs; QQ[id] = i.value;
+    const box = el.querySelector(`[data-qh="${CSS.escape(id)}"]`), d = S.liveGames.get(id);
+    if (box && d) { box.innerHTML = propRows({ ...d, id }, i.value); bindLog(box); }
+  });
 }
 
 // game page Live tab

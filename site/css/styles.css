@@ -334,6 +334,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb
 /* live */
 .pill.live { color: #fff; background: #d64545; border-color: #d64545; font-weight: 700; letter-spacing: .03em; }
 .live-card { display: flex; flex-direction: column; gap: 8px; }
+.lv-cell { gap: 6px; min-width: 0; }
+.lv-quick { display: flex; flex-direction: column; gap: 5px; padding: 0 2px; }
+.lv-qr { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 5px; }
+.lv-q { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; min-width: 0; padding-block: 5px; }
+.lv-q b, .lv-q span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-q .tiny img, .lv-q .tiny .blogo { vertical-align: -2px; }
+.lv-more { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.lv-qs { width: 100%; }
+.lv-qp { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 6px; border-bottom: 1px solid var(--line); min-width: 0; }
 .live-score { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; }
 .live-score .big { font-size: 22px; }
 .live-score.big2 b.num { font-size: 28px; }
@@ -676,3 +685,6 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 .why-l li.pos { color: var(--pos); } .why-l li.neg { color: var(--neg); }
 .why-line { font-size: 11px; display: block; white-space: normal; }
 .mkt-empty { font-size: 12px; color: var(--muted); }
+
+/* a pick in play: score, live chance and the stat's progress, on the pick card */
+.pk-live { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2, var(--panel-3)); border: 1px solid var(--line); }
