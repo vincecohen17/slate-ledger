@@ -1,3 +1,4 @@
+import { WHY } from "./market.js";
 // Ledger: Vince's bets and our picks, graded automatically after the games (result + closing line value), with the
 // breakdowns and plain-words takeaways that say what to keep betting and what to stop.
 import { S, saveBet, deleteBet, loadProps, sportKeys } from "../store.js";
@@ -59,6 +60,7 @@ const GROUPS = {
   odds: ["Odds range", oddsBand], edge: ["Edge when logged", edgeBand], source: ["Where it came from", (b) => SOURCES[b.source] || b.source || "Typed in"],
   promo: ["Promo", (b) => b.promoId ? "With a promo" : "No promo"],
   timing: ["Live or pre-game", (b) => b.live ? "Live (in-game)" : "Pre-game"],
+  why: ["Market reason when logged", (b) => WHY[b.why]?.label || "Not tagged (logged before Nov 5 or by hand)"],
 };
 
 function summarize(list) {

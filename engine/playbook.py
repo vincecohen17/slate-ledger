@@ -8,7 +8,7 @@ import os
 
 DIMS = {"kind": "Line type", "venueKind": "Venue x type", "venue": "Venue", "timing": "Time before start", "edge": "Edge size",
         "supportSize": "Model support", "logicSize": "Logic", "league": "Sport", "market": "Market", "fairShift": "Fair",
-        "venueLeague": "Venue x sport", "mktMove": "Line movement", "mktSplits": "Betting splits"}
+        "venueLeague": "Venue x sport", "mktMove": "Line movement", "mktSplits": "Betting splits", "why": "Market reason"}
 MIN_N = 150
 MIN_GAMES = 20          # a cell needs this many separate games before its clustered t means anything
 LEAN_T, AVOID_Z = 1.5, -2.0    # game-clustered: flat ROI t to lean on a cell, results-vs-close z to avoid one

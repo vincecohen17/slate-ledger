@@ -1,4 +1,4 @@
-import { marketReport } from "./market.js";
+import { marketReport, whyRecord } from "./market.js";
 import { S } from "../store.js";
 import { esc, pct, ago, bindTips, bookLogo, $$ } from "../util.js";
 import { lineChart, legend } from "./charts.js";
@@ -10,7 +10,7 @@ let span = "total", focus = null, ecDim = "venue";
 
 // the edges' report card: every edge we flagged, graded at the close and after the result
 const EC_DIMS = [["venue", "Venue"], ["kind", "Line type"], ["market", "Market"], ["edge", "Edge size"], ["logic", "Model"], ["timing", "Time before start"],
-  ["league", "Sport"], ["venueKind", "Venue x type"], ["venueLeague", "Venue x sport"], ["logicSize", "Logic x edge size"], ["support", "Model support"], ["supportSize", "Support x edge size"], ["fairShift", "Fair correction"], ["steam", "Steam"], ["mktMove", "Line movement"], ["mktSplits", "Betting splits"]];
+  ["league", "Sport"], ["venueKind", "Venue x type"], ["venueLeague", "Venue x sport"], ["logicSize", "Logic x edge size"], ["support", "Model support"], ["supportSize", "Support x edge size"], ["fairShift", "Fair correction"], ["steam", "Steam"], ["why", "Market reason"], ["mktMove", "Line movement"], ["mktSplits", "Betting splits"]];
 const venueName = (k) => S.edges.find((e) => e.book === k)?.bookName || k;
 function edgeCard(C) {
   if (!C || !C.n) return `<div class="card note">Collecting. Every edge the board flags is logged with its price, followed to the close and graded after the game; the first grades land after today's games, and categories show from 3 edges (trust them from a few hundred).</div>`;
@@ -128,6 +128,7 @@ export function renderReports(el) {
     <div class="card">${rows.length ? seqBars([...rows].sort((a, b) => b.bestRate - a.bestRate).slice(0, 15), (r) => r.bestRate, (v) => Math.round(v * 100) + "%") : ""}
       <p class="note">How often each book has the best price on the board for a side. A book you can bet with a high share is where to look first.</p></div>
     <div class="sec-title">Market signals: line moves, sharp money, splits<span class="line"></span></div>
+    ${whyRecord(R?.edgecard)}
     ${marketReport(R?.marketcard) || `<div class="card note">Builds as games with movement history finish.</div>`}
     <div class="sec-title">Model logic: does the model's vote help?<span class="line"></span></div>
     ${logicDeep()}

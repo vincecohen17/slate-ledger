@@ -1,3 +1,4 @@
+import { WHY, edgeFor } from "./market.js";
 import { S } from "../store.js";
 import { esc, am, pct, prob, fmtTime, fmtShortDay, units, todayPT, bookTag, $$, odds, oddsP } from "../util.js";
 import { centsTag, kUsd } from "../util.js";
@@ -39,11 +40,15 @@ export function pickCard(p) {
       <span class="px">${v.listed === false ? `<span class="faint">not listed</span>` : (v.now != null ? odds(v.now) : "–")}${v.listed !== false && v.now != null && centsTag(v.now, v.venue) ? ` <span class="tiny muted">${centsTag(v.now, v.venue)}</span>` : ""}${v.avail != null && v.listed !== false ? ` <span class="tiny ${v.avail < 25 ? "neg" : "muted"}" title="on offer at this price right now">${kUsd(v.avail)}</span>` : ""}</span>
       <span class="${v.inRange ? "pos" : "faint"}">${v.inRange ? "✓ in range" : v.listed === false ? "–" : "wait"}</span></div>`).join("")
     + (lv ? `<div class="tiny muted" style="margin-top:4px">Checked ${fmtTime(lv.at)}${lv.fairNow != null ? ` · sharp fair now ${prob(lv.fairNow, 1)}` : ""}${lv.anyInRange ? "" : ` · <span class="neg">no venue in range right now</span>`}</div>` : "");
+  const eNow = !st || st === "open" || st === "pending" ? edgeFor(p) : null, w = p.why || eNow?.why, wk = w ? WHY[w.k] : null;
+  const whyHtml = w ? `<div class="why why-${esc(w.k || "")}"><div class="why-h"><b class="${wk?.tone || ""}" title="${esc(wk?.tip || "")}">${wk?.icon || "◆"} ${esc(wk?.label || "Why")}</b>${p.why ? "" : `<span class="tiny muted">from the board now</span>`}</div><div class="small">${esc(w.t || "")}</div>
+    ${p.why && eNow?.why && eNow.why.k !== p.why.k ? `<div class="tiny muted">Now: ${esc(WHY[eNow.why.k]?.label || "")}: ${esc(eNow.why.t)}</div>` : ""}</div>` : "";
   return `<div class="card col ${st === "void" ? "pk-void" : ""}" style="gap:10px">
     ${st === "void" && p.voidReason ? `<div class="pk-vbar">Withdrawn: ${esc(p.voidReason)}</div>` : ""}
     <div class="bet">${betImage({ gameId: p.gameId, label: p.selection, player: p.player, headshot: p.headshot, league: p.league })}
       <div class="col"><span class="what">${esc(p.selection)}</span><span class="sub">${esc(p.matchup || "")}${p.commence ? ` · ${fmtTime(p.commence)}` : ""}</span></div>
       <div class="col" style="align-items:flex-end">${units(p.units)}<span class="tiny muted">${p.units ?? "–"}u${S.settings?.unit && p.units ? ` · $${Math.round(p.units * S.settings.unit)}` : ""}</span></div></div>
+    ${whyHtml}
     <div class="row" style="gap:6px;flex-wrap:wrap">${tier}${stPill}${p.clv != null ? `<span class="pill ${p.clv > 0 ? "pos" : "neg"}">CLV ${pct(p.clv)}</span>` : ""}
       ${(() => {      // the checks as posted, with the model check recomputed from the pick's own numbers
         const mOK = p.modelP != null && p.marketFair != null ? p.modelP > p.marketFair : null;

@@ -530,8 +530,16 @@ def run(data_dir, game_docs, edges, now, log=print):
                           "mv": rec["mv"], "splits": sp, "sides": {k: {**v, "tags": tags(v)} for k, v in sides.items()}}
     n = 0
     byid = {d["id"]: d for d in game_docs}
+    nw = {}
     for e in edges:
         d = byid.get(e.get("gameId"))
+        try:
+            w = explain(e, d, hist.get(e.get("gameId")), now)
+        except Exception:
+            w = None
+        if w:
+            e["why"] = w
+            nw[w["k"]] = nw.get(w["k"], 0) + 1
         if not d or not d.get("mkt"):
             continue
         mk, side = _edge_side(e, d["home"], d["away"])
@@ -545,8 +553,88 @@ def run(data_dir, game_docs, edges, now, log=print):
                 e["mktTags"] = t
                 n += 1
     json.dump({"at": now.isoformat(), "games": board}, open(os.path.join(data_dir, "latest", "market.json"), "w"), separators=(",", ":"))
-    log(f"market: {len(board)} games with movement or splits, {n} edges carry market signals")
+    log(f"market: {len(board)} games with movement or splits, {n} edges carry market signals; why: {nw}")
     return board
+
+
+# ---------------------------------------------------------------- why each edge is on the board
+WHY = {"lag": "Sharp move, venue lagging", "move": "Line moved toward it", "static": "Static price gap", "against": "Line moved away"}
+
+
+def _pt_side(mk, side, ptA):
+    if ptA is None or mk == "h2h":
+        return None
+    return ptA if (side == "A" or mk == "totals") else -ptA
+
+
+def _num(mk, pt, p):
+    """how a number reads: a point for spreads/totals, the chance for moneylines"""
+    if mk == "h2h" or pt is None:
+        return f"{p * 100:.0f}%"
+    return f"{pt:+g}" if mk == "spreads" else f"{pt:g}"
+
+
+def _hhmm(tmin_):
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.fromtimestamp(tmin_ * 60, timezone.utc).astimezone(ZoneInfo("America/Los_Angeles")).strftime("%-I:%M %p")
+    except Exception:
+        return ""
+
+
+def explain(e, d, hist, now):
+    """the market reason an edge is on the board, in plain words: {k: lag | move | static | against, t: text, s: strength,
+    f: share of the sharp move this venue has followed}. lag = the sharp books moved toward this side and this venue
+    hasn't followed (the tradeable kind); move = the line moved toward it; static = a gap with no move behind it;
+    against = the market moved away from this side"""
+    venue = (C.BOOKS.get(e.get("book")) or {}).get("name") or e.get("bookName") or e.get("book")
+    if e.get("player") or not d:
+        # props: the sharp fair at this number since we first saw it (engine opens), the venue's price still beats it
+        if e.get("open") is None or e.get("fair") is None or (e.get("openPt") is not None and e.get("point") is not None and abs(e["openPt"] - e["point"]) > 1e-6):
+            return {"k": "static", "s": 0, "t": f"Price gap with no tracked move behind it: {venue} is off the sharp number."}
+        mv = e["fair"] - e["open"]
+        if mv >= MOVE_MIN:
+            return {"k": "move", "s": 1, "t": f"The sharp price on this moved {mv * 100:.1f} pts toward it since open ({e['open'] * 100:.0f}% to {e['fair'] * 100:.0f}%); {venue} hasn't caught up."}
+        if mv <= -MOVE_MIN:
+            return {"k": "against", "s": -1, "t": f"Careful: the sharp price moved {abs(mv) * 100:.1f} pts away from this since open ({e['open'] * 100:.0f}% to {e['fair'] * 100:.0f}%). The gap is real at today's price, but it's the side the market is leaving."}
+        return {"k": "static", "s": 0, "t": f"Price gap with no market move behind it: {venue} is just off the sharp number."}
+    mk, side = _edge_side(e, d["home"], d["away"])
+    summ = (d.get("mkt") or {}).get("mv") or {}
+    r = summ.get(mk) if mk else None
+    if not r:
+        return {"k": "static", "s": 0, "t": f"Price gap with no tracked move behind it: {venue} is off the sharp number."}
+    sgn = 1 if side == "A" else -1
+    mv = r["mv"] * sgn
+    name = (d["home"] if side == "A" else d["away"]) if mk != "totals" else ("Over" if side == "A" else "Under")
+    o_pt, n_pt = _pt_side(mk, side, r["open"]["pt"]), _pt_side(mk, side, r["now"]["pt"])
+    o_p = r["open"]["p"] if side == "A" else 1 - r["open"]["p"]
+    n_p = r["now"]["p"] if side == "A" else 1 - r["now"]["p"]
+    path = f"{name} {_num(mk, o_pt, o_p)} to {_num(mk, n_pt, n_p)}" if mk != "h2h" else f"{name} from {o_p * 100:.0f}% to {n_p * 100:.0f}%"
+    first = r.get("first") or []
+    lead = f" ({(C.BOOKS.get(first[0][1]) or {}).get('name', first[0][1])} first, {_hhmm(first[0][0])})" if first else ""
+    if abs(mv) < MOVE_MIN:
+        return {"k": "static", "s": 0, "t": f"Price gap with no market move behind it: the sharp line hasn't moved (under 1.5 pts) and {venue} is just off it."}
+    if mv < 0:
+        return {"k": "against", "s": -1, "t": f"Careful: the sharp line moved {abs(mv) * 100:.1f} pts away from this side ({path}). The gap is real at today's price, but it's the side the market is leaving."}
+    # how much of the move this venue has followed, from its own price history (main numbers only)
+    f = None
+    vh = ((hist or {}).get("b", {}).get(e.get("book")) or {}).get(mk) or []
+    if vh and e.get("main", True):
+        slope = _slope(d.get("league"), mk)
+        ref = r["open"]["pt"]
+        t0 = r["open"]["t"]
+        before = [x for x in vh if x[0] <= t0] or vh[:1]
+        q0, q1 = _eq(before[-1], mk, ref, slope), _eq(vh[-1], mk, ref, slope)
+        if q0 is not None and q1 is not None:
+            f = round(max(0.0, min(1.5, (q1 - q0) * sgn / abs(r["mv"]))), 2)
+            vpt = _pt_side(mk, side, vh[-1][1])
+    sharp = bool(r.get("sharpLed"))
+    who = "Sharp books" if sharp else "The market"
+    if f is not None and f < 0.5:
+        still = f"is still at {_num(mk, vpt, o_p)}" if mk != "h2h" and vpt is not None else ("hasn't followed" if f < 0.15 else f"has followed only {f * 100:.0f}% of it")
+        return {"k": "lag", "s": 3 if sharp else 2, "f": f,
+                "t": f"{who} moved {path}{lead}, {mv * 100:.1f} pts toward this side; {venue} {still}."}
+    return {"k": "move", "s": 1, "f": f, "t": f"{who} moved {path}{lead}, {mv * 100:.1f} pts toward this side; {venue}'s price still beats where it settled."}
 
 
 # ---------------------------------------------------------------- grading the signals

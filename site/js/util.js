@@ -146,8 +146,8 @@ export const odds = (a) => a == null || isNaN(a) || a === 0 ? "–" : _o3(a, pro
 export const oddsP = (p) => p == null || isNaN(p) || p <= 0 || p >= 1 ? "–" : _o3(amFromProb(p), p, 1 / p);
 export const oddsTxt = (a) => a == null || isNaN(a) || a === 0 ? "–" : `${am(a)} · ${(probFromAm(a) * 100).toFixed(1)}% · ${decTxt(decFromAm(a))}`;
 export const oddsTxtP = (p) => p == null || isNaN(p) || p <= 0 || p >= 1 ? "–" : `${am(amFromProb(p))} · ${(p * 100).toFixed(1)}% · ${decTxt(1 / p)}`;
-export const both = odds;
-export const bothP = oddsP;
+export const both = oddsTxt;          // inline text spots (fair lines, chips, legs): one plain line
+export const bothP = oddsTxtP;
 
 // last-N sparkline with the bet line; returns "" when there is nothing to draw
 export function spark(vals, line, opts = {}) {

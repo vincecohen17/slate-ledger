@@ -1,4 +1,4 @@
-import { marketMoves } from "./market.js";
+import { marketMoves, marketDriven, whyRecord } from "./market.js";
 import { S, testAlert, saveOppCheck } from "../store.js";
 import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$, odds } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
@@ -83,7 +83,7 @@ export function renderEdges(el) {
   const leagues = ["All", ...new Set(S.edges.map((e) => e.league))];
   const venues = ["All", ...new Set(S.edges.map((e) => e.bookName))];
   const items = S.edges.filter((e) =>
-    (F.logic === "All" || (F.logic === "On the playbook" && e.lean && !e.avoid) || (F.logic === "Model backs it" && (e.supBand ? ["between", "near"].includes(e.supBand) : e.logic === "agrees"))) && (F.league === "All" || e.league === F.league) && (F.venue === "All" || e.bookName === F.venue) && e.edge >= F.min &&
+    (F.logic === "All" || (F.logic === "Market-driven" && ["lag", "move"].includes(e.why?.k)) || (F.logic === "On the playbook" && e.lean && !e.avoid) || (F.logic === "Model backs it" && (e.supBand ? ["between", "near"].includes(e.supBand) : e.logic === "agrees"))) && (F.league === "All" || e.league === F.league) && (F.venue === "All" || e.bookName === F.venue) && e.edge >= F.min &&
     (F.type === "All" || (F.type === "Lines" && isLine(e)) || (F.type === "Props" && !isLine(e) && !e.pickem) || (F.type === "Pick'em" && e.pickem)) &&
     new Date(e.commence) > new Date(Date.now() - 5 * 60000));
   const bookOf = Object.fromEntries(S.edges.map((e) => [e.bookName, e.book]));
@@ -107,9 +107,15 @@ export function renderEdges(el) {
     return;
   }
   el.innerHTML = tabs + `<div class="bar">${chips("league", leagues)}<span class="spacer"></span>${chips("type", ["All", "Lines", "Props", "Pick'em"])}</div>
+    ${(() => { const md = marketDriven(items);
+      return `<div class="sec-title">Driven by the market right now${md.length ? ` (${md.length})` : ""}<span class="line"></span></div>
+        ${whyRecord(S.reports?.edgecard, { compact: true })}
+        ${md.length ? `<p class="note">The sharp books moved toward these and the venue hasn't fully followed (⚡ first), or the line moved their way and the price still beats it. They're time-sensitive: the venue usually catches up within minutes. Each card says what moved, who moved first and what's still on offer.</p>
+          <div class="grid tight">${md.slice(0, 9).map(edgeCard).join("")}</div>${md.length > 9 ? `<div class="tiny muted">${md.length - 9} more under the Market-driven filter.</div>` : ""}`
+        : `<div class="card note mkt-empty">No venue is behind a sharp move right now. These come in bursts, after injury news or when professional money hits a line, and you get a phone alert ("Sharp move, … lagging") when one shows up. Everything below still says why it's on the board.</div>`}`; })()}
     ${playbookCard()}
     ${marketMoves()}
-    <div class="bar" style="margin-top:0">${chips("logic", ["All", "On the playbook", "Model backs it"])}<span class="spacer"></span>${chips("venue", venues)}<span class="spacer"></span>
+    <div class="bar" style="margin-top:0">${chips("logic", ["All", "Market-driven", "On the playbook", "Model backs it"])}<span class="spacer"></span>${chips("venue", venues)}<span class="spacer"></span>
       ${[0.015, 0.03, 0.05].map((m) => `<button class="chip ${F.min === m ? "on" : ""}" data-min="${m}">${(m * 100).toFixed(1)}%+</button>`).join("")}</div>
     <p class="note">Prices at your venues that beat the sharp no-vig fair, ranked by edge and by how that kind of edge has actually done, half on its whole record and half on the last few days. Edges in a cell the record says to skip get their own section; kinds that keep losing to their fair go to the bottom until their record recovers.</p>
     ${(() => { const live = items.filter((e) => !e.muted && !e.avoid), skip = items.filter((e) => !e.muted && e.avoid), muted = items.filter((e) => e.muted);

@@ -140,3 +140,77 @@ export function marketReport(mc) {
     ${Object.values(mc.dims || {}).some((v) => !v.length) ? `<div class="tiny muted">Splits buckets fill in as games with DraftKings splits finish.</div>` : ""}
   </div>`;
 }
+
+// ---------- why each edge (or pick) is on the board, in plain words
+export const WHY = {
+  lag: { icon: "⚡", label: "Sharp move, venue lagging", tone: "pos", tip: "The sharp books moved toward this side and this venue hasn't followed: the price you'd get is the old one. The kind of edge the market itself creates, and it lasts minutes." },
+  move: { icon: "▲", label: "Line moved toward it", tone: "pos", tip: "The sharp line moved toward this side since open and this venue's price still beats where it settled." },
+  static: { icon: "•", label: "Static price gap", tone: "", tip: "No market move behind it: this venue is simply off the sharp number. Static gaps have roughly held their fair on our record, no better." },
+  against: { icon: "▼", label: "Line moved away", tone: "neg", tip: "The sharp line moved away from this side. The gap is real at today's price, but it's the side the market is leaving." },
+  logic: { icon: "◆", label: "Sports logic", tone: "", tip: "A case from the matchup, roles, news and numbers, priced against the sharp market." },
+};
+
+export function reasons(e) {
+  const r = [], now = Date.now();
+  if (e.ctx?.length) r.push({ t: `Verified news in the model: ${e.ctx[0]}${e.ctx.length > 1 ? ` (+${e.ctx.length - 1} more)` : ""}` });
+  if (e.logic === "agrees" && e.modelP != null) r.push({ tone: "pos", t: `Our model agrees: it gives this ${prob(e.modelP, 1)}, the sharp fair ${prob(e.fair, 1)}.` });
+  else if (e.logic === "disagrees" && e.modelP != null) r.push({ tone: "neg", t: `Our model disagrees: it gives this only ${prob(e.modelP, 1)}.` });
+  const c = (e.lean || [])[0];
+  if (c) r.push({ tone: "pos", t: `On the playbook: ${c.k} edges have returned ${pct(c.roi)} over ${c.n} graded.` });
+  const m = e.mkt || {};
+  if (m.rlm) r.push({ tone: "pos", t: `Reverse line move: the line went this way with only ${m.b}% of DraftKings bets on it.` });
+  if (m.div != null && m.div >= 10) r.push({ t: `DraftKings: ${m.h}% of the money but ${m.b}% of the bets (bigger bettors on this side).` });
+  else if (m.pub) r.push({ t: `Public side: ${m.b}% of DraftKings bets.` });
+  if (e.commence && !e.live) {
+    const mins = (new Date(e.commence) - now) / 60000;
+    if (mins > 0 && mins <= 60) r.push({ tone: "pos", t: `Starts in ${Math.round(mins)} min: flagged prices this close to the start have done best on our record.` });
+    else if (mins >= 180 && mins <= 720) r.push({ tone: "neg", t: `Starts in ${Math.round(mins / 60)} h: prices flagged this early have done worst on our record; it may still improve or vanish.` });
+  }
+  if ((e.avoid || []).length) r.push({ tone: "neg", t: `The record says skip: ${e.avoid[0].k} has lost to the close.` });
+  if (e.muted) r.push({ tone: "neg", t: `This kind of edge has lost to its fair (${e.muted}).` });
+  return r;
+}
+
+export function whyBlock(e, { compact = false } = {}) {
+  const w = e.why, k = w ? WHY[w.k] : null, rs = reasons(e);
+  if (!k && !rs.length) return "";
+  if (compact) return `<span class="why-line">${k ? `<b class="${k.tone}" title="${esc(k.tip)}">${k.icon} ${esc(k.label)}</b> ` : ""}<span class="muted">${esc(w?.t || rs[0]?.t || "")}</span></span>`;
+  return `<div class="why ${k ? `why-${w.k}` : ""}"><div class="why-h">${k ? `<b class="${k.tone}" title="${esc(k.tip)}">${k.icon} ${esc(k.label)}</b>` : `<b>Why it's here</b>`}</div>
+    ${w ? `<div class="small">${esc(w.t)}</div>` : ""}
+    ${rs.length ? `<ul class="why-l">${rs.map((x) => `<li class="${x.tone || ""}">${esc(x.t)}</li>`).join("")}</ul>` : ""}</div>`;
+}
+
+// the edges the market itself is pointing at: a sharp move the venue hasn't followed first, then moves toward the side
+export function marketDriven(edges) {
+  const now = Date.now();
+  return (edges || []).filter((e) => !e.live && !e.muted && !(e.avoid || []).length && ["lag", "move"].includes(e.why?.k) && new Date(e.commence) > now
+    && !(e.edge > 0.15) && !e.est)
+    .sort((a, b) => (b.why.s - a.why.s) || (b.edge - a.edge));
+}
+
+// the board's edge for a bet spec (a pick, a Lab leg), at one venue or any
+export function edgeFor(sp, venue = null) {
+  const same = (e) => e.gameId === sp.gameId && (e.market === sp.market) && e.side === sp.side && (sp.point == null || e.point == null || Math.abs(e.point - sp.point) < 1e-6)
+    && (e.player || null) === (sp.player || null);
+  const es = (S.edges || []).filter((e) => same(e) && (!venue || venue === "any" || e.book === venue));
+  return es.sort((a, b) => (b.why?.s ?? -2) - (a.why?.s ?? -2) || b.edge - a.edge)[0] || null;
+}
+
+// how each kind of reason has done if you'd bet every flagged edge with it: flat 1 unit at the flagged price, graded at the
+// final; won vs expected against the fair at the flag, CLV calibrated, t clustered by game (engine edgecard dim "why")
+const WHY_ORDER = ["Sharp move, venue lagging", "Line moved toward it", "Static price gap", "Line moved away"];
+export function whyRecord(card, { compact = false } = {}) {
+  const rows = (card?.why || []).slice().sort((a, b) => WHY_ORDER.indexOf(a.k) - WHY_ORDER.indexOf(b.k));
+  if (compact) {
+    const r = rows.find((x) => x.k === WHY_ORDER[0]);
+    return r ? `<div class="tiny muted">Record so far if you'd bet every ⚡ edge at its flagged price: <b class="${r.roi > 0 ? "pos" : "neg"}">ROI ${pct(r.roi)}</b> over ${r.graded} graded (${r.games ?? "?"} games) · won ${r.gap > 0 ? "+" : ""}${(r.gap * 100).toFixed(1)} pts vs the close${r.roiT != null ? ` · t ${r.roiT}` : ""} · <a href="#/reports">by reason on Reports</a></div>`
+      : `<div class="tiny muted">Their record (as if you'd bet every one at the flagged price) starts filling as today's flagged edges finish: Reports, "Market reason".</div>`;
+  }
+  if (!rows.length) return `<div class="card note">Every flagged edge now records why it was on the board (a sharp move a venue hadn't followed, a move toward it, a static gap, a move away) and is graded as if bet at its flagged price. The table fills in as today's edges finish.</div>`;
+  return `<div class="card"><b>If you'd bet them: every flagged edge by its market reason</b>
+    <div class="tiny muted">Flat 1 unit at the price when it was flagged, graded at the final. Won vs expected: wins minus what the fair at the flag said. t is clustered by game; under 2 is still noise.</div>
+    <div style="overflow-x:auto"><table class="l10t" style="width:100%"><thead><tr><th style="text-align:left">Reason</th><th>Graded</th><th>Games</th><th>Won vs expected</th><th>ROI</th><th>t</th><th>CLV cal.</th><th>Lately ROI</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td style="text-align:left">${esc(r.k)}</td><td class="num">${r.graded}</td><td class="num">${r.games ?? "–"}</td>
+      <td class="num ${r.gap > 0.01 ? "pos" : r.gap < -0.01 ? "neg" : ""}">${r.gap > 0 ? "+" : ""}${(r.gap * 100).toFixed(1)} pts</td><td class="num ${r.roi > 0 ? "pos" : "neg"}">${pct(r.roi)}</td>
+      <td class="num">${r.roiT ?? "–"}</td><td class="num">${r.clvCal != null ? pct(r.clvCal) : "–"}</td><td class="num">${r.roiR != null ? pct(r.roiR) : "–"}</td></tr>`).join("")}</tbody></table></div></div>`;
+}

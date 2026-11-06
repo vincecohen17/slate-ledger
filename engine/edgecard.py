@@ -109,7 +109,7 @@ def observe(data_dir, game_docs, prop_docs, edges, now, log=print):
             continue
         v = ent["obs"].get(e["book"])
         if v is None:
-            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"), "mp": e.get("modelP"), "steam": e.get("fairMove"), "fs": e.get("fairShift"), "mkt": e.get("mkt"),
+            ent["obs"][e["book"]] = {"dec": round(dec, 4), "fair": e["fair"], "edge": e["edge"], "t": t, "logic": e.get("logic"), "mp": e.get("modelP"), "steam": e.get("fairMove"), "fs": e.get("fairShift"), "mkt": e.get("mkt"), "wk": (e.get("why") or {}).get("k"),
                                      "model": e.get("model"), "est": e.get("est"), "pickem": bool(e.get("pickem")),
                                      "best": round(dec, 4), "bestT": t, "last": round(dec, 4), "lastT": t}
             new += 1
@@ -189,7 +189,7 @@ def grade(data_dir, fin_by_gid, now, log=print):
             kind = ("pick'em" if v.get("pickem") else "prop" if ent.get("player") else "line")
             row = {"d": ent["commence"][:10], "sport": ent.get("sport"), "league": ent.get("league"), "venue": venue,
                    "mk": ent["market"], "kind": kind, "main": ent.get("main", False), "est": bool(v.get("est")), "model": bool(v.get("model")),
-                   "logic": v.get("logic"), "mp": v.get("mp"), "steam": v.get("steam"), "mkt": v.get("mkt"), "edge": v["edge"],
+                   "logic": v.get("logic"), "mp": v.get("mp"), "steam": v.get("steam"), "mkt": v.get("mkt"), "wk": v.get("wk"), "edge": v["edge"],
                    "gid": ent["gid"], "side": ent["side"], "pt": ent.get("point"), "player": ent.get("player"), "fs": v.get("fs"), "hrs": round(hrs, 2), "dec": v["dec"], "fair": v["fair"], "close": close,
                    "clv": round(close * v["dec"] - 1, 4), "clvLast": round(close * v["last"] - 1, 4), "clvBest": round(close * v["best"] - 1, 4),
                    "y": y, "pnl": None if y is None else round(y * (v["dec"] - 1) - (1 - y), 4), "ca": g.get("age")}
@@ -279,6 +279,10 @@ DIMS = {
     "mktMove": lambda r: None if not r.get("mkt") or r["mkt"].get("mv") is None else (
         "Sharp-led move toward it" if r["mkt"].get("sl") else "Line moved 1.5+ toward it" if r["mkt"]["mv"] >= 0.015
         else "Line moved 1.5+ away" if r["mkt"]["mv"] <= -0.015 else "Line flat since open"),
+    # why the edge was on the board (market.explain): a sharp move the venue hadn't followed, a move toward it, a static gap,
+    # or a gap on the side the market was leaving
+    "why": lambda r: {"lag": "Sharp move, venue lagging", "move": "Line moved toward it", "static": "Static price gap",
+                      "against": "Line moved away"}.get(r.get("wk")),
     "mktSplits": lambda r: None if not r.get("mkt") or r["mkt"].get("b") is None else (
         "Reverse line move side" if r["mkt"].get("rlm") else "Money 10+ over bets" if (r["mkt"].get("div") or 0) >= 10
         else "Public side (70%+ bets)" if r["mkt"].get("pub") else "Bets 10+ over money" if (r["mkt"].get("div") or 0) <= -10 else "Splits even"),

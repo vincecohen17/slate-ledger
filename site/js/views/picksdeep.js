@@ -1,3 +1,4 @@
+import { WHY } from "./market.js";
 // Ledger > Our picks, in depth: units by day (calendar), the forecasts behind each pick scored against the results
 // (our fair vs the sharp market vs the model: log loss, Brier, calibration, reliability), a breakdown explorer over
 // every attribute a pick carries, and the full pick table (sortable, CSV). Picks grade at real venue prices (the best
@@ -22,7 +23,7 @@ const sup = (p) => Object.values(p.pillars || {}).filter((x) => x === "support")
 const against = (p) => Object.values(p.pillars || {}).filter((x) => x === "against").length;
 const kind = (p) => (p.player ? "Player prop" : /^h2h/.test(p.market || "") ? "Moneyline" : /spreads/.test(p.market || "") ? "Spread" : /team_totals/.test(p.market || "") ? "Team total" : /totals/.test(p.market || "") ? "Total" : "Other");
 const DIMS = [["tier", "Tier"], ["league", "Sport"], ["kind", "Bet type"], ["market", "Market"], ["side", "Side"], ["checks", "Checks passed"], ["pillars", "Pillars"],
-  ["gap", "Model − market"], ["edge", "Price edge"], ["fairb", "Fair chance"], ["run", "Posted by"], ["venue", "Graded at"], ["src", "Price source"]];
+  ["why", "Market reason"], ["gap", "Model − market"], ["edge", "Price edge"], ["fairb", "Fair chance"], ["run", "Posted by"], ["venue", "Graded at"], ["src", "Price source"]];
 const dimFn = {
   tier: (p) => ({ bet: "Bet tier", floor: "Floor (0.25u)", lean: "Lean (0.1u, tracked)", likely: "Likely (0u, tracked)" })[p.tier] || p.tier,
   league: (p) => p.league || "?", kind, market: (p) => mktName(p.market) || "?",
@@ -33,6 +34,7 @@ const dimFn = {
   edge: (p) => { const d = decOf(p.gradedAt); const e = d && p.fair != null ? p.fair * d - 1 : null; return e == null ? "?" : e < 0 ? "Negative at graded price" : e < 0.03 ? "0-3%" : e < 0.06 ? "3-6%" : "6%+"; },
   fairb: (p) => (p.fair == null ? "?" : p.fair < 0.45 ? "Under 45%" : p.fair < 0.55 ? "45-55%" : p.fair < 0.7 ? "55-70%" : "70%+"),
   run: (p) => (p.early ? "Evening early look" : "Day runs"),
+  why: (p) => WHY[p.why?.k]?.label || "Not tagged (posted before Nov 5)",
   venue: (p) => p.gradeVenue || "?", src: (p) => ({ "first seen": "First real price seen", posted: "First pull after posting", goodAt: "Good-at (no real price found)" })[p.gradeSrc] || "Before price checks",
 };
 const ORDER = { gap: ["Model below market", "0-2 pts", "2-5 pts", "5-10 pts", "10+ pts", "No model number"], fairb: ["Under 45%", "45-55%", "55-70%", "70%+"], edge: ["Negative at graded price", "0-3%", "3-6%", "6%+"] };

@@ -1,3 +1,5 @@
+import { marketDriven, whyBlock } from "./market.js";
+import { bindLog, labBtn } from "./common.js";
 import { S } from "../store.js";
 import { esc, am, prob, fmtTime, fmtDay, teamLogo, leagueLogo, signPt, $$, odds, oddsTxt, oddsTxtP } from "../util.js";
 import { sitText } from "./live.js";
@@ -151,6 +153,12 @@ export function renderBoard(el) {
     <div class="bar" style="margin-top:6px"><span class="tiny muted">Sort</span>
       ${[["time", "Start time"], ["gap", "Model vs market"], ["edges", "Most edges"]].map(([k, l]) => `<button class="chip sm ${sort === k ? "on" : ""}" data-sort="${k}">${l}</button>`).join("")}
       <span class="spacer"></span><span class="tiny muted">Bars: market vs model win chance · rank bars: longer is better · <span class="pos">teal</span> price beats the sharp fair</span></div>`;
+  // what the market is pointing at right now: sharp moves a venue hasn't followed (views/market.js)
+  const md = marketDriven(S.edges).filter((e) => league === "All" || e.league === league).slice(0, 4);
+  if (md.length) h += `<div class="card" style="margin:8px 0 12px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>⚡ Driven by the market now</b><a class="tiny" href="#/edges">all on Edges →</a></div>
+    <div class="mkt-list">${md.map((e) => `<div class="mkt-item"><a href="#/game/${e.gameId}/market" style="color:inherit;text-decoration:none;min-width:0"><b>${esc(e.label)}</b> <span class="muted">${esc(e.bookName)} ${oddsTxt(e.am)}</span> <span class="pos tiny">value +${(e.edge * 100).toFixed(1)}%</span></a>
+      <span class="row" style="gap:6px;flex-wrap:wrap"><button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair, source: "edge", why: e.why?.k, whyText: e.why?.t }))}'>Log</button>${labBtn({ gameId: e.gameId, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, pickem: e.pickem ? e.book : null }, { venue: e.book })}</span>
+      ${whyBlock(e, { compact: true })}<span class="tiny muted">${esc(e.matchup || "")} · ${fmtTime(e.commence)}</span></div>`).join("")}</div></div>`;
   // finished games: the final card replaces the game's card; earlier finals get their own section per day
   const finals = (S.finals || []).filter((x) => (league === "All" || x.league === league) && (!x.tennis || x.gameId));   // tennis: only matches we had on the board
   const finByGame = new Map(finals.filter((x) => x.gameId && (!S.games.get(x.gameId) || Math.abs(new Date(x.commence) - new Date(S.games.get(x.gameId).commence)) < 4 * 3600000)).map((x) => [x.gameId, x]));
@@ -174,6 +182,7 @@ export function renderBoard(el) {
   rest.forEach((x) => { const d = fmtDay(x.commence); if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(x); });
   for (const [d, xs] of byDay) h += `<div class="sec-title">Final · ${d}<span class="line"></span></div><div class="grid tight">${xs.map(finalCard).join("")}</div>`;
   el.innerHTML = h;
+  bindLog(el);
   $$("[data-lg]", el).forEach((b) => b.onclick = () => { league = b.dataset.lg; renderBoard(el); });
   $$("[data-sort]", el).forEach((b) => b.onclick = () => { sort = b.dataset.sort; renderBoard(el); });
 }

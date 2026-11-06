@@ -1,4 +1,4 @@
-import { edgeChips } from "./market.js";
+import { whyBlock } from "./market.js";
 import { S, loadAllProps, saveBet, savePromo } from "../store.js";
 import { esc, am, pct, prob, fmtTime, teamLogo, headshot, edgeBar, bookPill, sheet, toast, uid, decFromAm, amFromProb, todayPT, both, bothP, spark, hitRate, bookTag, bookLogo, kellyStake, centsTag, oddsFromInput, PRED, kUsd, $, $$, odds as odds3, oddsP, oddsTxt, oddsTxtP } from "../util.js";
 import { VENUES } from "../lab.js";
@@ -38,6 +38,7 @@ export function edgeCard(e) {
         <span class="sub ellip">${esc(e.matchup)} · ${fmtTime(e.commence)}</span></div>
       <div class="price"><div class="big">${e.pickem ? "pick'em" : odds3(e.am)}</div>${!e.pickem && centsTag(e.am, e.book) ? `<div class="tiny" title="what ${esc(e.bookName)} shows: the contract price${e.book === "kalshi" || /polymarket/.test(e.book) ? " before its fee (the American price includes it)" : ""}">${centsTag(e.am, e.book)} in app</div>` : ""}<div class="tiny muted">${e.pickem ? (e.flex && e.minMult ? `${e.estMult ? `~${e.estMult.toFixed(2)}x est. · ` : ""}take at ≥ ${e.minMult.toFixed(2)}x` : `needs ${prob(e.be ?? 0.5774, 1)}`) : prob(1 / decFromAm(e.am), 1)}</div><div class="tiny muted" style="margin-top:3px">${bookTag(e.book, e.bookName, 14)}</div>${e.avail != null ? `<div class="tiny ${e.avail < 25 ? "neg" : "muted"}" title="what ${esc(e.bookName)} has on offer at this exact price; past it you fill at worse prices">${kUsd(e.avail)} at this price</div>` : ""}</div>
     </div>
+    ${whyBlock(e)}
     <div class="bet-foot">
       <div class="col" style="gap:3px">${edgeBar(e.edge)}
         ${e.lean || e.avoid ? `<span class="tiny row" style="gap:4px;flex-wrap:wrap">${(e.lean || []).map((c) => `<span class="pill pos" title="on the playbook: ${esc(c.k)} edges have returned ${pct(c.roi)} over ${c.n} graded${c.roiR != null ? `, ${pct(c.roiR)} lately` : ""}">▲ ${esc(c.k)}</span>`).join("")}${(e.avoid || []).map((c) => `<span class="pill neg" title="the record says skip: ${esc(c.k)} edges have returned ${pct(c.roi)} over ${c.n} graded">▼ ${esc(c.k)}</span>`).join("")}</span>` : ""}
@@ -45,13 +46,12 @@ export function edgeCard(e) {
         ${e.support != null && e.edge >= 0.03 ? `<span class="tiny"><span class="pill ${e.supBand === "between" || e.supBand === "near" ? "pos" : "neg"}" title="where our model sits from the price (0) to the fair (1): ${e.support.toFixed(2)}. Between 0 and 1.5 the model backs the edge; under 0 it sides with the book; past 1.5 it shares the fair's error (Reports > Model logic)">model ${{ below: "under the price", between: "between price and fair", near: "near the fair", beyond: "past the fair" }[e.supBand]} · ${e.support.toFixed(2)}</span></span>` : ""}
         ${e.track || e.open != null ? `<span class="tiny row" style="gap:6px;flex-wrap:wrap">${e.track ? (e.track.gap != null ? `<span class="pill ${e.track.gap > 0.01 ? "pos" : e.track.gap < -0.01 ? "neg" : ""}" title="how ${esc(e.track.cat)} edges have done: won ${Math.round(e.track.win * 100)}% vs ${Math.round(e.track.exp * 100)}% their fair expected over ${e.track.n} graded${e.track.roi != null ? `, ROI ${pct(e.track.roi)}` : ""}${e.track.roiR != null ? `; lately (recent days weighted most) ROI ${pct(e.track.roiR)}` : ""}">${esc(e.track.cat.replace(/ \(.*\)/, ""))}: won ${Math.round(e.track.win * 100)}% vs ${Math.round(e.track.exp * 100)}% exp</span>`
           : `<span class="pill ${e.track.clv > 0 ? "pos" : e.track.clv < 0 ? "neg" : ""}">track ${pct(e.track.clv)} CLV · ${e.track.n}</span>`) : ""}${e.open != null ? moveTag(e) : ""}</span>` : ""}
-        ${edgeChips(e)}
         ${(() => { const k0 = !e.pickem && e.am != null ? kellyStake(e.fair, decFromAm(e.am), S.settings) : null, k = k0 && (e.model || e.est) ? Math.round(k0 / 2) : k0; /* model or estimated fairs: half size */ return k ? `<span class="tiny"><span class="pill s" title="${Math.round((S.settings.kelly ?? 0.25) * 100)}% Kelly at the fair, capped at ${Math.round((S.settings.maxPct ?? 0.05) * 100)}% of the bankroll (set in Ledger > Analysis)">stake $${k}</span></span>` : ""; })()}
         <span class="tiny muted">fair ${bothP(e.fair)} · edge <span class="pos">${pct(e.edge)}</span>${e.ev != null ? ` · EV ${pct(e.ev)}` : ""}${e.model ? ` · <span class="pill" title="fair moved from the main line with the stat model">alt line</span>` : ""}${e.est ? ` · <span class="pill" title="nobody quotes the other side, so the fair is estimated (first-scorer markets de-vig across the whole field; others strip each book's measured margin)">est. fair</span>` : ""}</span>
         ${e.ctx?.length ? `<span class="tiny muted ellip" title="${esc(e.ctx.join(" · "))}">ⓘ ${esc(e.ctx[0])}${e.ctx.length > 1 ? ` +${e.ctx.length - 1}` : ""}</span>` : ""}
         ${e.last10?.length ? `<span class="l10">${spark(e.last10, e.point, { side: (e.label.match(/ (Over|Under) /) || [])[1] })}<span>last ${e.last10.length}: ${hitRate(e.last10, e.point, (e.label.match(/ (Over|Under) /) || [])[1])}</span></span>` : ""}
         ${e.logic ? `<span class="pill ${e.logic === "agrees" ? "logic-a" : e.logic === "disagrees" ? "logic-d" : ""}" title="Our sports model gives this ${prob(e.modelP, 1)}, a fair price of ${oddsTxtP(e.modelP)}${e.ctx?.length ? ". Context in the model: " + esc(e.ctx.join(" · ")) : ""}">${e.logic === "agrees" ? "▲ logic agrees" : e.logic === "disagrees" ? "▼ logic disagrees" : "• logic neutral"} · model ${bothP(e.modelP)}</span>` : ""}</div>
-      <span class="col" style="gap:4px"><button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair, source: e.live ? "live" : "edge", live: !!e.live }))}'>Log</button>
+      <span class="col" style="gap:4px"><button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: e.label, gameId: e.gameId, league: e.league, matchup: e.matchup, commence: e.commence, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, am: e.am, venue: e.book, venueName: e.bookName, fair: e.fair, source: e.live ? "live" : "edge", live: !!e.live, why: e.why?.k || null, whyText: e.why?.t || null }))}'>Log</button>
       ${e.live ? "" : labBtn({ gameId: e.gameId, market: e.market, side: e.side, point: e.point, player: e.player || null, team: e.team || null, pickem: e.pickem ? e.book : null }, { venue: e.book })}</span>
     </div>
   </div>`;
@@ -229,6 +229,7 @@ export function logSheet(pre = {}) {
           matchup: pre.matchup || null, commence: pre.commence || null, market: pre.market || null,
           side: pre.side ?? null, point: pre.point ?? null, player: pre.player || null, team: pre.team || null,
           fairAtLog: pre.fair ?? null, legs: pre.legs || null, source: pre.source || "manual", pickId: pre.pickId || null,
+          ...(pre.why ? { why: pre.why, whyText: pre.whyText || null } : {}),      // why it was on the board (market.explain kind)
           ...(!pre.gameId && !pre.legs?.length && !pre.pickId ? { manual: true } : {}) };
       }
       if (noGame) {

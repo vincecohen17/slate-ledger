@@ -108,9 +108,29 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
                 good.append((k, e))
             if good:
                 body = "\n".join(f"{e['label']} {'pickem' if e.get('pickem') else _am(e.get('am'))} @ {e['bookName']} · edge {e['edge'] * 100:.1f}% · {e['league']}"
+                                 + (f"\n  {e['why']['t']}" if (e.get('why') or {}).get('k') in ('lag', 'move') else "")
                                  for k, e in good[:6])
                 _post(cfg, f"{len(good)} new edge{'s' if len(good) > 1 else ''} (model agrees)", body, tags="chart_with_upwards_trend", click=click + "/#/edges")
                 for k, e in good[:6]:
+                    st["sent"][k] = t
+                n += 1
+        # sharp move, venue lagging: the sharp books moved toward a side and one of Vince's venues hasn't followed yet.
+        # Time-sensitive (minutes), so it gets its own alert, with the reason in plain words
+        if not _quiet(cfg, now):
+            lag = []
+            for e in edges:
+                w = e.get("why") or {}
+                if w.get("k") != "lag" or e.get("live") or e.get("muted") or e.get("avoid") or e.get("est") or (e.get("edge") or 0) < cfg.get("lagMinEdge", 0.02) \
+                        or (e.get("avail") is not None and e["avail"] < THIN):
+                    continue
+                k = f"lag|{e['gameId']}|{e['label']}|{e['book']}"
+                if k not in st["sent"]:
+                    lag.append((k, e))
+            if lag:
+                body = "\n".join(f"{e['label']} {'pickem' if e.get('pickem') else _am(e.get('am'))} @ {e['bookName']} · edge {e['edge'] * 100:.1f}%\n  {e['why']['t']}" for k, e in lag[:4])
+                _post(cfg, f"Sharp move, {lag[0][1]['bookName']}{' and others' if len({e['book'] for _, e in lag}) > 1 else ''} lagging", body,
+                      tags="zap", priority=4, click=click + "/#/edges")
+                for k, e in lag[:4]:
                     st["sent"][k] = t
                 n += 1
         if graded and cfg.get("results"):
