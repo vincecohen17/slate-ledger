@@ -141,6 +141,16 @@ def test_football_zero_stat_markets():
     assert not ledger._football_counting("americanfootball_nfl", "player_1st_td")
 
 
+def test_nba_points_shape():
+    # NBA points / PRA use the wider Nov 6 shape pre-game; WNBA, NCAAB and in-play keep the old one
+    assert build.DISPERSION["basketball_nba"]["player_points"] == 2.8
+    assert build.DISPERSION["basketball_wnba"]["player_points"] == 2.0 and build.DISPERSION["basketball_ncaab"]["player_points_rebounds_assists"] == 2.5
+    wide, old = build.p_over("player_points", 20, 26.5, "basketball_nba"), build.p_over("player_points", 20, 26.5, "basketball_wnba")
+    assert wide > old
+    assert abs(build.p_over("player_points", 20, 26.5, "basketball_nba", inplay=True) - old) < 1e-12
+    assert abs(build.p_over("player_rebounds", 8, 9.5, "basketball_nba", inplay=True) - build.p_over("player_rebounds", 8, 9.5, "basketball_nba")) < 1e-12
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

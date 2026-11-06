@@ -5,7 +5,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 ## Layout
 - `engine/` Python. `run.py` pulls The Odds API, `build.py` computes sharp no-vig fair per line/prop,
   all-in venue costs (Kalshi/Polymarket fees), edges, stale flags, pick'em line judgments.
-  `config.py` holds sports, markets, book weights, venues, budgets. Tests: `python engine/tests/test_build.py`.
+  `config.py` holds sports, markets, book weights, venues, budgets. Prop count shapes: build.DISPERSION (variance = k x mean; NBA
+  points 2.8 / PRA 3.2 since Nov 6, fit on alt-line outcomes; in-play remaining-stat chances, WNBA / NCAAB and double-doubles keep
+  DISPERSION_PREV); site/js/dist.js mirrors it. Tests: `python engine/tests/test_build.py`.
   Backtests: mode backtest (env BT_SPORTS=comma list reruns only those sports; the rest keep their saved rows).
 - Models: `model_nba.py`, `model_nhl.py` (MoneyPuck + goalie GSAx), `model_nfl.py` (nflverse EPA + player shares; QB passing from
   the passer's own last-10 volume x efficiency), `model_cfb.py` (opponent-adjusted ridge ratings shrunk to FBS/FCS tiers), `model_extra.py` (soccer Poisson, tennis Elo), `model_mlb.py` (Statcast per-PA odds-ratio model: platoon,

@@ -251,7 +251,7 @@ def compute(data_dir, sport, gid, st, legs, log=print):
             if cur > pt:
                 po = 1.0
             elif mean is not None:
-                po = B.p_over(leg["market"], max(rem, 0.01), pt - cur, sport) if rem > 0.01 else 0.0
+                po = B.p_over(leg["market"], max(rem, 0.01), pt - cur, sport, inplay=True) if rem > 0.01 else 0.0
         p_side = None if po is None else (po if leg["side"] in ("Over", "Yes") else 1 - po)
         out[key] = {"cur": cur, "proj": round(cur + rem, 1) if mean is not None else None, "p": None if p_side is None else round(p_side, 4),
                     "market": leg["market"], "player": leg["player"], "point": pt, "side": leg["side"], "left": round(left, 3),

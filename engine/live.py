@@ -534,7 +534,7 @@ def live_props(sport, prop_docs, players_box, mu, pj):
             if need < 0:
                 po = 1.0
             else:
-                po = B.p_over(d["market"], max(rem, 0.01), need, sport)
+                po = B.p_over(d["market"], max(rem, 0.01), need, sport, inplay=True)
             row["live"] = {"cur": round(cur, 1), "proj": round(cur + rem, 1), "Over": round(po, 4), "Under": round(1 - po, 4)}
             row["model"] = {"mean": round(cur + rem, 2), "Over": round(po, 4), "Under": round(1 - po, 4)}
             n += 1

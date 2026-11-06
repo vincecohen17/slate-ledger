@@ -344,7 +344,7 @@ def _nb_ge(mean, k, t):
 
 def _nba_specials(pdocs, pj):
     """double-double / triple-double (independent counts, NBA dispersion) and first basket (scoring share)"""
-    disp = B.DISPERSION["basketball_nba"]
+    disp = {**B.DISPERSION["basketball_nba"], **B.DISPERSION_PREV["basketball_nba"]}   # double-doubles keep the old shape (untested)
     allp = pj["sides"]["home"]["players"] + pj["sides"]["away"]["players"]
     for d in pdocs:
         if d["market"] not in ("player_double_double", "player_triple_double"):

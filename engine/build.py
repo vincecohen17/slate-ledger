@@ -353,7 +353,14 @@ DISPERSION = {
 }
 DISPERSION["basketball_nba"].update({"player_points_q1": 1.6, "player_rebounds_q1": 1.3, "player_assists_q1": 1.3,
                                      "player_fantasy_points": 2.5})
-DISPERSION["basketball_wnba"] = DISPERSION["basketball_ncaab"] = DISPERSION["basketball_nba"]
+DISPERSION["basketball_wnba"] = DISPERSION["basketball_ncaab"] = dict(DISPERSION["basketball_nba"])
+# Nov 6 2026 lab: NBA points and PRA outcomes spread wider around the closing mean than k = 2.0 / 2.5 allowed (var/mean 2.85 and
+# 2.77 over 2025-26). Monthly walk-forward on 2025-26 + Oct 2026 alt lines, priced from the main line: points k 2.8 +1.06 mnats/row
+# (t 5.1, day-clustered), PRA 3.2 +0.26 (t 3.1); the raw model's log loss also improves (t 14.9 / 9.8). Rebounds (best 1.3) helped
+# alt lines but hurt the model (t -11), assists / threes were not significant: unchanged. WNBA / NCAAB, double-doubles and in-play
+# remaining-stat chances keep the old shape until they are tested.
+DISPERSION_PREV = {"basketball_nba": {"player_points": 2.0, "player_points_rebounds_assists": 2.5}}
+DISPERSION["basketball_nba"].update({"player_points": 2.8, "player_points_rebounds_assists": 3.2})
 DISPERSION["americanfootball_ncaaf"] = DISPERSION["americanfootball_nfl"]
 
 
@@ -430,7 +437,7 @@ def _gammainc_upper(a, x):
 SKEWED_YDS = ("player_reception_yds", "player_rush_yds", "player_rush_reception_yds")
 
 
-def p_over(market, mean, line, sport=""):
+def p_over(market, mean, line, sport="", inplay=False):
     """Fair P(over) at `line`, pushes removed on whole-number lines. A period yardage market (player_pass_yds_q1) takes its
     full-game market's shape (normal or skewed) at the period's own mean, not the count model (keep site/js/dist.js in sync)."""
     if "_yds" in market:
@@ -441,7 +448,7 @@ def p_over(market, mean, line, sport=""):
         return _gammainc_upper(shape, max(line, 0) / scale)
     if _is_normal(market):
         return 1 - _phi((line - mean) / _sd_normal(market, mean))
-    k = DISPERSION.get(sport, {}).get(market, 1.3)
+    k = (DISPERSION_PREV.get(sport, {}).get(market) if inplay else None) or DISPERSION.get(sport, {}).get(market, 1.3)
     if line == math.floor(line):
         over = _nb_cdf_tail(mean, k, int(line) + 1)
         push = _nb_cdf_tail(mean, k, int(line)) - over
