@@ -623,6 +623,7 @@ def watch():
     idle, r = 0, {}
     asked, seen_live, graded_ask, last_grade = set(), set(), {}, 0.0      # graded_ask: gameId -> when its rebuild was asked
     st0 = load_state()
+    last_hot = 0.0
     while True:
         NOW = datetime.now(timezone.utc)
         t1 = time.time()
@@ -658,7 +659,13 @@ def watch():
                 graded_ask.update({x: time.time() for x in ended})
                 seen_live -= ended
                 last_grade = time.time()
-        if not (r.get("need") or r.get("upcoming") or site_live or board_soon):
+        # hot games (picks, open bets, arbs, edges): an auto run every HOT_ASK_MIN refreshes whatever of them is past the
+        # hot clock (the run decides; one that finds everything fresh spends nothing). Site open or not.
+        hot_soon = _hot_soon()
+        if hot_soon and time.time() - last_hot > C.HOT_ASK_MIN * 60:
+            if _dispatch("auto", f"hot refresh, {hot_soon} games"):
+                last_hot = time.time()
+        if not (r.get("need") or r.get("upcoming") or site_live or board_soon or hot_soon):
             log("watch: nothing left in play and no game starting soon")
             break
         if time.time() - t0 > 50 * 60:
@@ -667,6 +674,16 @@ def watch():
             break
         time.sleep(max(5, 60 - (time.time() - t1)))
     log(f"watch: {passes[True]} full passes, {passes[False]} free passes in {round((time.time() - t0) / 60)} min")
+
+
+def _hot_soon(hours=18):
+    """hot games (latest/hot.json, written by auto runs) starting within `hours`"""
+    try:
+        h = json.load(open(os.path.join(DATA_DIR, "latest", "hot.json"))).get("games") or {}
+    except Exception:
+        return 0
+    lo, hi = iso(NOW), iso(NOW + timedelta(hours=hours))
+    return sum(1 for g in h.values() if lo < (g.get("commence") or "") <= hi)
 
 
 def _watch_wanted():
@@ -698,6 +715,8 @@ def _watch_wanted():
                        and lo <= (pk.get("commence") or "") <= hi for pk in load_picks(2))
         except Exception:
             pass
+    if not want:            # hot games (picks, bets, arbs, edges) in the next 18 h keep their prices fresh through the watcher
+        want = _hot_soon() > 0
     if not want:            # no open bet soon: still keep the watcher up for close capture when any game starts soon
         hz = iso(NOW + timedelta(hours=WATCH_AHEAD_H))
         want = any(iso(NOW) < (v or "") <= hz for v in starts.values())
@@ -901,6 +920,76 @@ def _merge_event(old, new):
     return out
 
 
+def _hot(st, core_of):
+    """Games whose prices we act on: open picks, Vince's pending bets (Firestore, read at most every 15 min), arbs and
+    middles, and real edges. Returns {gameId: {"why": [...], "ext": bool}}; ext = something on it sits in the extended
+    markets (alternates, periods, specials), which then refresh on the hot clock too. Written to latest/hot.json."""
+    import glob
+    games = {}
+    for fn in glob.glob(RAW("lines_*.json")):
+        try:
+            for ev in json.load(open(fn)):
+                games[ev["id"]] = (os.path.basename(fn)[6:-5], ev.get("commence_time") or "")
+        except Exception:
+            pass
+    now = iso(NOW)
+    hot, rank = {}, {}
+    def add(gid, why, market=None, r=9.0):
+        g = games.get(gid)
+        if not g or g[1] <= now:
+            return
+        h = hot.setdefault(gid, {"why": [], "ext": False, "sport": g[0], "commence": g[1]})
+        if why not in h["why"]:
+            h["why"].append(why)
+        if market and market not in core_of(g[0]) and market not in C.GAME_MARKETS:
+            h["ext"] = True
+        rank[gid] = min(rank.get(gid, 9.0), r)
+    for pk in load_picks(3):
+        if pk.get("status") not in ("void", "won", "lost", "push") and pk.get("gameId"):
+            add(pk["gameId"], "pick", pk.get("market"), 0)
+    bets = st.get("hotBets") or {}
+    if _age_min(bets.get("at")) > 15:
+        legs = []
+        try:
+            db = firestore_db()
+            if db:
+                for snap in db.collection("bets").where("status", "==", "pending").stream():
+                    b = snap.to_dict() or {}
+                    for x in (b.get("legs") or [b]):
+                        if x.get("gameId"):
+                            legs.append([x["gameId"], x.get("market")])
+                bets = {"at": iso(NOW), "legs": legs}
+                st["hotBets"] = bets
+        except Exception as e:
+            log(f"hot: open bets not read ({type(e).__name__})")
+    for gid, mk in bets.get("legs") or []:
+        add(gid, "bet", mk, 0)
+    try:
+        for o in json.load(open(os.path.join(DATA_DIR, "latest", "opps.json"))):
+            if not o.get("suspect"):
+                for lg in o.get("legs") or []:
+                    add(o.get("gameId") or lg.get("gameId"), "arb" if o.get("kind") == "arb" else "middle", lg.get("market") or o.get("market"), 1)
+    except Exception:
+        pass
+    try:
+        es = json.load(open(os.path.join(DATA_DIR, "latest", "edges.json")))
+        for e in sorted(es, key=lambda e: -(e.get("edge") or 0)):
+            if (e.get("edge") or 0) >= C.HOT_EDGE_MIN and not (e.get("muted") or e.get("avoid") or e.get("est") or e.get("model")) and (e.get("edge") or 0) < 0.25:
+                add(e.get("gameId"), "edge", e.get("market"), 2 - min(1.0, e.get("edge") or 0))
+    except Exception:
+        pass
+    keep = sorted(hot, key=lambda g: (rank[g], hot[g]["commence"]))[:C.HOT_MAX]
+    hot = {g: hot[g] for g in keep}
+    fn = os.path.join(DATA_DIR, "latest", "hot.json")
+    try:                # rewritten only when the list changes (or hourly), so idle runs don't make data commits
+        old = json.load(open(fn)) if os.path.exists(fn) else {}
+        if old.get("games") != hot or _age_min(old.get("at")) > 60:
+            json.dump({"at": iso(NOW), "games": hot}, open(fn, "w"), separators=(",", ":"))
+    except Exception:
+        pass
+    return hot
+
+
 def auto():
     """App-driven refresh: spend credits only while the site is open (plus close capture on the paid
     plan), and only on what is stale for how soon it starts."""
@@ -961,6 +1050,15 @@ def auto():
     sports = [s for s in C.SPORTS if s in act] + sorted(s for s in act if s.startswith("tennis_") and C.wanted(s))
     errors, pulled = [], []
     horizon = iso(NOW + timedelta(days=7))
+    # hot games (picks, open bets, arbs, edges) keep fresh prices with the site closed too, within the day's budget
+    hot = _hot(st, C.core_markets) if paid else {}
+    hot_ok = paid and (active or force or st.get("usedToday", 0) < C.HOT_DAY_SHARE * _paced_cap(P, st, plan_key))
+    def _hrs(t):
+        return (datetime.fromisoformat(t.replace("Z", "+00:00")) - NOW).total_seconds() / 3600
+    hot_lines = {}
+    for gid, h in hot.items():
+        hot_lines[h["sport"]] = min(hot_lines.get(h["sport"], 1e9), _hrs(h["commence"]))
+    n_hot = 0
     soon = {}
     for s in sports:
         try:
@@ -976,7 +1074,8 @@ def auto():
         age = _age_min(st["lines"].get(s))
         lim = max(_limit(C.LINES_STALE, hrs) or 240, P["min_lines_age"])
         close = paid and hrs * 60 <= C.CLOSE_WINDOW_MIN and age > C.CLOSE_STALE_MIN
-        if not (close or ((active or force) and age > lim)):
+        hot_due = hot_ok and s in hot_lines and age > _limit(C.HOT_STALE, max(0, hot_lines[s]))
+        if not (close or hot_due or ((active or force) and age > lim)):
             continue
         try:
             data = api.odds(s, C.GAME_MARKETS, C.GAME_REGIONS, commenceTimeTo=horizon)
@@ -1005,11 +1104,16 @@ def auto():
                 core = close or ((active or force) and lim is not None and age > lim)
                 # alternates, periods and specials move less: refreshed at a third of the pace
                 ext = (active or force) and lim is not None and age_x > lim * C.EXTENDED_SLOWER and not close
+                h = hot.get(ev["id"]) if hot_ok else None
+                if h:               # a hot game: core markets on the hot clock, extended ones too when something on it lives there
+                    hl = _limit(C.HOT_STALE, max(0, hrs))
+                    core = core or age > hl
+                    ext = (ext or (h["ext"] and age_x > hl * 2)) and not close
                 if core or ext:
-                    queue.append((hrs, s, ev, ext, close))
-        queue.sort(key=lambda x: x[0])
+                    queue.append((hrs, s, ev, ext, close, bool(h)))
+        queue.sort(key=lambda x: (not x[5], x[0]))          # hot games first, so a budget stop never starves them
         n_events = 0
-        for _, s, ev, ext, close in queue:
+        for _, s, ev, ext, close, is_hot in queue:
             try:
                 bad = st.setdefault("badMarkets", {}).get(s, [])
                 mk = C.event_markets(s) if ext else C.core_markets(s)
@@ -1038,7 +1142,8 @@ def auto():
             if ext:
                 st["eventsX"][ev["id"]] = iso(NOW)
             n_events += 1
-        pulled.append(f"{n_events} events")
+            n_hot += is_hot
+        pulled.append(f"{n_events} events" + (f" ({n_hot} hot)" if n_hot else ""))
     st["usedToday"] = st.get("usedToday", 0) + api.used_run
     if api.remaining is not None:
         st["remaining"] = api.remaining
@@ -1049,7 +1154,7 @@ def auto():
     stale_stats = _age_min(st.get("stats")) > 20
     if not api.used_run and not stale_stats:
         save_state(st)
-        log(f"active={active} nothing stale")
+        log(f"active={active} nothing stale ({len(hot)} hot games, all fresh)")
         return
     game_docs, prop_docs = load_cache()
     prev = {}
@@ -1064,6 +1169,8 @@ def auto():
     st["stats"] = iso(NOW)
     save_state(st)
     publish(game_docs, prop_docs, status, stamp=NOW.strftime("%Y-%m-%dT%H%M%S"))
+    log(f"hot games: {len(hot)} ({sum('pick' in h['why'] for h in hot.values())} picks, {sum('bet' in h['why'] for h in hot.values())} bets, "
+        f"{sum(bool({'arb', 'middle'} & set(h['why'])) for h in hot.values())} arbs/middles, {sum('edge' in h['why'] for h in hot.values())} edges)")
     log(f"active={active} force={force} pulled {pulled} credits {api.used_run} (today {st['usedToday']}), left {api.remaining}")
 
 

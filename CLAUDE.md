@@ -18,6 +18,13 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   capture on the paid plan; config.PLAN = auto reads the plan from the Odds API quota), refresh (a forced auto pull,
   used by Claude's pick runs), mock, rebuild (raw cache in latest/raw), stats, probe. Event pulls request the full
   market catalog (config.event_markets) and remember markets the API rejects (refresh_state badMarkets).
+- Hot games (run._hot -> latest/hot.json, each auto run): open picks, Vince's pending bets (Firestore, read at most every
+  15 min, cached in refresh_state hotBets), arbs/middles (latest/opps.json, not suspect) and real edges (2%+, not muted /
+  avoid / est / model, under 25%), up to HOT_MAX 60 (picks and bets first). Their sport's lines and their event markets
+  refresh on config.HOT_STALE (4 min inside 1 h ... 90 min past 36 h; extended markets at 2x when something on the game
+  sits there) whether or not the site is open, until the day has used HOT_DAY_SHARE of its paced cap; hot events go
+  first in the queue. The watcher dispatches an auto run every HOT_ASK_MIN (5) min while hot games start within 18 h
+  (and stays up for them); an auto run that finds everything fresh spends no credits.
 - `engine/context.py` verified news Claude's pick runs write to the data repo `context/<YYYY-MM-DD>.json`
   (status / minutes / goalie / starter / note entries; schema in the module docstring) plus NFL kickoff weather
   (Open-Meteo); applied to the models before "logic agrees" is decided. NHL back-to-backs and NBA rest are in the models.

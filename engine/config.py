@@ -177,6 +177,13 @@ PROPS_STALE = [(3, 10), (12, 30), (36, 180)]          # no props beyond 36h
 CLOSE_WINDOW_MIN = 25    # always capture prices for games starting this soon (CLV / grading)
 CLOSE_STALE_MIN = 8
 EXTENDED_SLOWER = 3      # alternates, quarters/periods/innings and specials refresh 3x less often than core markets
+# Hot games: on an open pick, one of Vince's pending bets, a live arb/middle, or a real edge (2%+, not muted / skip /
+# estimated). Their prices refresh on this tighter clock whether or not the site is open (paid plan): (hours to start, minutes)
+HOT_STALE = [(1, 4), (3, 6), (12, 12), (36, 30), (9999, 90)]
+HOT_EDGE_MIN = 0.02
+HOT_MAX = 60             # at most this many hot games (picks and bets first, then arbs, then the biggest edges)
+HOT_DAY_SHARE = 0.85     # hot pulls with the site closed stop once the day has used this share of its paced cap
+HOT_ASK_MIN = 5          # the watcher asks for an auto run this often while hot games are on the board
 
 # Monthly pacing on the 5M plan: the billing cycle restarts on this day of the month; part of each cycle is kept for
 # historical-odds backtests; the rest is spread over the days left, weighted toward big slates.
