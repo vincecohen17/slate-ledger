@@ -95,6 +95,11 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   whyRecord shows the record by reason as if every flagged edge were bet flat at its flagged price (Edges, Reports).
   Alerts: "Sharp move, <venue> lagging" (lag edges, 2%+, not muted / skip / thin), and edge alerts carry the reason.
   Bet Lab price boxes (custom leg price, the venue's parlay odds) read any format via oddsFromInput and show the conversion.
+- In-play on every screen: the live run (run.live, full pulls) also runs opps.find(live=True) on in-play games (no
+  commence filter, ages 0) -> live board "opps" (top 40, o.live). Edges shows "Live now" (S.live.edges + liveGames edges,
+  deduped, same filters) above the pre-game list, Arbs & middles a "Live now" section (LIVE pill, never alerted; the tab
+  count includes them). The Lab catalog swaps in-play games' pre-game lines/props for their live ones (labels "LIVE · ",
+  leg.live, state, now), lists open picks on games in play with live prices, and a "Live now" best-bets group (liveBets).
 - `engine/pickprices.py` real prices for picks: the first real price seen at each play-to venue (picklive each run ->
   latest/pick_first_prices.json), else the first raw pull after posting (snapshots/, posting time from git history), else
   goodAt; grade_picks stores gradedAt, gradeSrc, gradeVenue. Pick6 multipliers are estimated from DraftKings' vigged price

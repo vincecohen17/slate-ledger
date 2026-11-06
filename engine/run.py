@@ -462,6 +462,19 @@ def live(watch=False, full=True, pres=None):
                 "mkt": next(((l.get("fair") or {}).get(d["home"]) for l in d["lines"] if l["market"] == "h2h"), None),
                 "edges": len(d["edges"])} for d in docs if not d.get("final")]
     edges_all.sort(key=lambda e: -e["score"])
+    # in-play arbs and middles across Vince's venues, from this pass's live prices (gone in minutes: shown, never alerted)
+    live_opps = []
+    if full:
+        try:
+            import opps as OP
+            gl = [{**d, "lines": d["lines"]} for d in docs if not d.get("final") and d.get("lines")]
+            pl = [{**p, "id": d["id"], "league": d["league"], "commence": d["commence"], "home": d["home"], "away": d["away"], "sport": d["sport"]}
+                  for d in docs if not d.get("final") for p in (d.get("props") or [])]
+            live_opps = OP.find(gl, pl, iso(NOW), live=True)[:40]
+            for o in live_opps:
+                o["at"] = iso(NOW)
+        except Exception as e:
+            log(f"live opps failed: {type(e).__name__}: {str(e)[:80]}")
     if firestore_db() and not full:
         import rt
         try:
@@ -473,7 +486,7 @@ def live(watch=False, full=True, pres=None):
     elif firestore_db():
         import rt
         try:
-            sent, nw = rt.publish(docs, {"games": summary, "edges": edges_all[:150], "updated": iso(NOW), "creditsToday": ls["used"]}, ls, DATA_DIR)
+            sent, nw = rt.publish(docs, {"games": summary, "edges": edges_all[:150], "opps": live_opps, "updated": iso(NOW), "creditsToday": ls["used"]}, ls, DATA_DIR)
             day_kb = ((ls.get("rtKb") or {}).get("kb", 0) if (ls.get("rtKb") or {}).get("day") == today else 0) + sent / 1024
             ls["rtKb"] = {"day": today, "kb": round(day_kb)}
             log(f"live: {nw} pieces, {sent // 1024} KB to the realtime database (today {round(day_kb)} KB)")
@@ -504,7 +517,7 @@ def live(watch=False, full=True, pres=None):
     ls["fs"] = fs
     json.dump(ls, open(fn, "w"))
     if full:
-        log(f"live: {len(docs)} games, {len(edges_all)} edges, credits {api.used_run} (today {ls['used']})")
+        log(f"live: {len(docs)} games, {len(edges_all)} edges, {len(live_opps)} arbs/middles, credits {api.used_run} (today {ls['used']})")
     # still worth watching: an open leg on a game in play, or one starting within 15 minutes
     starts = {g["id"]: g["commence"] for g in games}
     for gid, legs in bet_legs.items():          # legs carry their game's start when the cache has dropped it

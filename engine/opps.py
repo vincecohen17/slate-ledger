@@ -173,8 +173,9 @@ def _middles_in(lines, meta, labels, up, down, fair_up, key, home=None):
     return out[:3]          # the best few windows per market
 
 
-def find(game_docs, prop_docs, now_iso=None, pulled=None):
-    """pulled: the engine's refresh_state ({lines: {sport: at}, events: {gameId: at}}) for how fresh each price is"""
+def find(game_docs, prop_docs, now_iso=None, pulled=None, live=False):
+    """pulled: the engine's refresh_state ({lines: {sport: at}, events: {gameId: at}}) for how fresh each price is.
+    live=True: in-play games from the live run (every quote was pulled this pass; games that started are the point)"""
     out = []
     _NOW[0] = datetime.fromisoformat(now_iso.replace("Z", "+00:00")) if now_iso else datetime.now(timezone.utc)
     _META.clear()
@@ -182,9 +183,11 @@ def find(game_docs, prop_docs, now_iso=None, pulled=None):
     sport_of = {g["id"]: g.get("sport") for g in game_docs}
     def ages(gid, sport, commence):
         hrs = (datetime.fromisoformat(commence.replace("Z", "+00:00")) - _NOW[0]).total_seconds() / 3600
+        if live:
+            return (0, 0, hrs)
         return (_age((pulled.get("lines") or {}).get(sport)), _age((pulled.get("events") or {}).get(gid)), hrs)
     for g in game_docs:
-        if now_iso and g["commence"] <= now_iso:
+        if now_iso and g["commence"] <= now_iso and not live:
             continue
         meta = {"gameId": g["id"], "league": g["league"], "commence": g["commence"], "matchup": f"{g['away']} @ {g['home']}"}
         _CUR[0] = ages(g["id"], g.get("sport"), g["commence"])
@@ -208,7 +211,7 @@ def find(game_docs, prop_docs, now_iso=None, pulled=None):
         # home side covers when margin > -point: the home "high" side at line h wins above -h
         out += _middles_in(sp, meta, lab, lambda l: g["home"], lambda l: g["away"], lambda l: (l.get("fair") or {}).get(g["home"]), lambda l: -l["point"], g["home"])
     for p in prop_docs:
-        if now_iso and p["commence"] <= now_iso:
+        if now_iso and p["commence"] <= now_iso and not live:
             continue
         meta = {"gameId": p["id"], "league": p["league"], "commence": p["commence"], "matchup": f"{p['away']} @ {p['home']}"}
         _CUR[0] = ages(p["id"], p.get("sport") or sport_of.get(p["id"]), p["commence"])
@@ -244,6 +247,9 @@ def find(game_docs, prop_docs, now_iso=None, pulled=None):
             if o["thin"]:
                 o["score"] -= 0.5
     out.sort(key=lambda x: -x["score"])
+    if live:
+        for o in out:
+            o["live"] = True
     return out[:150]
 
 

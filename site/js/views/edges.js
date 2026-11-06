@@ -15,8 +15,8 @@ function oppCard(o) {
   OPPS.push(o);
   const tot = oppTotal, st = o.stakes.map((x) => x * tot);
   const ret = o.legs.map((l, i) => st[i] * l.dec);
-  const head = o.kind === "arb" ? `<span class="pill pos">arb +${(o.profit * 100).toFixed(2)}%</span>`
-    : o.free ? `<span class="pill pos">no-risk middle · +${(o.worst * 100).toFixed(1)}% either way</span>` : `<span class="pill s">middle · EV ${pct(o.ev)}</span>`;
+  const head = (o.live ? `<span class="pill neg">LIVE</span> ` : "") + (o.kind === "arb" ? `<span class="pill pos">arb +${(o.profit * 100).toFixed(2)}%</span>`
+    : o.free ? `<span class="pill pos">no-risk middle · +${(o.worst * 100).toFixed(1)}% either way</span>` : `<span class="pill s">middle · EV ${pct(o.ev)}</span>`);
   const ageTxt = (a) => a == null ? "" : a < 1 ? "just pulled" : a < 60 ? `${Math.round(a)} min old` : `${(a / 60).toFixed(1)} h old`;
   return `<div class="card op-card ${o.suspect ? "op-sus" : ""}">
     <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">${head}<span class="tiny muted">${esc(o.league)} · ${esc(o.matchup)} · ${fmtTime(o.commence)}</span></div>
@@ -55,8 +55,13 @@ function oppsHtml() {
   const all = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && (F.league === "All" || o.league === F.league));
   const L = all.filter((o) => o.confirmed), U = all.filter((o) => !o.confirmed);
   const arbs = L.filter((o) => o.kind === "arb"), free = L.filter((o) => o.kind === "middle" && o.free && !o.suspect), mids = L.filter((o) => o.kind === "middle" && !(o.free && !o.suspect));
+  const lo = (S.live?.opps || []).filter((o) => (F.league === "All" || o.league === F.league) && !o.suspect);
+  const liveAt = S.live?.updated ? Math.round((Date.now() - new Date(S.live.updated)) / 60000) : null;
   return `${alertsCard()}<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 10px"><span class="small">Split a total of</span><input id="op-tot" inputmode="decimal" value="${oppTotal}" style="width:90px"><span class="tiny muted">stakes below are for this total; venues round to cents</span></div>
     <p class="note">An <b>arb</b> takes both sides at two venues for less than the payout: profit whatever happens. A <b>middle</b> takes both sides at different numbers: you lose a little if one side wins and win both if the result lands between; a <b>no-risk middle</b> can't lose either way. Prices move in seconds: place the leg on the exchange (or the one most likely to move) first, at your full size, and only then the other. "Works to" is the worst price each leg can get before the deal is gone.</p>
+    ${lo.length ? `<div class="sec-title"><span class="neg">●</span>&nbsp;Live now (${lo.length})<span class="line"></span></div>
+      <p class="note">From in-play prices${liveAt != null ? `, pulled ${liveAt <= 0 ? "just now" : `${liveAt} min ago`}` : ""}. Live prices move by the second and apps suspend markets on every big play: open both apps and check both prices before placing either leg.</p>
+      <div class="grid">${lo.map(oppCard).join("")}</div>` : ""}
     ${free.length ? `<div class="sec-title">No-risk middles (${free.length})<span class="line"></span></div><div class="grid">${free.map(oppCard).join("")}</div>` : ""}
     <div class="sec-title">Arbs (${arbs.length})<span class="line"></span></div>${arbs.length ? `<div class="grid">${arbs.map(oppCard).join("")}</div>` : `<div class="card note">None open right now.</div>`}
     <div class="sec-title">${free.length ? "Other middles" : "Middles"} (${mids.length})<span class="line"></span></div>${mids.length ? `<div class="grid">${mids.map(oppCard).join("")}</div>` : `<div class="card note">None open right now.</div>`}
@@ -80,19 +85,28 @@ function playbookCard() {
 }
 
 export function renderEdges(el) {
-  const leagues = ["All", ...new Set(S.edges.map((e) => e.league))];
-  const venues = ["All", ...new Set(S.edges.map((e) => e.bookName))];
+  const allE = [...S.edges, ...(S.live?.edges || [])];
+  const leagues = ["All", ...new Set(allE.map((e) => e.league))];
+  const venues = ["All", ...new Set(allE.map((e) => e.bookName))];
   const items = S.edges.filter((e) =>
     (F.logic === "All" || (F.logic === "Market-driven" && ["lag", "move"].includes(e.why?.k)) || (F.logic === "On the playbook" && e.lean && !e.avoid) || (F.logic === "Model backs it" && (e.supBand ? ["between", "near"].includes(e.supBand) : e.logic === "agrees"))) && (F.league === "All" || e.league === F.league) && (F.venue === "All" || e.bookName === F.venue) && e.edge >= F.min &&
     (F.type === "All" || (F.type === "Lines" && isLine(e)) || (F.type === "Props" && !isLine(e) && !e.pickem) || (F.type === "Pick'em" && e.pickem)) &&
     new Date(e.commence) > new Date(Date.now() - 5 * 60000));
   const bookOf = Object.fromEntries(S.edges.map((e) => [e.bookName, e.book]));
   const chips = (key, vals, fmt = (v) => v) => vals.map((v) => `<button class="chip ${F[key] === v ? "on" : ""}" data-f="${key}" data-v="${esc(v)}">${key === "venue" && bookOf[v] ? bookLogo(bookOf[v], v, 14) : ""}${esc(fmt(v))}</button>`).join("");
-  const nOpp = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && !o.suspect && o.confirmed).length;
+  const nOpp = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && !o.suspect && o.confirmed).length + (S.live?.opps || []).filter((o) => !o.suspect).length;
+  // in-play edges: the live board's top 150 plus each open game's own list, deduped, same filters as the pre-game list
+  const lg = S.liveGames || new Map(), seen = new Set();
+  const liveE = [...(S.live?.edges || []), ...[...lg.values()].flatMap((d) => d.final ? [] : d.edges || [])].filter((e) => {
+    const k = `${e.gameId || e.id}|${e.market}|${e.side}|${e.point}|${e.player || ""}|${e.book}`;
+    if (seen.has(k) || lg.get(e.gameId || e.id)?.final) return false; seen.add(k);
+    return (F.league === "All" || e.league === F.league) && (F.venue === "All" || e.bookName === F.venue) && e.edge >= F.min &&
+      (F.type === "All" || (F.type === "Lines" && isLine(e)) || (F.type === "Props" && !isLine(e) && !e.pickem) || (F.type === "Pick'em" && e.pickem));
+  }).sort((a, b) => (b.score ?? b.edge) - (a.score ?? a.edge));
   const tabs = `<div class="bar"><button class="chip ${F.tab === "edges" ? "on" : ""}" data-tab="edges">Edges</button><button class="chip ${F.tab === "opps" ? "on" : ""}" data-tab="opps">Arbs & middles${nOpp ? ` <span class="pill pos">${nOpp}</span>` : ""}</button></div>`;
   if (F.tab === "opps") {
     OPPS = [];
-    el.innerHTML = tabs + `<div class="bar" style="margin-top:0">${chips("league", ["All", ...new Set((S.opps || []).map((o) => o.league))])}</div>` + oppsHtml();
+    el.innerHTML = tabs + `<div class="bar" style="margin-top:0">${chips("league", ["All", ...new Set([...(S.opps || []), ...(S.live?.opps || [])].map((o) => o.league))])}</div>` + oppsHtml();
     $$("[data-tab]", el).forEach((b) => b.onclick = () => { F.tab = b.dataset.tab; renderEdges(el); });
     $$("[data-f]", el).forEach((b) => b.onclick = () => { F[b.dataset.f] = b.dataset.v; renderEdges(el); });
     const t = el.querySelector("#op-tot"); if (t) t.onchange = () => { oppTotal = +t.value || 100; renderEdges(el); };
@@ -107,6 +121,10 @@ export function renderEdges(el) {
     return;
   }
   el.innerHTML = tabs + `<div class="bar">${chips("league", leagues)}<span class="spacer"></span>${chips("type", ["All", "Lines", "Props", "Pick'em"])}</div>
+    ${liveE.length ? `<div class="sec-title"><span class="neg">●</span>&nbsp;Live now (${liveE.length})<span class="line"></span></div>
+      <p class="note">In-play lines and props that beat the live sharp fair${S.live?.updated ? `, pulled ${Math.max(0, Math.round((Date.now() - new Date(S.live.updated)) / 60000))} min ago` : ""}. Live prices move with every play, so check the app's price before you bet; logging one records it as a live bet and grades it on the live price 5-30 minutes later, not the pre-game close. Live edges aren't alerted.</p>
+      <div class="grid tight">${liveE.slice(0, F.liveAll ? 150 : 6).map(edgeCard).join("")}</div>
+      ${liveE.length > 6 ? `<button class="btn sm ghost" id="ed-live">${F.liveAll ? "Fewer" : `All ${liveE.length} live`}</button>` : ""}` : ""}
     ${(() => { const md = marketDriven(items);
       return `<div class="sec-title">Driven by the market right now${md.length ? ` (${md.length})` : ""}<span class="line"></span></div>
         ${whyRecord(S.reports?.edgecard, { compact: true })}
@@ -132,6 +150,7 @@ export function renderEdges(el) {
   $$("[data-tab]", el).forEach((b) => b.onclick = () => { F.tab = b.dataset.tab; renderEdges(el); });
   $$("[data-f]", el).forEach((b) => b.onclick = () => { F[b.dataset.f] = b.dataset.v; renderEdges(el); });
   $$("[data-min]", el).forEach((b) => b.onclick = () => { F.min = +b.dataset.min; renderEdges(el); });
+  const lb = el.querySelector("#ed-live"); if (lb) lb.onclick = () => { F.liveAll = !F.liveAll; renderEdges(el); };
   const mb = el.querySelector("#ed-muted"); if (mb) mb.onclick = () => { F.showMuted = !F.showMuted; renderEdges(el); };
   const sb = el.querySelector("#ed-skip"); if (sb) sb.onclick = () => { F.showSkip = !F.showSkip; renderEdges(el); };
   const pb = el.querySelector("#pb-more"); if (pb) pb.onclick = () => { F.pbMore = !F.pbMore; renderEdges(el); };

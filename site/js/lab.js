@@ -39,9 +39,18 @@ function sideOfPlayer(row, g) {
   return 0;
 }
 
+// live games (the in-play feed, S.liveGames) replace their pre-game copies: same keys, live prices, live: true
+function liveDocs() {
+  const out = [];
+  for (const d of (S.liveGames || new Map()).values()) if (!d.final && d.state && (d.lines || []).length) out.push(d);
+  return out;
+}
+
 export function catalog() {
   const legs = [];
-  for (const g of S.games.values()) {
+  const lv = liveDocs(), liveIds = new Set(lv.map((d) => d.id));
+  const pre = [...S.games.values()].filter((g) => !liveIds.has(g.id));
+  for (const g of [...pre, ...lv.map((d) => ({ ...d, live: true }))]) {
     const matchup = `${g.away} @ ${g.home}`;
     for (const l of g.lines) {
       if (!l.fair) continue;
@@ -55,20 +64,21 @@ export function catalog() {
         else if (info.kind === "totals") { const sub = (l.market.match(/_(corners|cards)$/) || [])[1]; label = `${pre}${o} ${l.point}${sub ? " " + sub : ""}`; ou = o === "Over" ? 1 : -1; }
         else { label = `${info.label}: ${o}${l.point != null ? " " + l.point : ""}`; }
         if (info.period) { dir *= 0.6; ou *= 0.6; }   // periods move with the full game, not one-for-one
-        legs.push(mkLeg(g, matchup, l, o, label, { kind: "line", market: l.market, dir, ou, main: !!l.isMain }));
+        legs.push(mkLeg(g, matchup, l, o, g.live ? `LIVE · ${label}` : label, { kind: "line", market: l.market, dir, ou, main: !!l.isMain, live: !!g.live, state: g.live ? g.state : null }));
       }
     }
   }
-  for (const p of S.props.values()) {
-    const g = S.games.get(p.id);
+  const liveProps = lv.flatMap((d) => (d.props || []).map((p) => ({ ...p, id: d.id, league: d.league, commence: d.commence, home: d.home, away: d.away, sport: d.sport, live: true })));
+  for (const p of [...[...S.props.values()].filter((p) => !liveIds.has(p.id)), ...liveProps]) {
+    const g = p.live ? lv.find((d) => d.id === p.id) : S.games.get(p.id);
     const matchup = `${p.away} @ ${p.home}`;
     for (const r of p.rows) {
       if (!r.fair) continue;
       for (const o of Object.keys(r.fair)) {
-        const label = `${r.player} ${o} ${r.point ?? ""} ${mktName(p.market)}`.replace(/\s+/g, " ");
+        const label = `${p.live ? "LIVE · " : ""}${r.player} ${o} ${r.point ?? ""} ${mktName(p.market)}`.replace(/\s+/g, " ");
         const leg = mkLeg(g || p, matchup, r, o, label, { kind: "prop", market: p.market, player: r.player,
           ou: o === "Over" || o === "Yes" ? 1 : -1, pside: sideOfPlayer(r, g), main: !!r.isMain, headshot: r.headshot, model: !!r.modelFair,
-          last10: r.last10, ourModel: r.model?.[o] ?? null, mean: r.mean ?? null, sport: p.sport });
+          last10: r.last10, ourModel: r.model?.[o] ?? null, mean: r.mean ?? null, sport: p.sport, live: !!p.live, now: r.now ?? r.stat ?? null });
         legs.push(leg);
         for (const d of r.dfs || []) {
           if (d.side === o && d.p != null) legs.push({ ...leg, key: leg.key + "|" + d.book, pickem: d.book, pickemName: d.name, label: `${label} (${d.name})`, fair: d.p, pickemLine: d.point ?? r.point,

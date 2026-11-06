@@ -83,6 +83,21 @@ function bestBets(cat) {
   return out;
 }
 
+// live edges (the in-play feed): same quality bar as the pre-game best bets; their legs carry live prices
+function liveBets(cat) {
+  const out = [], seen = new Set();
+  const es = [...(S.live?.edges || []), ...[...(S.liveGames || new Map()).values()].flatMap((d) => d.final ? [] : d.edges || [])];
+  for (const e of es.sort((a, b) => (b.score ?? b.edge) - (a.score ?? a.edge))) {
+    if (e.muted || e.est || e.model || e.edge > 0.15) continue;
+    const leg = findLeg(cat, { gameId: e.gameId, market: e.market, side: e.side, point: e.point, player: e.player, team: e.team, pickem: e.pickem ? e.book : null });
+    if (!leg || !leg.live || seen.has(leg.key + e.book)) continue;
+    seen.add(leg.key + e.book);
+    out.push({ e, leg: { ...leg, label: `LIVE · ${e.label || leg.label}` } });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
 // suggested builds at one venue from the best bets: the best single, and the best 2- and 3-leg parlays across different
 // games (a parlay of +EV legs multiplies their edges: higher expected ROI, much lower chance to cash)
 // long-run bankroll growth per bet at full Kelly: the right way to rank bets for ROI that compounds (a +49% EV long shot
@@ -286,15 +301,21 @@ function bestHtml(cat) {
   const best0 = bestBets(cat).filter((x) => L.league === "All" || x.leg.league === L.league);
   const mdOf = (x) => ["lag", "move"].includes(x.e.why?.k);
   const md = best0.filter(mdOf).sort((a, b) => (b.e.why.s - a.e.why.s) || (b.e.edge - a.e.edge)), best = best0.filter((x) => !mdOf(x));
-  const picks = [...S.picks.values()].filter((p) => p.status === "open" && new Date(p.commence) > new Date() && p.tier !== "likely");
+  const liveIds = new Set([...(S.liveGames || new Map()).values()].filter((d) => !d.final && d.state).map((d) => d.id));
+  const picks = [...S.picks.values()].filter((p) => p.status === "open" && (new Date(p.commence) > new Date() || liveIds.has(p.gameId)) && p.tier !== "likely");
+  const lb = liveBets(cat).filter((x) => L.league === "All" || x.leg.league === L.league);
   const pk = picks.map((p) => ({ p, leg: findLeg(cat, { gameId: p.gameId, market: p.market, side: p.side, point: p.point, player: p.player, team: p.team }) })).filter((x) => x.leg);
   const B = builds(best);
   const tag = (e) => [...(e.lean || []).slice(0, 1).map((c) => `<span class="pill pos" title="on the playbook">▲ ${esc(c.k)}</span>`),
     e.supBand && ["between", "near"].includes(e.supBand) ? `<span class="pill pos" title="our model sits between the price and the fair">model backs it</span>` : ""].join("");
   return `${pk.length ? `<div class="tiny muted" style="margin-top:10px">Our picks today</div><div class="results">${pk.map(({ p, leg }) => { const v = (p.playTo || []).find((x) => x.inRange);
       return `<button class="res" data-pick="${esc(p.id)}">${betImage({ gameId: leg.gameId, label: leg.label, player: leg.player, headshot: leg.headshot, league: leg.league }, 30)}
-      <span class="col"><span class="ellip" style="font-weight:500">${esc(p.selection)}</span><span class="tiny muted ellip">${esc(p.tier)} · ${p.units}u · ${fmtTime(p.commence)}</span></span>
-      <span class="col" style="align-items:flex-end"><span class="num small">${v ? odds(v.price) : "–"}</span><span class="tiny muted">${v ? esc(v.name || venueName(v.venue)) : "not in range"}</span></span></button>`; }).join("")}</div>` : ""}
+      <span class="col"><span class="ellip" style="font-weight:500">${leg.live ? `<span class="pill neg" style="margin-right:4px">LIVE</span>` : ""}${esc(p.selection)}</span><span class="tiny muted ellip">${esc(p.tier)} · ${p.units}u · ${leg.live ? "in play: live prices" : fmtTime(p.commence)}</span></span>
+      <span class="col" style="align-items:flex-end">${leg.live ? `<span class="num small">${leg.best ? odds(leg.best.am) : "–"}</span><span class="tiny muted">${leg.best ? esc(leg.best.name) : "no live price"} · fair ${prob(leg.fair, 1)}</span>`
+        : `<span class="num small">${v ? odds(v.price) : "–"}</span><span class="tiny muted">${v ? esc(v.name || venueName(v.venue)) : "not in range"}</span>`}</span></button>`; }).join("")}</div>` : ""}
+    ${lb.length ? `<div class="tiny" style="margin-top:10px"><b class="neg">● Live now</b> <span class="muted">· in-play prices that beat our live fair (they move by the second: check the app before you bet)</span></div><div class="results">${lb.map(({ e, leg }) => `<button class="res" data-best="${esc(leg.key)}|${esc(e.book)}">${betImage({ gameId: leg.gameId, label: leg.label, player: leg.player, headshot: leg.headshot, league: leg.league }, 30)}
+      <span class="col" style="min-width:0"><span class="ellip" style="font-weight:500">${esc(leg.label)}</span><span class="tiny muted ellip">${esc(leg.matchup)}${leg.state?.clock || leg.state?.period ? ` · ${esc([leg.state.period ? `P${leg.state.period}` : "", leg.state.clock || ""].join(" ").trim())}` : ""}${leg.now != null ? ` · now ${esc(String(leg.now))}` : ""}</span></span>
+      <span class="col" style="align-items:flex-end"><span class="num small">${e.pickem ? "pick'em" : odds(e.am)}</span><span class="tiny muted">${bookLogo(e.book, e.bookName, 12)} ${esc(e.bookName)}</span><span class="tiny pos">value +${(e.edge * 100).toFixed(1)}%</span></span></button>`).join("")}</div>` : ""}
     ${B.length ? `<div class="tiny muted" style="margin-top:10px">Suggested builds ${L.boost ? `(with your ${L.boost}% boost)` : "(best bets at one venue, different games)"} · ranked by long-run bankroll growth, not raw EV</div><div class="results">${B.map((o, i) => `<button class="res" data-build="${i}">
       <span class="col" style="min-width:0"><span class="ellip" style="font-weight:500">${o.legs.length === 1 ? "Best single" : `Best ${o.legs.length}-leg parlay`}: ${esc(o.legs.map((x) => x.leg.label).join(" + "))}</span>
       <span class="tiny muted">${bookLogo(o.venue, venueName(o.venue), 13)} ${esc(venueName(o.venue))} · cashes ${prob(o.p, 1)} · ¼ Kelly $${(o.kelly / 4 * bankroll).toFixed(0)}</span></span>
@@ -374,7 +395,8 @@ export function renderLab(el) {
   $$("[data-rm]", el).forEach((b) => b.onclick = () => { L.legs.splice(+b.dataset.rm, 1); rerender(); });
   $$("[data-addp]", el).forEach((b) => b.onclick = () => { labWithPromo(b.dataset.addp); rerender(); });
   $$("[data-best]", el).forEach((b) => b.onclick = () => {
-    const [key, book] = b.dataset.best.split("|"), leg = cat.find((l) => l.key === key);
+    // the leg key itself contains "|": the venue is after the last one
+    const d = b.dataset.best, cut = d.lastIndexOf("|"), key = d.slice(0, cut), book = d.slice(cut + 1), leg = cat.find((l) => l.key === key);
     if (leg && !L.legs.some((x) => x.leg.key === key) && L.legs.length < 20) L.legs.push({ leg, venue: leg.venues.some((v) => v.book === book && !v.stale) ? book : "any" });
     rerender();
   });
