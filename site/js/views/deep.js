@@ -93,3 +93,47 @@ export function downloadCsv(name, head, rows) {
 
 // chips to pick one of several views
 export const chipBar = (attr, opts, cur) => `<div class="bar" style="margin:8px 0 4px">${opts.map(([k, l]) => `<button class="chip sm ${k === cur ? "on" : ""}" data-${attr}="${k}">${esc(l)}</button>`).join("")}</div>`;
+
+// ---------- long report pages as labelled tabs
+// Groups a page's sections (each starts at a .sec-title that is a direct child of root) into tabs: tabs = [[label,
+// [title prefixes]]]; a section whose title matches no prefix stays with the tab before it. Everything above the
+// first section (KPIs, filters) stays visible. Switching tabs only hides and shows nodes, so charts, sorts and inputs
+// keep their state; the chosen tab is remembered per page for the session.
+const TAB_AT = new Map();
+export function tabify(root, key, tabs) {
+  if (!root) return;
+  root.querySelector(`:scope > .dtabs[data-dt="${key}"]`)?.remove();
+  const kids = [...root.children], first = kids.findIndex((k) => k.classList?.contains("sec-title"));
+  if (first < 0) return;
+  const groups = tabs.map(() => []);
+  let cur = 0;
+  for (const n of kids.slice(first)) {
+    if (n.classList.contains("sec-title")) {
+      const t = n.textContent.trim().toLowerCase();
+      const i = tabs.findIndex(([, pre]) => pre.some((p) => t.startsWith(p.toLowerCase())));
+      if (i >= 0) cur = i;
+    }
+    groups[cur].push(n);
+  }
+  const have = tabs.map((_, i) => i).filter((i) => groups[i].length);
+  if (have.length < 2) return;
+  let act = TAB_AT.get(key);
+  if (act == null) { try { act = +sessionStorage.getItem("sl.dt." + key); } catch { act = null; } }
+  if (!have.includes(act)) act = have[0];
+  const bar = document.createElement("div");
+  bar.className = "bar dtabs"; bar.dataset.dt = key;
+  bar.style.top = `${document.querySelector(".top")?.offsetHeight || 0}px`;      // sticks just under the site header
+  bar.innerHTML = have.map((i) => `<button class="chip" data-dti="${i}">${tabs[i][0]}</button>`).join("");
+  root.insertBefore(bar, kids[first]);
+  const show = (i) => {
+    act = i; TAB_AT.set(key, i);
+    try { sessionStorage.setItem("sl.dt." + key, String(i)); } catch {}
+    groups.forEach((g, j) => g.forEach((n) => n.classList.toggle("dt-off", j !== i)));
+    bar.querySelectorAll("[data-dti]").forEach((b) => b.classList.toggle("on", +b.dataset.dti === i));
+  };
+  bar.querySelectorAll("[data-dti]").forEach((b) => b.onclick = () => {
+    show(+b.dataset.dti);
+    if (bar.getBoundingClientRect().top < 0) bar.scrollIntoView({ block: "start" });
+  });
+  show(act);
+}

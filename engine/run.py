@@ -323,6 +323,31 @@ def live(watch=False, full=True, pres=None):
             if st is None and started_h > (3.8 if s.startswith(("americanfootball", "baseball")) else 2.4):
                 continue        # finished: the scoreboard no longer lists it as in play
             mu = mups.get(g["id"]) or {}
+            # the game open on the site (and games with open bets): its alternate lines, team totals and (where tracked)
+            # player props in one event pull every LIVE_PROP_EVERY_MIN; the payload is kept between pulls so any live
+            # line, alt or not, can be priced and logged
+            want = pres.get("game") == g["id"] or g["id"] in prop_games
+            props_ok = s in ("basketball_nba", "basketball_wnba", "basketball_ncaab", "icehockey_nhl", "americanfootball_nfl")
+            ed, fresh_ev = None, False
+            pdir = os.path.join(DATA_DIR, "latest", "live_props")
+            efn = os.path.join(pdir, f"{g['id']}.ev.json")
+            if want and st:
+                try:
+                    if full and _age_min(ls["props"].get(g["id"])) >= C.LIVE_PROP_EVERY_MIN:
+                        em = [m for m in C.core_markets(s) if props_ok or not build.is_player_market(m)]
+                        ed, _ = api.event_odds_all(s, g["id"], em, C.EVENT_BOOKS)
+                        ls["props"][g["id"]] = iso(NOW)
+                        if ed:
+                            fresh_ev = True
+                            os.makedirs(pdir, exist_ok=True)
+                            json.dump(ed, open(efn, "w"), separators=(",", ":"))
+                    if ed is None and full and os.path.exists(efn) and _age_min(datetime.fromtimestamp(os.path.getmtime(efn), timezone.utc).isoformat()) < 20:
+                        ed = json.load(open(efn))
+                    if ed:
+                        build.add_extra_lines(ed, g)
+                        LV.stale_after(g, 120)
+                except Exception as e:
+                    log(f"live alt lines failed: {type(e).__name__}")
             pre = _live_pre(s, g, mu, games)
             if s.startswith("tennis_"):
                 pj = LV.project_tennis(st, g["home"], pre["pHome"]) if st and pre else None
@@ -338,17 +363,14 @@ def live(watch=False, full=True, pres=None):
                     if p:
                         l["model"] = {o: round(v, 4) for o, v in p.items()}
             props, fresh_props = [], False
-            want = pres.get("game") == g["id"] or g["id"] in prop_games
-            if want and st and s in ("basketball_nba", "basketball_wnba", "basketball_ncaab", "icehockey_nhl", "americanfootball_nfl"):
+            if want and st and props_ok:
                 # prop prices refresh every few minutes; the player stats (ESPN box score, free) refresh every run,
                 # so between price pulls the last lines are kept and re-projected instead of disappearing
                 pdir = os.path.join(DATA_DIR, "latest", "live_props")
                 pfn = os.path.join(pdir, f"{g['id']}.json")
                 try:
-                    if full and _age_min(ls["props"].get(g["id"])) >= C.LIVE_PROP_EVERY_MIN:
-                        pm = [m for m in C.core_markets(s) if build.is_player_market(m)]
-                        ed, _ = api.event_odds_all(s, g["id"], pm, C.EVENT_BOOKS)
-                        props = list(build.build_props(ed, C.label(s)).values()) if ed else []
+                    if fresh_ev:
+                        props = list(build.build_props(ed, C.label(s)).values())
                         for p in props:
                             refs.decorate_props(p, Rf)
                         fresh_props = bool(props)

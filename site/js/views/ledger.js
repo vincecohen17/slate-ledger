@@ -11,6 +11,7 @@ import { betImage } from "./common.js";
 import { analysis, bindAnalysis, gameDay } from "./analysis.js";
 import { clvOk, CLOSE_OK_MIN } from "../stats.js";
 import { picksDeep, bindPicksDeep } from "./picksdeep.js";
+import { tabify } from "./deep.js";
 import { walletHtml, bindWallet } from "./wallet.js";
 import { unify, outcomes, arbSheet, unpair, findPairs, autoPair, pairBets } from "../arbs.js";
 
@@ -332,6 +333,11 @@ export function renderLedger(el) {
   el.innerHTML = `<div class="row" style="justify-content:space-between;margin-top:18px;flex-wrap:wrap;gap:8px"><h2 style="margin:0;font-size:18px">Ledger</h2>
       <div class="bar" style="margin:0"><button class="chip ${tab === "mine" ? "on" : ""}" data-tab="mine">My bets</button><button class="chip ${tab === "wallet" ? "on" : ""}" data-tab="wallet">Wallet</button><button class="chip ${tab === "analysis" ? "on" : ""}" data-tab="analysis">Analysis</button><button class="chip ${tab === "ours" ? "on" : ""}" data-tab="ours">Our picks</button></div></div>
     ${tab === "mine" ? mine(el) : tab === "wallet" ? walletHtml() : tab === "analysis" ? analysis() : ours()}`;
+  if (tab === "analysis") tabify(el, "analysis", [["By day", ["Day by day", "Skill vs luck"]], ["CLV & fairs", ["Closing line value", "Were the fairs right"]],
+    ["Breakdowns", ["Every leg", "Breakdown explorer", "Where you win and lose"]], ["Sizing & promos", ["Sizing", "Promos", "Arbs and middles"]],
+    ["Bets", ["Biggest swings", "Every settled bet", "What these numbers rest on"]]]);
+  if (tab === "ours") tabify(el, "ours", [["Open", ["Open picks"]], ["Fast read", ["In depth", "Fast read"]], ["By day", ["Units by day"]],
+    ["Forecasts", ["Were the forecasts right"]], ["Breakdowns", ["Breakdown explorer", "You vs the picks"]], ["Every pick", ["Every graded pick", "Recent picks"]]]);
   if (tab === "analysis") bindAnalysis(el, () => renderLedger(el));
   if (tab === "ours") bindPicksDeep(el, () => renderLedger(el));
   if (tab === "wallet") bindWallet(el, () => renderLedger(el));

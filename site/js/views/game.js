@@ -1,6 +1,6 @@
 import { S, loadProps, propsFor } from "../store.js";
 import { esc, am, pct, prob, fmtTime, fmtDay, teamLogo, headshot, leagueLogo, wpBar, signPt, mktName, edgeCls, bindTips, spark, hitRate, both, marketInfo, bookLogo, $$, oddsP, oddsTxtP } from "../util.js";
-import { edgeCard, ladder, bindLog, labBtn } from "./common.js";
+import { edgeCard, ladder, bindLog, labBtn, logSheet } from "./common.js";
 import { pickCard } from "./picks.js";
 import { renderMatchup } from "./matchup.js";
 import { renderGameLive } from "./live.js";
@@ -57,6 +57,53 @@ function overview(g) {
     h += `<div class="sec-title">${t}${m !== "h2h" ? ` · main line` : ""}<span class="line"></span><span class="tiny">${l.nBooks} books</span></div>${sidesBlock(g, l, 5, false)}`;
   }
   return h;
+}
+
+// log any line, listed or not: type, side and number -> a bet named like the ledger (market, side, own point), so it
+// grades from the final score; a matching listed line fills in the best price and the fair
+const ANY = { kind: "spreads", side: null, pt: "", per: "" };
+function anyLine(g) {
+  const started = new Date(g.commence) <= new Date();
+  const sides = ANY.kind === "totals" ? ["Over", "Under"] : ANY.kind === "team_totals" ? [`${g.away} Over`, `${g.away} Under`, `${g.home} Over`, `${g.home} Under`] : [g.away, g.home];
+  if (!sides.includes(ANY.side)) ANY.side = sides[0];
+  return `<div class="card any-line"><div class="row" style="justify-content:space-between;gap:6px;flex-wrap:wrap"><b>Log any line</b>
+      <span class="tiny muted">${started ? "live bet · " : ""}any number, listed here or not</span></div>
+    <div class="any-row">
+      <select id="al-kind">${[["h2h", "Moneyline"], ["spreads", "Spread"], ["totals", "Total"], ["team_totals", "Team total"]].map(([k, t]) => `<option value="${k}" ${k === ANY.kind ? "selected" : ""}>${t}</option>`).join("")}</select>
+      <select id="al-per">${[["", "Full game"], ["_h1", "1st half"], ["_q1", "1st quarter / period"]].map(([k, t]) => `<option value="${k}" ${k === ANY.per ? "selected" : ""}>${t}</option>`).join("")}</select>
+      <select id="al-side">${sides.map((x) => `<option ${x === ANY.side ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+      ${ANY.kind === "h2h" ? "" : `<input id="al-pt" inputmode="decimal" placeholder="${ANY.kind === "spreads" ? "-6.5" : "44.5"}" value="${esc(ANY.pt)}">`}
+      <button class="btn sm" id="al-go">${started ? "Log live" : "Log"}</button></div></div>`;
+}
+function anyLineSpec(g) {
+  const k = ANY.kind, per = ANY.per, started = new Date(g.commence) <= new Date();
+  const pt = k === "h2h" ? null : parseFloat(String(ANY.pt).replace(/[^0-9.+-]/g, ""));
+  if (k !== "h2h" && !Number.isFinite(pt)) return null;
+  let side = ANY.side, team = null;
+  if (k === "team_totals") { team = side.replace(/ (Over|Under)$/, ""); side = side.endsWith("Over") ? "Over" : "Under"; }
+  // the listed line with this number, if any (main or alternate), for the price and the fair
+  const want = (l) => { const b = l.market.replace("alternate_", "");
+    if (b !== k + per || (team && l.team !== team)) return false;
+    if (k === "h2h") return true;
+    const own = k === "spreads" ? (side === g.home ? l.point : -l.point) : l.point;
+    return Math.abs(own - pt) < 1e-6; };
+  const l = (g.lines || []).find(want);
+  const main = (g.lines || []).find((x) => x.market === k + per && x.isMain && (!team || x.team === team));
+  const mainOwn = main && k !== "h2h" ? (k === "spreads" ? (side === g.home ? main.point : -main.point) : main.point) : null;
+  const market = l ? l.market : k === "h2h" || mainOwn == null || Math.abs(mainOwn - pt) < 1e-6 ? k + per : `alternate_${k}${per}`;
+  const pl = per === "_h1" ? "1H " : per === "_q1" ? "1Q " : "";
+  const label = k === "h2h" ? `${pl}${side} ML` : k === "spreads" ? `${pl}${side} ${signPt(pt)}` : k === "totals" ? `${pl}${side} ${pt}` : `${pl}${team} ${side} ${pt}`;
+  const b = l?.bestVenue?.[side];
+  return { label, gameId: g.id, league: g.league, matchup: `${g.away} @ ${g.home}`, commence: g.commence, market, side, point: pt, team,
+    am: b?.am ?? null, venue: b?.book, venueName: b?.name, fair: l?.fair?.[side] ?? null, ...(started ? { source: "live", live: true } : { source: "manual-line" }) };
+}
+export function bindAnyLine(el, g, rerender) {
+  const k = el.querySelector("#al-kind"); if (!k) return;
+  k.onchange = () => { ANY.kind = k.value; ANY.side = null; rerender(); };
+  el.querySelector("#al-per").onchange = (e) => { ANY.per = e.target.value; };
+  el.querySelector("#al-side").onchange = (e) => { ANY.side = e.target.value; };
+  const pi = el.querySelector("#al-pt"); if (pi) pi.oninput = () => { ANY.pt = pi.value; };
+  el.querySelector("#al-go").onclick = () => { const sp = anyLineSpec(g); if (!sp) { pi?.focus(); pi?.classList.add("bad"); return; } logSheet(sp); };
 }
 
 function lines(g) {
@@ -157,7 +204,7 @@ export function renderGame(el, id, tab) {
     <span class="spacer"></span><span class="tiny muted">Bars: edge vs sharp fair · <span class="pos">teal</span> = value, <span class="neg">orange</span> = overpriced</span></div>`;
   const lv = S.liveGames.get(id), gl = lv && !lv.final && (lv.lines || []).length ? { ...g, lines: lv.lines, liveLines: true } : g;
   if (gl.liveLines && (tab === "lines" || tab === "overview")) h += `<div class="card note" style="margin:8px 0"><span class="pill live">● LIVE</span> In-play prices${lv.updated ? `, pulled ${Math.max(0, Math.round((Date.now() - new Date(lv.updated)) / 60000))} min ago` : ""}. Tap Log live (best price) or any venue's row to log at that price; check the app first, live prices move fast.</div>`;
-  if (tab === "lines") h += lines(gl);
+  if (tab === "lines") h += anyLine(gl) + lines(gl);
   else if (tab === "props") h += props(g);
   else if (tab === "pick") h += `<div class="grid">${picks.map(pickCard).join("")}</div>`;
   else if (tab === "overview") h += overview(gl);
@@ -167,5 +214,6 @@ export function renderGame(el, id, tab) {
   if (tab === "live") renderGameLive(el, g);
   $$("[data-all]", el).forEach((b) => b.onclick = () => { open.has(b.dataset.all) ? open.delete(b.dataset.all) : open.add(b.dataset.all); renderGame(el, id, tab); });
   $$("[data-pm]", el).forEach((b) => b.onclick = () => { propMarket = b.dataset.pm; renderGame(el, id, tab); });
+  if (tab === "lines") bindAnyLine(el, gl, () => renderGame(el, id, tab));
   bindLog(el); bindTips(el);
 }

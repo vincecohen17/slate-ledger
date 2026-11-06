@@ -4,7 +4,7 @@ import { esc, pct, ago, bindTips, bookLogo, $$ } from "../util.js";
 import { lineChart, legend } from "./charts.js";
 import { modelsDeep, bindModels } from "./models.js";
 import { logicDeep, aiDeep, bindLogic } from "./logic.js";
-import { bindSort } from "./deep.js";
+import { bindSort, tabify } from "./deep.js";
 
 let span = "total", focus = null, ecDim = "venue";
 
@@ -140,6 +140,8 @@ export function renderReports(el) {
     ${modelCard(R)}
     <div class="sec-title">Backtests<span class="line"></span></div>
     ${backtestCard(R?.backtest)}`;
+  tabify(el, "reports", [["Edges", ["Edge report card"]], ["Books", ["Where the books are off", "Best price share"]], ["Market", ["Market signals"]],
+    ["Model logic", ["Model logic"]], ["AI & news", ["AI flags"]], ["Models", ["Models in depth", "Model report card"]], ["Backtests", ["Backtests"]]]);
   $$("[data-span]", el).forEach((b) => b.onclick = () => { span = b.dataset.span; renderReports(el); });
   $$("[data-ec]", el).forEach((b) => b.onclick = () => { ecDim = b.dataset.ec; renderReports(el); });
   $$("[data-book]", el).forEach((b) => b.onclick = () => { focus = focus === b.dataset.book ? null : b.dataset.book; renderReports(el); });

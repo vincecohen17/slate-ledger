@@ -689,3 +689,10 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 /* a pick in play: score, live chance and the stat's progress, on the pick card */
 .pk-live { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2, var(--panel-3)); border: 1px solid var(--line); }
 .lrow.lg { cursor: pointer; } .lrow.lg:hover { background: var(--panel-2); }
+.any-line { margin: 8px 0; display: flex; flex-direction: column; gap: 8px; }
+.any-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; align-items: center; }
+.any-row input.bad { border-color: var(--neg); }
+.dt-off { display: none !important; }
+.dtabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 8px; margin-top: 14px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.dtabs::-webkit-scrollbar { display: none; }
+.dtabs .chip { flex-shrink: 0; }

@@ -113,6 +113,17 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   clock saved as liveState). Picks: "Our picks in play" (projectedCard in units over open picks with a live game state,
   projected.pickAsBet shared with the Ledger) and a live strip on each pick card (score, the stat's progress from betLegs
   "<pickId>#0", live chance, expected units) until it grades.
+  Live alt lines: for the game open on the site (presence.game) and games with open bets, the live run pulls every core
+  event market (alternates, team totals, plus player props in the props sports) in one event call every
+  LIVE_PROP_EVERY_MIN, keeps the payload (latest/live_props/<id>.ev.json, reused up to 20 min) and folds the lines into the
+  live game (build.add_extra_lines). Game page: in play, Lines and Best bets use the live lines; every side has Log /
+  Log live at the best price and each venue row logs at its price (ladder spec); "Log any line" (game.js anyLine: type,
+  period, side, number) logs any number, listed or not, named with market (alternate_* when off the main number), side
+  and own point so it grades from the score.
+  Report pages are tabbed (deep.tabify: sections grouped by their .sec-title into a sticky tab bar, hide/show only,
+  remembered per session): Reports (Edges, Books, Market, Model logic, AI & news, Models, Backtests), Ledger > Analysis
+  (By day, CLV & fairs, Breakdowns, Sizing & promos, Bets), Ledger > Our picks (Open, Fast read, By day, Forecasts,
+  Breakdowns, Every pick).
 - `engine/pickprices.py` real prices for picks: the first real price seen at each play-to venue (picklive each run ->
   latest/pick_first_prices.json), else the first raw pull after posting (snapshots/, posting time from git history), else
   goodAt; grade_picks stores gradedAt, gradeSrc, gradeVenue. Pick6 multipliers are estimated from DraftKings' vigged price
