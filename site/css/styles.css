@@ -688,3 +688,4 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 
 /* a pick in play: score, live chance and the stat's progress, on the pick card */
 .pk-live { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2, var(--panel-3)); border: 1px solid var(--line); }
+.lrow.lg { cursor: pointer; } .lrow.lg:hover { background: var(--panel-2); }

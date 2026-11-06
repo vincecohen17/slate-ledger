@@ -58,7 +58,8 @@ export function edgeCard(e) {
 }
 
 // price ladder for one side of one line: fair on top, then every book sorted by edge
-export function ladder(line, side, limit = 8, showAll = false) {
+// spec (optional): the bet this side names; each venue row then logs it at that venue's price on a tap
+export function ladder(line, side, limit = 8, showAll = false, spec = null) {
   if (!line) return "";
   const rows = line.quotes.filter((q) => q.prices[side]).map((q) => ({ q, p: q.prices[side] }))
     .sort((a, b) => (b.p.edge ?? -9) - (a.p.edge ?? -9));
@@ -68,7 +69,8 @@ export function ladder(line, side, limit = 8, showAll = false) {
   if (line.fair) h += `<div class="lrow fair"><span>Sharp fair</span><span class="px">${oddsP(line.fair[side])}</span><span class="tiny muted">no-vig</span><span></span></div>`;
   for (const { q, p } of shown) {
     const e = p.edge;
-    h += `<div class="lrow ${q.stale ? "stale" : ""}" data-tip="${esc(q.name)}: ${oddsTxt(p.allInAm ?? p.am)}${p.allInAm ? " all-in (fee)" : ""} · edge ${pct(e)}${p.avail != null ? ` · ${kUsd(p.avail)} on offer at this price` : ""}${q.stale ? " · stale" : ""}">
+    const lg = spec && q.venue ? ` data-log='${esc(JSON.stringify({ ...spec, venue: q.book, venueName: q.name, am: p.allInAm ?? p.am, fair: line.fair?.[side] ?? null }))}' role="button"` : "";
+    h += `<div class="lrow ${q.stale ? "stale" : ""} ${lg ? "lg" : ""}"${lg} data-tip="${esc(q.name)}: ${oddsTxt(p.allInAm ?? p.am)}${p.allInAm ? " all-in (fee)" : ""} · edge ${pct(e)}${p.avail != null ? ` · ${kUsd(p.avail)} on offer at this price` : ""}${q.stale ? " · stale" : ""}${lg ? " · tap to log" : ""}">
       <span class="row ellip" style="gap:6px">${bookTag(q.book, q.name, 16)} ${bookPill(q)}</span>
       <span class="px">${odds3(p.allInAm ?? p.am)}${centsTag(p.allInAm ?? p.am, q.book) ? ` <span class="tiny muted">${centsTag(p.allInAm ?? p.am, q.book)}</span>` : ""}${p.avail != null ? ` <span class="tiny ${p.avail < 25 ? "neg" : "muted"}">${kUsd(p.avail)}</span>` : ""}</span>${edgeBar(e, max)}<span class="ed ${e > 0.005 ? "pos" : e < -0.04 ? "neg" : ""}">${pct(e)}</span></div>`;
   }

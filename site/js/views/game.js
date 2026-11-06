@@ -36,8 +36,14 @@ function sidesBlock(g, l, limit, all) {
   const lab = (o) => k === "spreads" ? `${o} ${signPt(o === g.home ? l.point : -l.point)}` : k === "team_totals" ? `${l.team} ${o} ${l.point}` : k === "totals" ? `${o} ${l.point}` : o;
   const ref = (o) => o === g.home ? g.homeRef : o === g.away ? g.awayRef : null;
   const own = (o) => (l.point == null ? null : k === "spreads" && o !== g.home ? -l.point : l.point);
-  const live = new Date(g.commence) <= new Date();
-  return `<div class="sides">${l.outcomes.map((o) => `<div><div class="side-h">${ref(o) || o === g.home || o === g.away ? teamLogo(ref(o), o, 22) : ""}<span>${esc(lab(o))}</span>${!live && l.fair ? `<span class="spacer"></span>${labBtn({ gameId: g.id, market: l.market, side: o, point: own(o), team: l.team || null }, { venue: l.bestVenue?.[o]?.book })}` : ""}</div>${ladder(l, o, limit, all)}</div>`).join("")}</div>`;
+  const started = new Date(g.commence) <= new Date(), live = !!g.liveLines;
+  const info = marketInfo(l.market), per = info.period ? `${info.period} ` : "";
+  // the bet this side names; Log opens the sheet at the best price at your venues, a venue row logs at that venue's price
+  const spec = (o) => ({ label: `${per}${k === "h2h" ? `${o} ML` : lab(o)}`, gameId: g.id, league: g.league, matchup: `${g.away} @ ${g.home}`, commence: g.commence,
+    market: l.market, side: o, point: own(o), team: l.team || null, ...(started ? { source: "live", live: true } : {}) });
+  const logB = (o) => { const b = l.bestVenue?.[o];
+    return `<button class="btn sm ${started ? "" : "ghost"}" data-log='${esc(JSON.stringify({ ...spec(o), am: b?.am ?? null, venue: b?.book, venueName: b?.name, fair: l.fair?.[o] ?? null }))}' title="log this bet${b ? ` at ${esc(b.name)}` : ""}">${started ? "Log live" : "Log"}</button>`; };
+  return `<div class="sides">${l.outcomes.map((o) => `<div><div class="side-h">${ref(o) || o === g.home || o === g.away ? teamLogo(ref(o), o, 22) : ""}<span>${esc(lab(o))}</span><span class="spacer"></span>${logB(o)}${!started && l.fair ? labBtn({ gameId: g.id, market: l.market, side: o, point: own(o), team: l.team || null }, { venue: l.bestVenue?.[o]?.book }) : ""}</div>${ladder(l, o, limit, all, spec(o))}</div>`).join("")}</div>${started && !live ? `<div class="tiny muted">Pre-game prices (no live pull for this game yet): type the price you're getting.</div>` : ""}`;
 }
 
 function overview(g) {
@@ -149,10 +155,12 @@ export function renderGame(el, id, tab) {
   let h = `<a class="back" href="#/">← Board</a>${hero(g)}
     <div class="bar">${tabs.map(([k, t]) => `<a class="chip ${k === tab ? "on" : ""}" href="#/game/${id}/${k}">${t}</a>`).join("")}
     <span class="spacer"></span><span class="tiny muted">Bars: edge vs sharp fair · <span class="pos">teal</span> = value, <span class="neg">orange</span> = overpriced</span></div>`;
-  if (tab === "lines") h += lines(g);
+  const lv = S.liveGames.get(id), gl = lv && !lv.final && (lv.lines || []).length ? { ...g, lines: lv.lines, liveLines: true } : g;
+  if (gl.liveLines && (tab === "lines" || tab === "overview")) h += `<div class="card note" style="margin:8px 0"><span class="pill live">● LIVE</span> In-play prices${lv.updated ? `, pulled ${Math.max(0, Math.round((Date.now() - new Date(lv.updated)) / 60000))} min ago` : ""}. Tap Log live (best price) or any venue's row to log at that price; check the app first, live prices move fast.</div>`;
+  if (tab === "lines") h += lines(gl);
   else if (tab === "props") h += props(g);
   else if (tab === "pick") h += `<div class="grid">${picks.map(pickCard).join("")}</div>`;
-  else if (tab === "overview") h += overview(g);
+  else if (tab === "overview") h += overview(gl);
   else if (tab === "market") h += marketTab(g);
   el.innerHTML = h;
   if (tab === "matchup") renderMatchup(el, g);
