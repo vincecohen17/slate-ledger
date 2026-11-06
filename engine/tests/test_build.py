@@ -123,6 +123,24 @@ def test_team_names_match_espn():
         assert (t and t["abbr"]) == ab, (name, t)
 
 
+def test_box_score_names_match_bet_names():
+    import refs
+    rows = [("Matt Hibner", "BAL"), ("Bryan Thomas Jr.", "JAX"), ("Chris Rodriguez Jr.", "JAX"), ("Mike Smith", "A"), ("Michael Smith", "B")]
+    box = {refs.norm(n): {"name": n, "team": t} for n, t in rows}
+    want = [("Matthew Hibner", None, "Matt Hibner"), ("Brian Thomas Jr", "JAX", None), ("Christopher Rodriguez", "JAX", "Chris Rodriguez Jr."),
+            ("Mikey Smith", None, None), ("Michael Smith", "B", "Michael Smith"), ("Matthew Hibner", "JAX", None)]
+    for name, team, hit in want:
+        p = refs.find_player(box, name, team)
+        assert (p and p["name"]) == hit, (name, team, p)
+
+
+def test_football_zero_stat_markets():
+    import ledger
+    assert ledger._football_counting("americanfootball_nfl", "player_reception_yds")
+    assert ledger._football_counting("americanfootball_nfl", "player_rush_attempts")
+    assert not ledger._football_counting("americanfootball_nfl", "player_1st_td")
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

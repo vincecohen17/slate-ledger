@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 import build as B
 import livebets as LB
+import refs as R
 import tracker as T
 
 PROP_WORDS = [("points rebounds assists", "player_points_rebounds_assists"), ("pra", "player_points_rebounds_assists"),
@@ -128,6 +129,29 @@ def _close_est(snap, leg):
     return round(po if side == "Over" else 1 - po, 4)
 
 
+FOOTBALL = ("americanfootball_nfl", "americanfootball_ncaaf")
+
+
+class _Zeros(dict):
+    def get(self, k, d=None):
+        return 0
+
+
+def _football_counting(sport, mk):
+    """a football player market the box score reads (so a player with no row in its category had zero)"""
+    return T.stat(sport, mk, _Zeros()) is not None
+
+
+def _priced_at_close(snap, player, max_age=60, min_books=3):
+    """the books still had this player's props up in a pull within max_age minutes of the start"""
+    age = T.close_age(snap, True)
+    if age is None or age > max_age:
+        return False
+    n = T._norm(player)
+    return any(T._norm(r.get("player") or "") == n and ((r.get("x") or {}).get("nb") or 0) >= min_books
+               for r in snap.get("rows", []))
+
+
 def grade_leg(data_dir, leg, fin_by_gid):
     """{y: 1/0/None(push), close: sharp fair of this side at the close} or None while not final"""
     snap = _snap(data_dir, leg.get("gameId"))
@@ -156,9 +180,15 @@ def grade_leg(data_dir, leg, fin_by_gid):
         close = _close_est(snap, leg)
         est = close is not None
     if is_prop:
-        p = res["players"].get(T._norm(leg["player"]))
+        p = R.find_player(res["players"], leg["player"], leg.get("team"))
+        football = snap["sport"] in FOOTBALL
         if not p:
-            return None
+            # football box scores list only players with a stat in some category: a player the books still priced at a
+            # fresh close (inactives are out by then) and who is missing from the final box played and recorded nothing
+            if football and leg.get("gameId") in fin_by_gid and _priced_at_close(snap, leg["player"]):
+                p = {"name": leg["player"], "absent": True}
+            else:
+                return None
         if p.get("dnp"):
             return {"y": None, "close": close, "void": True}
         if LB.first_period(mk):            # a first-period prop: the value locked live at the period break (exact only)
@@ -166,6 +196,8 @@ def grade_leg(data_dir, leg, fin_by_gid):
             v = lk["v"] if lk and lk.get("exact") else None
         else:
             v = LB.stat(snap["sport"], mk, p) if res.get("espn") else T.stat(snap["sport"], mk, p)
+            if v is None and football and leg.get("gameId") in fin_by_gid and _football_counting(snap["sport"], mk):
+                v = 0.0             # no row in that category (no catches, no carries): zero, not unknown
         if v is None:
             return None
         pt = leg.get("point")

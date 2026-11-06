@@ -332,7 +332,8 @@ def grade(data_dir, now):
             if r.get("p") is None:
                 continue        # kept only for the ledger's closing line value
             if "player" in r:
-                p = res["players"].get(_norm(r["player"]))
+                import refs as R
+                p = R.find_player(res["players"], r["player"])
                 if not p or p.get("dnp"):
                     continue
                 v = stat(snap["sport"], r["mk"], p)

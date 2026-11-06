@@ -266,10 +266,13 @@ def live(watch=False, full=True, pres=None):
         try:
             _db = firestore_db()
             if _db:
-                found, live_open, open_games = {}, [], set()
+                found, live_open, open_games, ungraded = {}, [], set(), set()
                 for snap in _db.collection("bets").where("status", "==", "pending").stream():
                     b = snap.to_dict() or {}
                     open_games |= {x["gameId"] for x in (b.get("legs") or [b]) if x.get("gameId")}
+                    done = (b.get("auto") or {}).get("legsDone") or b.get("legsDone") or {}
+                    # games with a leg grading hasn't settled yet (a parlay's finished game whose leg is in legsDone is done)
+                    ungraded |= {x["gameId"] for i, x in enumerate(b.get("legs") or [b]) if x.get("gameId") and str(i) not in done}
                     if b.get("live") and not b.get("liveCheck") and b.get("dec"):
                         legs = [{k: x.get(k) for k in ("gameId", "market", "side", "point", "player", "team", "label")}
                                 for x in (b.get("legs") or [b]) if x.get("gameId")]
@@ -284,22 +287,26 @@ def live(watch=False, full=True, pres=None):
                                 | {k: leg.get(k) or b.get(k) for k in ("matchup", "league", "commence")}
                 ls["betLegs"], ls["betsAt"], ls["liveBets"] = found, iso(NOW), live_open
                 ls["betGames"] = sorted(open_games)      # every game with an open leg, team bets included
+                ls["betGamesOpen"] = sorted(ungraded)
         except Exception as e:
             log(f"open bets read failed: {type(e).__name__}")
     bet_legs = {g: dict(v) for g, v in (ls.get("betLegs") or {}).items()}
     prop_games = set(sorted(bet_legs)[:4])          # live prop prices cost credits: at most 4 games besides the watched one
     # our open prop picks get the same live and final stat (read from the picks files here: no database reads)
+    pick_games = set()
     try:
         for pk in load_picks(3):
             if pk.get("status") in ("void", "won", "lost", "push") or pk.get("tier") == "likely" or not pk.get("gameId") or not pk.get("player"):
                 continue
             r = LB.resolve({k: pk.get(k) for k in ("gameId", "market", "side", "point", "player", "team")} | {"label": pk.get("selection")}, DATA_DIR)
             if r and r.get("player"):
+                pick_games.add(pk["gameId"])
                 bet_legs.setdefault(pk["gameId"], {})[f"{pk['id']}#0"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")} \
                     | {k: pk.get(k) for k in ("matchup", "league", "commence")}
     except Exception as e:
         log(f"open picks read failed: {type(e).__name__}")
     bet_games = set(bet_legs)
+    ungraded_ids = set(ls.get("betGamesOpen") if "betGamesOpen" in ls else (ls.get("betGames") or []))
     # the games the watcher keeps current: any open bet leg (moneylines, spreads and totals too) or open prop pick
     watch_ids = bet_games | set(ls.get("betGames") or [])
     for s in sports:
@@ -550,7 +557,12 @@ def live(watch=False, full=True, pres=None):
     upcoming = any(iso(NOW) < (starts.get(gid) or "") <= iso(NOW + timedelta(hours=WATCH_AHEAD_H)) for gid in watch_ids)
     return {"need": soon or any(d["id"] in watch_ids and not d.get("final") for d in docs), "upcoming": upcoming,
             "inplay": sorted(d["id"] for d in docs if d["id"] in watch_ids and not d.get("final")),
-            "final": sorted(d["id"] for d in docs if d["id"] in watch_ids and d.get("final"))}
+            # finished games still waiting on grading (a parlay's finished game whose leg is already graded isn't: asking
+            # for a rebuild every 15 minutes until the parlay's last game ends spent a run for nothing)
+            # ... and only until 7 hours after the start: a leg grading can't read won't settle by asking again (the
+            # hourly and audit runs still retry it)
+            "final": sorted(d["id"] for d in docs if d.get("final") and (d["id"] in ungraded_ids or d["id"] in pick_games)
+                            and datetime.fromisoformat(d["commence"].replace("Z", "+00:00")) > NOW - timedelta(hours=7))}
 
 
 WATCH_AHEAD_H = 6          # the watcher starts this far ahead of the first game with an open leg and waits for it

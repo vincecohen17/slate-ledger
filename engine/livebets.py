@@ -218,7 +218,7 @@ def compute(data_dir, sport, gid, st, legs, log=print):
         leg = resolve(leg0, data_dir)
         if not leg or not leg.get("player"):
             continue
-        p = bx.get(R.norm(leg["player"]))
+        p = R.find_player(bx, leg["player"], leg.get("team"))
         left = left0
         fp = first_period(leg["market"])
         if fp and sport in LV.GAME:

@@ -52,6 +52,57 @@ def norm(name):
     return re.sub(r"[^a-z0-9]", "", s)
 
 
+# first names books and box scores write differently (Matthew Hibner on the board, Matt Hibner in ESPN's box score)
+NICK = {"mike": "michael", "mikey": "michael", "bill": "william", "will": "william", "billy": "william", "bob": "robert",
+        "rob": "robert", "bobby": "robert", "jim": "james", "jimmy": "james", "jamie": "james", "joe": "joseph",
+        "joey": "joseph", "tony": "anthony", "nick": "nicholas", "nic": "nicholas", "alex": "alexander", "jake": "jacob",
+        "cam": "cameron", "dan": "daniel", "danny": "daniel", "josh": "joshua", "zach": "zachary", "zack": "zachary",
+        "gabe": "gabriel", "matt": "matthew", "chris": "christopher", "tom": "thomas", "tommy": "thomas",
+        "ben": "benjamin", "sam": "samuel", "andy": "andrew", "drew": "andrew", "ed": "edward", "eddie": "edward",
+        "steve": "steven", "jon": "jonathan", "johnny": "john", "jeff": "jeffrey", "greg": "gregory", "pat": "patrick",
+        "rick": "richard", "ricky": "richard", "dick": "richard", "ken": "kenneth", "kenny": "kenneth", "max": "maxwell",
+        "nate": "nathaniel", "dave": "david", "tim": "timothy", "ron": "ronald", "ray": "raymond", "fred": "frederick",
+        "vince": "vincent", "manny": "manuel", "alec": "alexander"}
+
+
+def _name_parts(name):
+    s = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode().lower()
+    s = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b\.?", " ", s).replace("'", "").replace(".", " ")
+    return [t for t in re.split(r"[^a-z0-9]+", s) if t]
+
+
+def _first_ok(a, b):
+    if a == b:
+        return True
+    if min(len(a), len(b)) >= 3 and (a.startswith(b) or b.startswith(a)):
+        return True
+    return NICK.get(a, a) == NICK.get(b, b)
+
+
+def find_player(players, name, team=None):
+    """a box-score row for this name: {norm(name): row with name/team}. Exact normalized match first; else the one row
+    with the same last name whose first name is the same person (Matt / Matthew, Mike / Michael), on the same team when
+    both carry a short team code. Brian vs Bryan, or two players sharing a last name, never match."""
+    if not players or not name:
+        return None
+    p = players.get(norm(name))
+    if p is not None:
+        return p
+    a = _name_parts(name)
+    if len(a) < 2:
+        return None
+    hits = []
+    for k, r in players.items():
+        b = _name_parts((r or {}).get("name") or "")
+        if len(b) < 2 or b[-1] != a[-1] or "".join(b[1:]) != "".join(a[1:]) or not _first_ok(a[0], b[0]):
+            continue
+        rt = (r or {}).get("team")
+        if team and rt and len(str(team)) <= 4 and len(str(rt)) <= 4 and str(team).upper() != str(rt).upper():
+            continue
+        hits.append(r)
+    return hits[0] if len(hits) == 1 else None
+
+
 def _get(url):
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "slate-ledger"}), timeout=20) as r:
         return json.loads(r.read().decode())
