@@ -83,7 +83,18 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   signals. Graded games' files are pruned. Mode marketbackfill rebuilds from all saved pulls; splitsprobe saves raw pages.
   Nov 5 first read (88 games with fresh closes): moves are priced in by the close; the value is a venue that hasn't followed.
   Site: game page Market tab (views/market.js: sharp path chart, first movers, venues still at the old number, DK splits),
-  Edges > Market moves, chips on edge cards.
+  Edges > Market moves.
+  Why each edge is on the board (market.explain -> e.why {k, t, s, f}): lag = the sharp books moved toward the side and this
+  venue's own history shows it followed under half (main numbers; "Sharp books moved X -3 to -4.5 (Pinnacle first, 2:14 PM);
+  Novig is still at -3"), move = moved toward it (alts, props by their sharp fair since open, or a venue that partly
+  followed), static = no move behind the gap, against = the market moved away. Shown first on every edge card (whyBlock with
+  model / news / playbook / splits / timing reasons), pick cards (p.why from the run, else the board's edge now), the Board's
+  "Driven by the market now" strip, Edges "Driven by the market right now" + Market-driven filter, the Lab (a market-driven
+  group in Best bets; each slip leg shows its value at the chosen price and its reason). Logged: bets carry why / whyText
+  (ledger group "Market reason"), the edge card logs wk (dim "why", also a playbook dim), picks group by why on Our picks;
+  whyRecord shows the record by reason as if every flagged edge were bet flat at its flagged price (Edges, Reports).
+  Alerts: "Sharp move, <venue> lagging" (lag edges, 2%+, not muted / skip / thin), and edge alerts carry the reason.
+  Bet Lab price boxes (custom leg price, the venue's parlay odds) read any format via oddsFromInput and show the conversion.
 - `engine/pickprices.py` real prices for picks: the first real price seen at each play-to venue (picklive each run ->
   latest/pick_first_prices.json), else the first raw pull after posting (snapshots/, posting time from git history), else
   goodAt; grade_picks stores gradedAt, gradeSrc, gradeVenue. Pick6 multipliers are estimated from DraftKings' vigged price
