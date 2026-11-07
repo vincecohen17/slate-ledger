@@ -124,6 +124,16 @@ export function renderPicks(el) {
       ${projectedCard({ items: inPlay.map(pickAsBet).filter(Boolean), title: "Live tracking: projected units on picks in play", fmt: u, units: true })}`;
   }
   h += `<div class="bar">${days.slice(0, 10).map((d) => `<button class="chip ${d === day ? "on" : ""}" data-day="${d}">${d === todayPT() ? "Today" : d > todayPT() ? `Tomorrow · early` : fmtShortDay(d + "T12:00:00")}</button>`).join("")}</div>`;
+  // the day's mix: posted picks (bet / floor / lean) by league x kind; one cell over half the day is flagged, since the
+  // pick runs cap a cell at half while anything else qualifies (60% for a cell the fast read says is working)
+  const posted = shown.filter((p) => p.status !== "void" && ["bet", "floor", "lean"].includes(p.tier));
+  if (posted.length >= 3) {
+    const mix = new Map();
+    posted.forEach((p) => { const k = `${p.league} ${p.player ? "props" : "lines"}`; mix.set(k, (mix.get(k) || 0) + 1); });
+    const cells = [...mix.entries()].sort((a, b) => b[1] - a[1]), top = cells[0][1] / posted.length;
+    h += `<div class="row" style="gap:6px;flex-wrap:wrap;margin:-4px 0 10px"><span class="tiny muted">Mix</span>${cells.map(([k, n]) => `<span class="pill ${n / posted.length > 0.5 ? "warn" : ""}">${esc(k)} ${n}</span>`).join("")}
+      ${top > 0.5 ? `<span class="tiny muted">${Math.round(top * 100)}% in one place: the runs cap that at half unless nothing else qualifies</span>` : ""}</div>`;
+  }
   h += shown.length ? `<div class="grid">${shown.map(pickCard).join("")}</div>`
     : `<div class="empty"><h3>No picks posted yet</h3>Claude's daily run posts picks here with the full case, the six pillars and play-to prices at each venue.</div>`;
   el.innerHTML = h;

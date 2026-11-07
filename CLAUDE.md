@@ -315,7 +315,11 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   (likely too, since Nov 4). Pick runs (scheduled tasks): morning 7:37, pregame 1:53, and an evening run for late games and
   overnight tennis/soccer (needs Vince's approval to enable). They aim for 1 pick per 2 games across all sports (8+ a day), work
   niche sports with logic-led cases (never bet tier under 5 books), and read the fast read first: a sport or tier with 15+
-  graded and CLV t <= -1.5 is cut to leans. Ledger > Our picks "Fast read": CLV (the early signal) by sport and tier, t,
+  graded and CLV t <= -1.5 is cut to leans. Portfolio (runbook step 6b, Nov 7): a candidate scan per league x kind
+  (game lines / props, counted by game not by flag), picks in rounds (best qualifier of each cell first, then by value),
+  a day cap of half the bet/floor/lean picks per league x kind while another cell qualifies (60% for a cell the fast read
+  says is working), at most 2 props per game, capped candidates to the likely list; messages open with the Mix line. The
+  Picks page shows the day's mix (pill flagged past half). Ledger > Our picks "Fast read": CLV (the early signal) by sport and tier, t,
   beat-the-close, flat ROI, verdict (15+ picks, |t| >= 1.5) and picks still needed to reach t = 2.
 - Scheduled Claude tasks (Pacific): seven pick runs: 4:41 early (European soccer + tennis near start, re-checks the
   evening's early picks), 7:37 morning, 10:43 midday, 1:53 pregame, 3:31 late pregame (4-6:30 PM starts), 5:41 evening
