@@ -152,6 +152,19 @@ def _priced_at_close(snap, player, max_age=60, min_books=3):
                for r in snap.get("rows", []))
 
 
+def _scratched(snap, res, leg, fin_by_gid, max_age=60, min_rows=10):
+    """a non-football player who never appeared: the game is final with a full box score (ESPN leaves inactive players
+    out of it entirely, so there's no dnp row), the close is fresh, and the books had pulled his props by then (fewer
+    than 3 still quoted him). Such a leg is void, as the books settle it; a name the box spells differently while the
+    books still priced him at the close is left ungraded, never voided."""
+    if leg.get("gameId") not in fin_by_gid or len((res or {}).get("players") or {}) < min_rows:
+        return False
+    age = T.close_age(snap, True)
+    if age is None or age > max_age:
+        return False
+    return not _priced_at_close(snap, leg["player"], max_age=max_age)
+
+
 def grade_leg(data_dir, leg, fin_by_gid):
     """{y: 1/0/None(push), close: sharp fair of this side at the close} or None while not final"""
     snap = _snap(data_dir, leg.get("gameId"))
@@ -187,6 +200,8 @@ def grade_leg(data_dir, leg, fin_by_gid):
             # fresh close (inactives are out by then) and who is missing from the final box played and recorded nothing
             if football and leg.get("gameId") in fin_by_gid and _priced_at_close(snap, leg["player"]):
                 p = {"name": leg["player"], "absent": True}
+            elif not football and _scratched(snap, res, leg, fin_by_gid):
+                return {"y": None, "close": close, "void": True, "scratch": True}
             else:
                 return None
         if p.get("dnp"):
@@ -361,7 +376,8 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
                 changed = True
                 continue
             u = p.get("units") or 0
-            p["status"] = g["result"]
+            # a player who didn't play (dnp, or scratched and missing from the box): the pick is void, as the books settle it
+            p["status"] = "void" if g["legs"] and all(x.get("void") for x in g["legs"]) else g["result"]
             p["profit"] = round(u * (dec - 1), 3) if g["result"] == "won" else -u if g["result"] == "lost" else 0
             # flat 1-unit return at the graded price: compares tiers and sports on one scale whatever the stake
             p["flat"] = round(dec - 1, 3) if g["result"] == "won" else -1.0 if g["result"] == "lost" else 0.0
