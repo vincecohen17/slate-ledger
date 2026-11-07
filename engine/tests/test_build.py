@@ -148,7 +148,33 @@ def test_nba_points_shape():
     wide, old = build.p_over("player_points", 20, 26.5, "basketball_nba"), build.p_over("player_points", 20, 26.5, "basketball_wnba")
     assert wide > old
     assert abs(build.p_over("player_points", 20, 26.5, "basketball_nba", inplay=True) - old) < 1e-12
-    assert abs(build.p_over("player_rebounds", 8, 9.5, "basketball_nba", inplay=True) - build.p_over("player_rebounds", 8, 9.5, "basketball_nba")) < 1e-12
+    assert abs(build.p_over("player_assists", 8, 9.5, "basketball_nba", inplay=True) - build.p_over("player_assists", 8, 9.5, "basketball_nba")) < 1e-12
+
+
+def test_nba_rebounds_market_vs_model_shape():
+    # Nov 7: market pricing of NBA rebounds (from the sharp mean) is narrower (1.3); the stat model, in-play and WNBA keep 1.5
+    assert build.DISPERSION["basketball_nba"]["player_rebounds"] == 1.3
+    assert build.DISPERSION["basketball_wnba"]["player_rebounds"] == 1.5
+    mkt = build.p_over("player_rebounds", 8, 11.5, "basketball_nba")
+    mdl = build.p_over("player_rebounds", 8, 11.5, "basketball_nba", model=True)
+    old = build.p_over("player_rebounds", 8, 11.5, "basketball_wnba")
+    assert mkt < mdl and abs(mdl - old) < 1e-12
+    assert abs(build.p_over("player_rebounds", 8, 11.5, "basketball_nba", inplay=True) - old) < 1e-12
+    assert abs(build.p_over("player_points", 20, 26.5, "basketball_nba", model=True) - build.p_over("player_points", 20, 26.5, "basketball_nba")) < 1e-12
+
+
+def test_fairadj_gate_needs_applied_shifts():
+    # a sport scored only on days before any shift was fit must not pass the gate on float noise (UEL, Nov 7)
+    import fairadj
+    live = [{"d": "2026-11-05", "g": "soccer_x|line|totals", "f": 0.3 + 0.004 * i, "y": float(i % 2), "gid": f"g{i % 8}"} for i in range(120)]
+    import tempfile, json
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "track", "graded"))
+    with open(os.path.join(d, "track", "graded", "soccer_x.jsonl"), "w") as fh:
+        for r in live:
+            fh.write(json.dumps(r) + "\n")
+    res = fairadj.compute(d, log=lambda *a: None)
+    assert not res["shifts"] and not any(e["on"] for e in res["eval"].values())
 
 
 def test_suspended_tennis_is_not_final():

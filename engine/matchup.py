@@ -318,7 +318,7 @@ def _stamp_props(pdocs, sides, markets, sport, goalie_fn=None):
                     py = 1 - math.exp(-max(mean, 0))
                     r["model"] = {"mean": round(mean, 2), "Yes": round(py, 4), "No": round(1 - py, 4)}
                 continue
-            po = B.p_over(d["market"], max(mean, 0.01), r["point"], sport)
+            po = B.p_over(d["market"], max(mean, 0.01), r["point"], sport, model=True)
             r["model"] = {"mean": round(mean, 2), "raw": round(mean, 2), "Over": round(po, 4), "Under": round(1 - po, 4)}
 
 
@@ -400,7 +400,7 @@ def calibrate(prop_docs, min_n=12, strength=0.8):
             if not m or m.get("raw") is None or r.get("point") is None:
                 continue
             mean = max(0.01, m["raw"] - sh)
-            po = B.p_over(d["market"], mean, r["point"], d["sport"])
+            po = B.p_over(d["market"], mean, r["point"], d["sport"], model=True)
             m.update(mean=round(mean, 2), Over=round(po, 4), Under=round(1 - po, 4), shift=round(sh, 2))
     return {f"{k[0].split('_')[-1].upper()} {k[1]}": round(v, 2) for k, v in shifts.items()}
 

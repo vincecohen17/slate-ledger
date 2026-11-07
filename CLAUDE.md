@@ -6,8 +6,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - `engine/` Python. `run.py` pulls The Odds API, `build.py` computes sharp no-vig fair per line/prop,
   all-in venue costs (Kalshi/Polymarket fees), edges, stale flags, pick'em line judgments.
   `config.py` holds sports, markets, book weights, venues, budgets. Prop count shapes: build.DISPERSION (variance = k x mean; NBA
-  points 2.8 / PRA 3.2 since Nov 6, fit on alt-line outcomes; in-play remaining-stat chances, WNBA / NCAAB and double-doubles keep
-  DISPERSION_PREV); site/js/dist.js mirrors it. Tests: `python engine/tests/test_build.py`.
+  points 2.8 / PRA 3.2 since Nov 6, rebounds 1.3 since Nov 7, fit on alt-line outcomes; in-play remaining-stat chances, WNBA / NCAAB
+  and double-doubles keep DISPERSION_PREV; our stat model's own mean uses DISPERSION_MODEL where it needs another width, rebounds 1.5,
+  via p_over(..., model=True) in matchup); site/js/dist.js mirrors the market side. Tests: `python engine/tests/test_build.py`.
   Backtests: mode backtest (env BT_SPORTS=comma list reruns only those sports; the rest keep their saved rows).
 - Models: `model_nba.py`, `model_nhl.py` (MoneyPuck + goalie GSAx), `model_nfl.py` (nflverse EPA + player shares; QB passing from
   the passer's own last-10 volume x efficiency), `model_cfb.py` (opponent-adjusted ridge ratings shrunk to FBS/FCS tiers), `model_extra.py` (soccer Poisson, tennis Elo), `model_mlb.py` (Statcast per-PA odds-ratio model: platoon,
@@ -59,7 +60,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   (before / after backtest log loss), shown at the top of Models in depth.
 - Self-correcting fair (`engine/fairadj.py` -> calib/fairadj.json, applied in build._finish_line via build.FAIR_SHIFT, pre-game
   modes only): a logit shift for the tracked side (Over/Yes/home) per sport|kind and market, recency weighted (half-life 14 d,
-  backtest rows a 0.15-weight prior), live only for sport|kinds whose walk-forward gain vs the raw fair is 2+ SE (NBA props:
+  backtest rows a 0.15-weight prior), live only for sport|kinds whose walk-forward gain vs the raw fair is 2+ SE with 200+ scored rows that carried a shift (NBA props:
   overs win less than the even-margin de-vig says). Lines keep fairRaw / fairShift; tracker snapshots keep the raw fair as f
   (fits stay on raw) plus fa; ledger CLV uses fa. Refit when graded rows change. Edge card dim fairShift.
 - Recency: edgecard _agg adds gapR / roiR / nR (half-life 5 days); rerank leans half on gapR. Playbook (`engine/playbook.py` ->

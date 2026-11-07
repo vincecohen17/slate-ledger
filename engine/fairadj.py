@@ -20,7 +20,7 @@ from collections import defaultdict
 
 HALF_LIFE, BT_W, ALT_W = 14.0, 0.15, 0.4
 LAM = (400.0, 800.0)          # shrink (in units of Fisher information) for the sport|kind level and the market level
-GATE_T = 2.0
+GATE_T, MIN_SHIFTED = 2.0, 200
 
 
 def _lg(p):
@@ -127,22 +127,29 @@ def compute(data_dir, log=print):
     for r in live:
         by_day[r["d"]].append(r)
     gains = defaultdict(lambda: ([], []))
+    shifted = defaultdict(int)
     for d in days[1:]:
         sh = fit(live, btS, d)
         for r in by_day[d]:
             g = r["g"]
             k = _top(g)
-            gain = _ll(r["f"], r["y"]) - _ll(_sg(_lg(r["f"]) + shift_for(sh, g)), r["y"])
+            s = shift_for(sh, g)
+            gain = _ll(r["f"], r["y"]) - _ll(_sg(_lg(r["f"]) + s), r["y"]) if s else 0.0
             gains[k][0].append(gain)
             gains[k][1].append(r.get("gid") or r["d"])
+            shifted[k] += bool(s)
     ev, on = {}, set()
     for k, (vals, cl) in gains.items():
         m, se = _cluster_t(vals, cl)
         if m is None:
             continue
         t = None if not se else m / se
-        ev[k] = {"n": len(vals), "gain": round(m, 6), "se": None if se is None else round(se, 6), "t": None if t is None else round(t, 2),
-                 "on": bool(t is not None and t >= GATE_T and m > 0)}
+        # Nov 7 2026 lab: a sport scored only on days with no shift fit yet (UEL, one day of rows) had gains of pure float
+        # rounding (~1e-17) whose t came out 2.6 and turned an untested shift on. Gains are now exactly 0 where no shift was
+        # applied, and the gate needs MIN_SHIFTED walk-forward rows that actually carried a shift.
+        ev[k] = {"n": len(vals), "shifted": shifted[k], "gain": round(m, 6), "se": None if se is None else round(se, 6),
+                 "t": None if t is None else round(t, 2),
+                 "on": bool(t is not None and t >= GATE_T and m > 0 and shifted[k] >= MIN_SHIFTED)}
         if ev[k]["on"]:
             on.add(k)
     today = (dt.datetime.utcnow() + dt.timedelta(days=1)).date().isoformat()

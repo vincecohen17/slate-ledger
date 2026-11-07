@@ -359,8 +359,15 @@ DISPERSION["basketball_wnba"] = DISPERSION["basketball_ncaab"] = dict(DISPERSION
 # (t 5.1, day-clustered), PRA 3.2 +0.26 (t 3.1); the raw model's log loss also improves (t 14.9 / 9.8). Rebounds (best 1.3) helped
 # alt lines but hurt the model (t -11), assists / threes were not significant: unchanged. WNBA / NCAAB, double-doubles and in-play
 # remaining-stat chances keep the old shape until they are tested.
-DISPERSION_PREV = {"basketball_nba": {"player_points": 2.0, "player_points_rebounds_assists": 2.5}}
+DISPERSION_PREV = {"basketball_nba": {"player_points": 2.0, "player_points_rebounds_assists": 2.5, "player_rebounds": 1.5}}
 DISPERSION["basketball_nba"].update({"player_points": 2.8, "player_points_rebounds_assists": 3.2})
+# Nov 7 2026 lab: NBA rebounds priced from the sharp main line spread narrower than k = 1.5 (var/mean 1.27). Monthly walk-forward
+# on 2025-26 + Oct 2026 alt lines (k refit each month on the months before; fits 1.25-1.3 since January): +0.41 mnats/row, t 3.1
+# day-clustered / 2.9 game-clustered, 25k rows. Our stat model's own mean is noisier than the market's and still wants 1.5
+# (Nov 6: 1.3 cost the raw model 2.9 mnats, t -11), so the model keeps it via DISPERSION_MODEL (p_over(..., model=True)).
+# In-play remaining-stat chances and double-doubles keep 1.5 (DISPERSION_PREV), WNBA / NCAAB keep 1.5.
+DISPERSION["basketball_nba"]["player_rebounds"] = 1.3
+DISPERSION_MODEL = {"basketball_nba": {"player_rebounds": 1.5}}
 DISPERSION["americanfootball_ncaaf"] = DISPERSION["americanfootball_nfl"]
 
 
@@ -437,9 +444,10 @@ def _gammainc_upper(a, x):
 SKEWED_YDS = ("player_reception_yds", "player_rush_yds", "player_rush_reception_yds")
 
 
-def p_over(market, mean, line, sport="", inplay=False):
+def p_over(market, mean, line, sport="", inplay=False, model=False):
     """Fair P(over) at `line`, pushes removed on whole-number lines. A period yardage market (player_pass_yds_q1) takes its
-    full-game market's shape (normal or skewed) at the period's own mean, not the count model (keep site/js/dist.js in sync)."""
+    full-game market's shape (normal or skewed) at the period's own mean, not the count model (keep site/js/dist.js in sync).
+    model=True: our stat model's own mean (DISPERSION_MODEL where the model needs a different width than the market's mean)."""
     if "_yds" in market:
         market = re.sub(r"_(q[1-4]|1h|2h|h[12]|p[1-3])$", "", market)
     if market in SKEWED_YDS and mean > 0:
@@ -448,7 +456,8 @@ def p_over(market, mean, line, sport="", inplay=False):
         return _gammainc_upper(shape, max(line, 0) / scale)
     if _is_normal(market):
         return 1 - _phi((line - mean) / _sd_normal(market, mean))
-    k = (DISPERSION_PREV.get(sport, {}).get(market) if inplay else None) or DISPERSION.get(sport, {}).get(market, 1.3)
+    k = ((DISPERSION_PREV.get(sport, {}).get(market) if inplay else None) or (DISPERSION_MODEL.get(sport, {}).get(market) if model else None)
+         or DISPERSION.get(sport, {}).get(market, 1.3))
     if line == math.floor(line):
         over = _nb_cdf_tail(mean, k, int(line) + 1)
         push = _nb_cdf_tail(mean, k, int(line)) - over
