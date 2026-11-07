@@ -151,6 +151,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   settles them with the promo math) and our picks (status, profit in units, clv, closeFair in picks/<date>.json).
   CLV = closing sharp fair x decimal price - 1, from the pre-game snapshot (tracker keeps them in `track/closed/` 21 days).
   Bets and picks name the bet with gameId, market, side, point (that side's own line), player, team.
+  Period game lines (_q1-_q4, _h1/_h2, _p1-_p3, 1st_N_innings; hockey _q1 = P1) grade from the final's line score
+  (ledger._period_score); a 4th quarter or 2nd half that went to overtime is left ungraded (books differ on OT).
 - `engine/livebets.py` every live run: each leg of Vince's open bets gets its current stat from the ESPN box score (all sports,
   MLB included), projected finish and chance, written to `live/{gameId}` as betLegs {"<betId>#<leg>"}; old bets without
   market/side are read from their labels (also used by ledger grading). Live bets (bet.live, logged from the Live tab,

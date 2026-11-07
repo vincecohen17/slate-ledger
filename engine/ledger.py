@@ -226,17 +226,81 @@ def grade_leg(data_dir, leg, fin_by_gid):
         return {"y": y, "close": close, "stat": v, "age": T.close_age(snap, True), "t": "model" if est else t, **({"est": True} if est else {})}
     base = mk.replace("alternate_", "")
     pt = leg.get("point")
+    per = _period_of(base)
+    if per:             # a period line (1Q, 1H, P1, first 5 innings): graded from the final's line score
+        base = base[: -len(per[0])]
+        res = _period_score(snap, per, fin_by_gid.get(snap["id"]))
+        if res is None:
+            return None
+        if base == "h2h_3_way":
+            if side == "Draw":
+                y = float(res["hs"] == res["as"])
+            else:
+                mine_home = T._norm(side or "") == T._norm(snap["home"])
+                y = float((res["hs"] > res["as"]) if mine_home else (res["as"] > res["hs"]))
+            return {"y": y, "close": close, "score": [res["hs"], res["as"]], "age": T.close_age(snap, True), "t": t}
+        if base not in ("h2h", "spreads", "totals", "team_totals"):
+            return None
     canon_side = snap["home"] if base in ("h2h", "spreads") else "Over"
     row_pt = pt
     if base == "spreads" and pt is not None and T._norm(side or "") != T._norm(snap["home"]):
         row_pt = -pt
-    y = T._grade_line(snap, {"mk": mk, "pt": row_pt, "team": leg.get("team")}, res)
+    y = T._grade_line(snap, {"mk": base if per else mk, "pt": row_pt, "team": leg.get("team")}, res)
     if y is None and base not in ("h2h", "spreads", "totals", "team_totals"):
         return None
     if y is not None:
         mine = (T._norm(side or "") == T._norm(canon_side)) if base in ("h2h", "spreads") else side == "Over"
         y = y if mine else 1 - y
-    return {"y": y, "close": close, "score": [res["hs"], res["as"]], "age": T.close_age(snap, base not in ("h2h", "spreads", "totals")), "t": t}
+    return {"y": y, "close": close, "score": [res["hs"], res["as"]], "age": T.close_age(snap, bool(per) or base not in ("h2h", "spreads", "totals")), "t": t}
+
+
+_PERIOD_RE = re.compile(r"_(q[1-4]|h[12]|p[1-3]|1st_[1-9]_innings)$")
+
+
+def _period_of(base):
+    """('_q1', 'q1') for a period market key (totals_q1, spreads_h1, h2h_3_way_h1, totals_1st_5_innings), else None"""
+    m = _PERIOD_RE.search(base or "")
+    return (m.group(0), m.group(1)) if m else None
+
+
+def _period_score(snap, per, f):
+    """{hs, as} for one period of a final game (home/away of our snapshot) from the final's line score, or None when
+    it can't be read. Second halves and 4th quarters that went to overtime are left to Vince (books differ on whether
+    overtime counts), as are periods a sport doesn't have."""
+    if not f or not f.get("home") or not f.get("away"):
+        return None
+    def num(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None         # an unplayed bottom 9th ("X")
+    hl = [num(x) for x in f["home"].get("line") or []]
+    al = [num(x) for x in f["away"].get("line") or []]
+    sport, p = snap.get("sport") or "", per[1]
+    reg = 2 if sport.startswith("soccer") or sport == "basketball_ncaab" else 3 if sport.startswith("icehockey") \
+        else 9 if sport.startswith("baseball") else 4 if sport.startswith(("basketball", "americanfootball")) else None
+    if not reg or len(hl) != len(al) or len(hl) < reg:
+        return None             # no full regulation line score yet
+    ot = len(hl) > reg
+    if p.startswith("1st_"):
+        idx = list(range(int(p[4]))) if reg == 9 else None
+    elif reg == 4:
+        idx = {"q1": [0], "q2": [1], "q3": [2], "q4": [3], "h1": [0, 1], "h2": [2, 3]}.get(p)
+        if p in ("q4", "h2") and ot:
+            idx = None
+    elif reg == 2:
+        idx = {"h1": [0], "h2": [1]}.get(p)
+        if p == "h2" and ot:
+            idx = None
+    elif reg == 3:              # hockey periods (the site logs a first period as _q1)
+        idx = {"p1": [0], "p2": [1], "p3": [2], "q1": [0]}.get(p)
+    else:
+        idx = None
+    if not idx or any(hl[i] is None or al[i] is None for i in idx):
+        return None
+    swap = T._norm(f["home"].get("name") or "") != T._norm(snap["home"]) and T._norm(f["away"].get("name") or "") == T._norm(snap["home"])
+    h, a = sum(hl[i] for i in idx), sum(al[i] for i in idx)
+    return {"hs": a if swap else h, "as": h if swap else a, "players": {}}
 
 
 def grade_bet(data_dir, legs, dec, fin_by_gid):

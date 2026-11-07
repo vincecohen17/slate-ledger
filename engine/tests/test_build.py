@@ -193,6 +193,26 @@ def test_suspended_tennis_is_not_final():
     assert not json.load(open(os.path.join(d, "finals", "state.json"))).get("done", {}).get(f"tennis/atp|{day}")
 
 
+def test_period_lines_grade_from_line_score():
+    import ledger, json, tempfile
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "track", "open"))
+    snap = {"id": "pg1", "sport": "basketball_nba", "commence": "2026-11-06T03:10:00Z", "home": "Home Team", "away": "Away Team", "rows": []}
+    json.dump(snap, open(os.path.join(d, "track", "open", "pg1.json"), "w"))
+    fin = {"pg1": {"gameId": "pg1", "home": {"name": "Away Team", "score": 104, "line": ["29", "24", "23", "28"]},
+                   "away": {"name": "Home Team", "score": 119, "line": ["26", "27", "38", "28"]}}}      # ESPN lists them the other way
+    g = lambda mk, side, pt=None: ledger.grade_leg(d, {"gameId": "pg1", "market": mk, "side": side, "point": pt}, fin)
+    assert g("alternate_totals_q2", "Under", 53.5)["y"] == 1.0          # 27 + 24 = 51
+    assert g("totals_q3", "Over", 63.5)["y"] == 0.0                     # 38 + 23 = 61
+    assert g("spreads_h2", "Home Team", -6.5)["y"] == 1.0              # 66 - 51
+    assert g("spreads_q1", "Away Team", -3.5)["y"] == 0.0              # won the 1Q by 3 (29-26)
+    assert g("h2h_q4", "Home Team")["y"] is None                        # 28-28: two-way period line pushes
+    assert g("h2h_3_way_h1", "Draw")["y"] == 1.0 and g("h2h_3_way_h1", "Home Team")["y"] == 0.0     # 53-53
+    fin["pg1"]["home"]["line"].append("10"); fin["pg1"]["away"]["line"].append("8")
+    assert g("totals_q4", "Over", 50.5) is None and g("totals_h2", "Over", 100.5) is None      # overtime: house rules differ
+    assert g("totals_h1", "Over", 100.5)["y"] == 1.0
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):
