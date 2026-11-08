@@ -164,7 +164,10 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   First-period player props (_q1, _p1, _h1/_1h): the box score's total is the period total until the window ends, then the
   value is locked (latest/period_locks.json); a lock read at the break is exact and grades the leg, else it's left to settle.
   Period yardage markets are priced with the full-game yardage shape (build.p_over / dist.js pOver). Bet corrections Vince
-  asks for go in the private data repo fixes/bets.json (switch a leg's side, or add a leg), applied once by ledger.apply_fixes.
+  asks for go in the private data repo fixes/bets.json (switch a leg's side, or add a leg), applied once by ledger.apply_fixes. New entries Vince asks
+  Claude to log (bets he placed, wallet deposits / withdrawals, a promo) go in fixes/new.json [{op promo|bet|wallet, id, doc, match?,
+  markUsed?}], created once by ledger.apply_inbox (latest/inbox_state.json; never overwrites; a promo with match reuses an unused one
+  he already saved; bet promoId "@<inbox id>"). A stake split between cash and bonus is logged as two bets at the same all-in price.
   On the site, a leg on a line no book prices (a pick'em app's own number) is estimated from the player's sharp mean.
   Parlays across games or days: grade_bets writes legsDone {index: {y, stat, void}} on the open bet as each leg's game goes
   final, and the site shows those legs as won or lost (projected.legRaw). Bets carry lastGame (their last game's start,

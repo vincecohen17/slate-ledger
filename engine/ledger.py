@@ -726,6 +726,73 @@ def debug_bets(db, data_dir, fin_by_gid):
 # league from its game's pre-game snapshot or the finals, else from a player or team name in the label. Written once
 # per bet as leagues [..] + leaguesAt, at most hourly (it reads every bet).
 
+def apply_inbox(db, data_dir, log=print):
+    """New ledger entries Vince asked Claude to log (a bet he placed, a withdrawal), kept in the private data repo
+    fixes/new.json: [{op: "promo" | "bet" | "wallet", id, doc, match?, markUsed?}]. Each runs once (latest/inbox_state.json)
+    and never overwrites a doc that already exists. A promo with `match` {venue, kinds, boost, minLegs} reuses an unused
+    promo Vince already saved that fits instead of creating a duplicate; a bet's promoId "@<inbox id>" resolves to it, and
+    markUsed marks that promo used by the bet, as the site's log sheet does. Logging records bets; it never places them."""
+    fn, st_fn = os.path.join(data_dir, "fixes", "new.json"), os.path.join(data_dir, "latest", "inbox_state.json")
+    try:
+        items = json.load(open(fn))
+    except Exception:
+        return 0
+    try:
+        st = json.load(open(st_fn))
+    except Exception:
+        st = {}
+    done, alias = set(st.get("done") or []), dict(st.get("alias") or {})
+    col = {"promo": "promos", "bet": "bets", "wallet": "wallet"}
+    n = 0
+    for it in items:
+        op, iid = it.get("op"), it.get("id")
+        if op not in col or not iid or iid in done:
+            continue
+        doc = dict(it.get("doc") or {})
+        try:
+            if op == "promo" and it.get("match"):
+                m = it["match"]
+                for snap in db.collection("promos").where("venue", "==", m.get("venue")).stream():
+                    q = snap.to_dict() or {}
+                    if q.get("used") or q.get("kind") not in (m.get("kinds") or [q.get("kind")]):
+                        continue
+                    if m.get("boost") is not None and abs((q.get("boost") or 0) - m["boost"]) > 1e-9:
+                        continue
+                    if m.get("minLegs") and (q.get("minLegs") or 1) > m["minLegs"]:
+                        continue
+                    alias[iid] = snap.id
+                    break
+                if iid in alias:
+                    done.add(iid)
+                    log(f"inbox: matched an existing promo")
+                    continue
+            if op == "bet" and str(doc.get("promoId") or "").startswith("@"):
+                doc["promoId"] = alias.get(doc["promoId"][1:], doc["promoId"][1:])
+            doc_id = doc.get("id") or iid
+            doc["id"] = doc_id
+            ref = db.document(f"{col[op]}/{doc_id}")
+            if ref.get().exists:
+                done.add(iid)
+                continue
+            ref.set(doc)
+            if op == "promo":
+                alias[iid] = doc_id
+            if op == "bet" and it.get("markUsed") and doc.get("promoId"):
+                pref = db.document(f"promos/{doc['promoId']}")
+                pd = pref.get().to_dict() or {}
+                if pd and not pd.get("used"):
+                    pref.update({"used": True, "usedAt": doc.get("createdAt"), "usedBy": doc_id})
+            done.add(iid)
+            n += 1
+        except Exception as e:
+            log(f"inbox: {op} failed ({type(e).__name__})")
+    os.makedirs(os.path.dirname(st_fn), exist_ok=True)
+    json.dump({"done": sorted(done), "alias": alias}, open(st_fn, "w"), indent=1)
+    if n:
+        log(f"inbox: {n} new ledger entries")
+    return n
+
+
 def apply_fixes(db, data_dir, log=print):
     """corrections Vince asked for on bets he logged (the wrong side of a leg, say), kept in the private data repo
     fixes/bets.json: [{id, leg (the leg's label as logged), side, label (the leg's corrected label)}]. Each runs once,
