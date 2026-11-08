@@ -92,6 +92,11 @@ def test_live_flag_needs_a_started_game():
     assert not ledger.is_live({"live": False, "createdAt": "2026-11-05T03:30:00Z", "legs": legs}, "/nonexistent")
     p = {"rushing.rushingTouchdowns": 0, "receiving.receivingTouchdowns": 1}
     assert tracker.stat("americanfootball_nfl", "player_tds", p) == 1
+    # a live bet's estimated fair is its live close (liveCheck), never the pre-game close
+    g = {"closeFair": 0.5184}
+    assert ledger.live_fair_at_log({"liveCheck": {"fair": 0.34}}, True, g) == 0.34
+    assert ledger.live_fair_at_log({}, True, g) is None
+    assert ledger.live_fair_at_log({}, False, g) == 0.5184
 
 
 def test_calibration_fit_stays_bounded():

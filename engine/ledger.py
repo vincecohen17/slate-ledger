@@ -589,6 +589,14 @@ def _legs_of(b, data_dir):
     return None
 
 
+def live_fair_at_log(b, live, g):
+    """the estimated fair for a bet logged without one: its own close. A live bet's close is the live fair minutes after
+    the bet (liveCheck), never the pre-game close (a Kings ML taken down 2 goals is not the 52% it closed at pre-game)."""
+    if live:
+        return (b.get("liveCheck") or {}).get("fair")
+    return (g or {}).get("closeFair")
+
+
 def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
     """settled bets that never got the engine's numbers (settled by hand before grading, or graded before these fields
     existed): closing line value, each leg's result and close, the legs' structured fields and start times, and an
@@ -648,8 +656,15 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
                         up.update({"clv": g["clv"], "closeFair": g["closeFair"], "closeEst": g.get("est") or None, "closeAge": g.get("closeAge"), "clvCal": g.get("clvCal")})
                 if not b.get("legResults"):
                     up["legResults"] = leg_results(legs, g["legs"])
-                if b.get("fairAtLog") is None and g.get("closeFair") is not None:
-                    up.update({"fairAtLog": g["closeFair"], "fairAtLogSrc": "close"})
+                fl = live_fair_at_log(b, live, g)
+                if b.get("fairAtLog") is None and fl is not None:
+                    up.update({"fairAtLog": fl, "fairAtLogSrc": "close"})
+        # a live bet whose estimated fair was filled from the pre-game close (before live bets were told apart): that
+        # number says nothing about a price taken in play, so it becomes the live fair minutes later, or nothing
+        if live and b.get("fairAtLogSrc") == "close" and "fairAtLog" not in up:
+            fl = (b.get("liveCheck") or {}).get("fair")
+            if fl != b.get("fairAtLog"):
+                up.update({"fairAtLog": fl, "fairAtLogSrc": "close" if fl is not None else None})
         if not b.get("lastGame"):          # the day the bet belongs to: its last game, not the day it was graded
             lg = last_game(data_dir, up.get("legs") or legs)
             if lg:
