@@ -696,3 +696,5 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 .dtabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 8px; margin-top: 14px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .dtabs::-webkit-scrollbar { display: none; }
 .dtabs .chip { flex-shrink: 0; }
+.mkt-item.steam { border-left: 3px solid var(--accent); padding-left: 10px; }
+.steam-card { border-color: var(--accent); }

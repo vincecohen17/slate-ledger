@@ -1,4 +1,4 @@
-import { marketDriven, whyBlock } from "./market.js";
+import { marketDriven, whyBlock, steamItems, steamList } from "./market.js";
 import { bindLog, labBtn } from "./common.js";
 import { S } from "../store.js";
 import { esc, am, prob, fmtTime, fmtDay, teamLogo, leagueLogo, signPt, $$, odds, oddsTxt, oddsTxtP } from "../util.js";
@@ -153,6 +153,9 @@ export function renderBoard(el) {
     <div class="bar" style="margin-top:6px"><span class="tiny muted">Sort</span>
       ${[["time", "Start time"], ["gap", "Model vs market"], ["edges", "Most edges"]].map(([k, l]) => `<button class="chip sm ${sort === k ? "on" : ""}" data-sort="${k}">${l}</button>`).join("")}
       <span class="spacer"></span><span class="tiny muted">Bars: market vs model win chance · rank bars: longer is better · <span class="pos">teal</span> price beats the sharp fair</span></div>`;
+  // just moved (steam scanner, every 2 minutes): the freshest, most time-sensitive spots first
+  const si = steamItems(league).slice(0, 3);
+  if (si.length) h += `<div class="card steam-card" style="margin:8px 0 12px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>⚡ Just moved: grab before they adjust</b><a class="tiny" href="#/edges">all on Edges</a></div>${steamList(si)}</div>`;
   // what the market is pointing at right now: sharp moves a venue hasn't followed (views/market.js)
   const md = marketDriven(S.edges).filter((e) => league === "All" || e.league === league).slice(0, 4);
   if (md.length) h += `<div class="card" style="margin:8px 0 12px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>⚡ Driven by the market now</b><a class="tiny" href="#/edges">all on Edges →</a></div>

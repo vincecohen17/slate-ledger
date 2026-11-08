@@ -172,6 +172,7 @@ export function start() {
   subs.push(onSnapshot(doc(db, "settings", "owner"), (d) => { S.settings = { ...SETTINGS0, ...(d.exists() ? d.data() : {}) }; changed(); }, onErr));
   listen("pre/opps", async (v) => { S.opps = v ? (await dec("pre/opps", v)).items || [] : []; });
   listen("pre/mkt", async (v) => { S.mkt = v ? await dec("pre/mkt", v) : null; });       // market behavior per game (engine market.py)
+  listen("live/steam", async (v) => { S.steam = v ? await dec("live/steam", v) : null; });   // sharp moves a venue hasn't followed (engine steam.py)
   mstatsOn = false;
   listen("pre/pickslive", async (v) => { S.picksLive = v ? await dec("pre/pickslive", v) : null; });
 }

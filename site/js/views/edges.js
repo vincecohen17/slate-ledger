@@ -1,4 +1,4 @@
-import { marketMoves, marketDriven, whyRecord } from "./market.js";
+import { marketMoves, marketDriven, whyRecord, steamItems, steamList } from "./market.js";
 import { S, testAlert, saveOppCheck } from "../store.js";
 import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$, odds } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
@@ -121,6 +121,11 @@ export function renderEdges(el) {
     return;
   }
   el.innerHTML = tabs + `<div class="bar">${chips("league", leagues)}<span class="spacer"></span>${chips("type", ["All", "Lines", "Props", "Pick'em"])}</div>
+    ${(() => { const si = steamItems(F.league);
+      const at = S.steam?.at ? Math.max(0, Math.round((Date.now() - new Date(S.steam.at)) / 60000)) : null;
+      return `<div class="sec-title">⚡ Just moved${si.length ? ` (${si.length})` : ""}<span class="line"></span></div>
+        ${si.length ? `<p class="note">A sharp book just moved and these venues are still at the old price. Windows are usually minutes: check the app's price, then grab it. Scanned every 2 minutes${at != null ? `, last ${at <= 0 ? "just now" : `${at} min ago`}` : ""}.</p>${steamList(si)}`
+          : `<p class="note">Nothing right now. Every 2 minutes the sharp books and your venues are compared on the main lines for games in the next 6 hours; a move your venues haven't followed shows up here and on your phone${at != null ? ` (last scan ${at <= 0 ? "just now" : `${at} min ago`})` : " once the watcher is running"}.</p>`}`; })()}
     ${liveE.length ? `<div class="sec-title"><span class="neg">●</span>&nbsp;Live now (${liveE.length})<span class="line"></span></div>
       <p class="note">In-play lines and props that beat the live sharp fair${S.live?.updated ? `, pulled ${Math.max(0, Math.round((Date.now() - new Date(S.live.updated)) / 60000))} min ago` : ""}. Live prices move with every play, so check the app's price before you bet; logging one records it as a live bet and grades it on the live price 5-30 minutes later, not the pre-game close. Live edges aren't alerted.</p>
       <div class="grid tight">${liveE.slice(0, F.liveAll ? 150 : 6).map(edgeCard).join("")}</div>

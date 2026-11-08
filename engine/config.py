@@ -183,7 +183,16 @@ HOT_STALE = [(1, 4), (3, 6), (12, 12), (36, 30), (9999, 90)]
 HOT_EDGE_MIN = 0.02
 HOT_MAX = 60             # at most this many hot games (picks and bets first, then arbs, then the biggest edges)
 HOT_DAY_SHARE = 0.85     # hot pulls with the site closed stop once the day has used this share of its paced cap
-HOT_ASK_MIN = 5          # the watcher asks for an auto run this often while hot games are on the board
+HOT_ASK_MIN = 5
+# Steam scanner (engine/steam.py, run by the watcher): main lines from the sharp books + Vince's venues every
+# STEAM_EVERY_MIN for sports with a game starting within STEAM_AHEAD_H; a sharp move of STEAM_MOVE+ with a venue still
+# at the old price worth STEAM_EDGE+ against the new fair is listed (site "Just moved") and alerted. 6 credits a sport a scan.
+STEAM_EVERY_MIN = 2
+STEAM_AHEAD_H = 6
+STEAM_WINDOW_MIN = 20
+STEAM_MOVE = 0.02
+STEAM_EDGE = 0.015
+STEAM_DAY_MAX = 12000          # the watcher asks for an auto run this often while hot games are on the board
 
 # Monthly pacing on the 5M plan: the billing cycle restarts on this day of the month; part of each cycle is kept for
 # historical-odds backtests; the rest is spread over the days left, weighted toward big slates.

@@ -2,7 +2,8 @@
 // followed, and DraftKings' betting splits (share of bets vs share of money). Game page "Market" tab, the Edges page
 // "Market moves" section, chips on edge cards, and the signals' report card on Reports.
 import { S } from "../store.js";
-import { esc, pct, prob, fmtTime, fmtDay, signPt, leagueLogo, oddsP, $$ } from "../util.js";
+import { esc, pct, prob, fmtTime, fmtDay, signPt, leagueLogo, oddsP, odds, $$ } from "../util.js";
+import { labBtn } from "./common.js";
 
 const MK = { h2h: "Moneyline", spreads: "Spread", totals: "Total" };
 const BOOK = { pinnacle: "Pinnacle", circasports: "Circa", lowvig: "LowVig", betonlineag: "BetOnline", draftkings: "DraftKings",
@@ -213,4 +214,36 @@ export function whyRecord(card, { compact = false } = {}) {
     ${rows.map((r) => `<tr><td style="text-align:left">${esc(r.k)}</td><td class="num">${r.graded}</td><td class="num">${r.games ?? "–"}</td>
       <td class="num ${r.gap > 0.01 ? "pos" : r.gap < -0.01 ? "neg" : ""}">${r.gap > 0 ? "+" : ""}${(r.gap * 100).toFixed(1)} pts</td><td class="num ${r.roi > 0 ? "pos" : "neg"}">${pct(r.roi)}</td>
       <td class="num">${r.roiT ?? "–"}</td><td class="num">${r.clvCal != null ? pct(r.clvCal) : "–"}</td><td class="num">${r.roiR != null ? pct(r.roiR) : "–"}</td></tr>`).join("")}</tbody></table></div></div>`;
+}
+
+
+// ---------- Just moved: the steam scanner (engine steam.py, every 2 minutes from the watcher) found a sharp move with one of
+// Vince's venues still at the old price. Minutes matter here, so each item shows how long ago the sharp book moved and how
+// long the window has been open, plus how long that venue's windows usually stay open.
+export function steamItems(league = "All") {
+  const st = S.steam;
+  if (!st || !st.at || Date.now() - new Date(st.at) > 6 * 60000) return [];          // a scan older than 6 minutes is stale
+  return (st.items || []).filter((i) => (league === "All" || i.league === league) && new Date(i.commence) > new Date())
+    .sort((a, b) => b.edge - a.edge);
+}
+const ago = (t) => { const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000)); return m < 1 ? "just now" : `${m} min ago`; };
+const ptTxt = (i) => i.market === "h2h" ? `${i.side} ML` : i.market === "totals" ? `${i.side} ${i.point}` : `${i.side} ${signPt(i.point)}`;
+export function steamSpec(i) {
+  return { label: ptTxt(i), gameId: i.gameId, league: i.league, matchup: i.matchup, commence: i.commence, market: i.market, side: i.side,
+    point: i.market === "h2h" ? null : i.point, team: i.market === "h2h" || i.market === "spreads" ? i.side : null, am: i.am, venue: i.venue,
+    venueName: i.venueName, fair: i.fair, source: "steam", why: "lag", whyText: i.text };
+}
+export function steamList(items, { compact = false } = {}) {
+  if (!items.length) return "";
+  const win = S.steam?.windows || {};
+  return `<div class="mkt-list">${items.map((i) => {
+    const w = win[i.venue];
+    return `<div class="mkt-item steam"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap;min-width:0">
+        <a href="#/game/${esc(i.gameId)}/market" style="color:inherit;text-decoration:none;min-width:0"><b>${esc(ptTxt(i))}</b> <span class="muted">at ${esc(i.venueName)}</span> ${odds(i.am)}</a>
+        <span class="pill pos">+${(100 * i.edge).toFixed(1)}% vs new fair</span></div>
+      <div class="small">⚡ ${esc(i.text)}</div>
+      <div class="tiny muted">Sharp move ${ago(i.sharpAt || i.first)} · window open ${ago(i.first).replace(" ago", "")}${w && w.n >= 3 ? ` · ${esc(i.venueName)} usually follows in ~${Math.max(1, Math.round(w.med))} min (${w.n} seen)` : ""}
+        · fair now ${oddsP(i.fair)} (was ${prob(i.fairBefore)}) · ${esc(i.matchup)} · ${fmtTime(i.commence)}</div>
+      ${compact ? "" : `<div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn sm" data-log='${esc(JSON.stringify(steamSpec(i)))}'>Log</button>${labBtn({ gameId: i.gameId, market: i.market, side: i.side, point: i.market === "h2h" ? null : i.point }, { venue: i.venue })}</div>`}
+    </div>`; }).join("")}</div>`;
 }

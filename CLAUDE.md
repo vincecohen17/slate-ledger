@@ -28,6 +28,16 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   sits there) whether or not the site is open, until the day has used HOT_DAY_SHARE of its paced cap; hot events go
   first in the queue. The watcher dispatches an auto run every HOT_ASK_MIN (5) min while hot games start within 18 h
   (and stays up for them); an auto run that finds everything fresh spends no credits.
+- Steam scanner (`engine/steam.py`, run by the watcher every STEAM_EVERY_MIN = 2 min for sports with a board game within
+  STEAM_AHEAD_H = 6 h): one odds call per sport for h2h/spreads/totals from the sharp books + Vince's sportsbooks/exchanges
+  (13 books = 2 units, 6 credits a sport; STEAM_DAY_MAX 12k credits/day in latest/steam_state.json). Sharp consensus per
+  game/market kept 20 min (re-based across point moves on market.SLOPE); a move of STEAM_MOVE (2 pts of chance) within that
+  window, backed by a sharp update in the last 12 min, lists every venue quote on the side it moved toward that is at the
+  SAME price and line as before the move and beats the new fair by STEAM_EDGE (1.5%, all-in) -> RTDB live/steam (site
+  S.steam: Edges "Just moved" on top, Board strip; Log (source steam, why lag) and + Lab) and phone alerts (alerts.steam,
+  priority 5, any hour, cfg steamMinEdge 2%). Each window's length (first seen -> venue moved / edge gone) is logged to
+  track/steam/log.jsonl; steam.windows gives each venue's median ("Novig usually follows in ~5 min"). Soccer 3-way
+  moneylines and fixed puck/run lines are skipped.
 - `engine/context.py` verified news Claude's pick runs write to the data repo `context/<YYYY-MM-DD>.json`
   (status / minutes / goalie / starter / note entries; schema in the module docstring) plus NFL kickoff weather
   (Open-Meteo); applied to the models before "logic agrees" is decided. NHL back-to-backs and NBA rest are in the models.

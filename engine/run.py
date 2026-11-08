@@ -658,6 +658,7 @@ def watch():
     asked, seen_live, graded_ask, last_grade = set(), set(), {}, 0.0      # graded_ask: gameId -> when its rebuild was asked
     st0 = load_state()
     last_hot = 0.0
+    last_steam, steam_api, steam_cr = 0.0, None, 0
     while True:
         NOW = datetime.now(timezone.utc)
         t1 = time.time()
@@ -699,6 +700,13 @@ def watch():
         if hot_soon and time.time() - last_hot > C.HOT_ASK_MIN * 60:
             if _dispatch("auto", f"hot refresh, {hot_soon} games"):
                 last_hot = time.time()
+        # steam: a sharp move with Vince's venues still at the old price, caught within STEAM_EVERY_MIN
+        if time.time() - last_steam >= C.STEAM_EVERY_MIN * 60 - 5:
+            last_steam = time.time()
+            try:
+                steam_cr += _steam_pass(steam_api or None)
+            except Exception as e:
+                log(f"watch: steam failed ({type(e).__name__}: {str(e)[:80]})")
         if not (r.get("need") or r.get("upcoming") or site_live or board_soon or hot_soon):
             log("watch: nothing left in play and no game starting soon")
             break
@@ -707,7 +715,42 @@ def watch():
             _dispatch_watch(chain=True)
             break
         time.sleep(max(5, 60 - (time.time() - t1)))
-    log(f"watch: {passes[True]} full passes, {passes[False]} free passes in {round((time.time() - t0) / 60)} min")
+    log(f"watch: {passes[True]} full passes, {passes[False]} free passes in {round((time.time() - t0) / 60)} min"
+        + (f", steam scans spent {steam_cr} credits" if steam_cr else ""))
+
+
+_STEAM_API = None
+
+
+def _steam_pass(_unused=None):
+    """one steam scan for sports with a board game starting within STEAM_AHEAD_H: publishes live/steam and alerts"""
+    global _STEAM_API
+    import steam
+    key = os.environ.get("ODDS_API_KEY")
+    if not key:
+        return 0
+    try:
+        gs = json.load(open(os.path.join(DATA_DIR, "latest", "board.json")))
+        gs = gs["games"] if isinstance(gs, dict) else gs
+    except Exception:
+        return 0
+    lo, hi = iso(NOW), iso(NOW + timedelta(hours=C.STEAM_AHEAD_H))
+    sports = sorted({g.get("sport") for g in gs if g.get("sport") and lo < (g.get("commence") or "") <= hi})
+    if not sports:
+        return 0
+    if _STEAM_API is None:
+        _STEAM_API = OddsAPI(key, max_credits=C.STEAM_DAY_MAX)
+    items, spent = steam.scan(_STEAM_API, DATA_DIR, NOW, sports, log=log)
+    try:
+        import rt
+        rt.ref("live/steam", DATA_DIR).set(rt.z({"at": iso(NOW), "items": items, "windows": steam.windows(DATA_DIR)}))
+    except Exception as e:
+        log(f"steam: publish failed ({type(e).__name__})")
+    if items:
+        import alerts
+        alerts.steam(DATA_DIR, NOW, items, log=log)
+        log(f"steam: {len(items)} venues lagging a sharp move")
+    return spent
 
 
 def _hot_soon(hours=18):

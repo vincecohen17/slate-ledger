@@ -157,3 +157,29 @@ def share_topic(db, data_dir):
     st["shared"] = want
     json.dump(st, open(os.path.join(data_dir, "latest", "alerts_state.json"), "w"), separators=(",", ":"))
     return True
+
+
+def steam(data_dir, now, items, log=print):
+    """phone alert for each new steam item (a sharp move with a venue still at the old price): sent at once, any hour,
+    because the window is minutes; cfg steamMinEdge (default 2%) sets the bar"""
+    cfg = _cfg(data_dir)
+    if not cfg or not cfg.get("topic") or cfg.get("steam") is False:
+        return 0
+    st = _state(data_dir)
+    n = 0
+    try:
+        for i in sorted(items, key=lambda x: -x["edge"]):
+            k = "s|" + i["id"]
+            if k in st["sent"] or i["edge"] < cfg.get("steamMinEdge", 0.02):
+                continue
+            title = f"Sharp move: {i['venueName']} lagging ({i['league']})"
+            body = (f"{i['text']} ({100 * i['edge']:.1f}% edge vs the new fair {100 * i['fair']:.0f}%). "
+                    f"{i['matchup']}. Grab it before {i['venueName']} adjusts.")
+            _post(cfg, title, body, tags="zap", priority=5, click=cfg.get("click", "https://slate-ledger.web.app") + "/#/edges")
+            st["sent"][k] = now.isoformat()
+            n += 1
+        if n:
+            _save(data_dir, st, now)
+    except Exception as e:
+        log(f"alerts: steam failed ({type(e).__name__})")
+    return n
