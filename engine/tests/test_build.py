@@ -218,6 +218,28 @@ def test_period_lines_grade_from_line_score():
     assert g("totals_h1", "Over", 100.5)["y"] == 1.0
 
 
+def test_finals_match_neutral_and_loose_names():
+    import finals
+    from datetime import datetime, timezone
+    when = datetime(2026, 11, 7, 0, 0, tzinfo=timezone.utc)
+    snaps = [{"id": "g1", "sport": "basketball_ncaab", "home": "Saint Louis Billikens", "away": "Missouri Tigers", "ha": "SLU", "aa": "MIZ",
+              "commence": "2026-11-07T00:00:00Z", "rows": []},
+             {"id": "g2", "sport": "basketball_ncaab", "home": "Florida Int'l Golden Panthers", "away": "West Florida Argonauts", "ha": None,
+              "aa": "UWF", "commence": "2026-11-07T00:00:00Z", "rows": []},
+             {"id": "g3", "sport": "basketball_ncaab", "home": "Florida Gators", "away": "Duke Blue Devils", "ha": "FLA", "aa": "DUKE",
+              "commence": "2026-11-07T00:00:00Z", "rows": []}]
+    m = lambda h, a: finals._match(snaps, [], "basketball_ncaab", h, a, when)
+    gid, _, sw = m({"name": "Missouri Tigers", "abbr": "MIZ"}, {"name": "Saint Louis Billikens", "abbr": "SLU"})
+    assert gid == "g1" and sw                                       # neutral site: ESPN's home team is the books' away team
+    gid, _, sw = m({"name": "Florida International Panthers", "abbr": "FIU"}, {"name": "West Florida Argonauts", "abbr": "UWF"})
+    assert gid == "g2" and not sw                                   # one team exact, the other a name our refs can't resolve
+    assert m({"name": "Florida State Seminoles", "abbr": "FSU"}, {"name": "Duke Blue Devils", "abbr": "DUKE"})[0] is None     # FLA != FSU
+    assert m({"name": "Kentucky Wildcats", "abbr": "UK"}, {"name": "Texas Longhorns", "abbr": "TEX"})[0] is None
+    doc = finals._swap({"home": {"name": "Missouri Tigers", "score": 84}, "away": {"name": "Saint Louis Billikens", "score": 90},
+                        "teamStats": [{"k": "FG", "h": "30", "a": "33"}]})
+    assert doc["home"]["score"] == 90 and doc["teamStats"][0] == {"k": "FG", "h": "33", "a": "30"}
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

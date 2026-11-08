@@ -144,9 +144,11 @@ def rematch(store, snaps, games):
                         doc["home"], doc["away"] = doc["away"], doc["home"]
                     n += 1
                 continue
-            gid, snap = _match(snaps, games, doc.get("sport"), doc["home"], doc["away"], when)
+            gid, snap, sw = _match(snaps, games, doc.get("sport"), doc["home"], doc["away"], when)
             if gid:
                 doc["gameId"] = gid
+                if sw:
+                    _swap(doc)
                 if snap and not doc.get("pre"):
                     doc["pre"] = _pre(snap)
                 n += 1
@@ -168,20 +170,59 @@ def _pre(snap):
 
 
 def _match(snaps, games, sport, home, away, when):
-    """our game id for an ESPN game: same sport, same teams (names or abbreviations), start within a day"""
-    hn, an = {R.norm(home.get("name") or ""), R.norm(home.get("abbr") or "")}, {R.norm(away.get("name") or ""), R.norm(away.get("abbr") or "")}
-    def ok(h, a, ha, aa, t):
+    """(our game id, snapshot, swapped) for an ESPN game: same sport, same teams (names or abbreviations), start within a
+    day. Then the same teams with home and away the other way round (neutral sites: the books and ESPN pick different
+    home teams; swapped = True). Last, one team matching and the other a name our refs couldn't resolve to an ESPN team
+    ("Florida Int'l Golden Panthers" / "Florida International Panthers", "Grand Canyon Antelopes" / "Lopes"), only when a
+    single game in that sport fits within 30 minutes of the start."""
+    hn, an = {R.norm(home.get("name") or ""), R.norm(home.get("abbr") or "")} - {""}, {R.norm(away.get("name") or ""), R.norm(away.get("abbr") or "")} - {""}
+    cands = []
+    for x in snaps:
+        if x.get("sport") == sport:
+            cands.append((x["id"], x["home"], x["away"], x.get("ha"), x.get("aa"), x["commence"], x))
+    for x in games:
+        if x.get("sport") == sport:
+            cands.append((x["id"], x["home"], x["away"], (x.get("homeRef") or {}).get("abbr"), (x.get("awayRef") or {}).get("abbr"), x["commence"], None))
+    def gap(t):
         try:
-            close = abs((datetime.fromisoformat(t.replace("Z", "+00:00")) - when).total_seconds()) < 4 * 3600      # series play the same teams on back-to-back days
+            return abs((datetime.fromisoformat(t.replace("Z", "+00:00")) - when).total_seconds())
         except Exception:
-            close = False
-        return close and ({R.norm(h), R.norm(ha or "")} & hn) and ({R.norm(a), R.norm(aa or "")} & an)
-    snap = next((x for x in snaps if x.get("sport") == sport and ok(x["home"], x["away"], x.get("ha"), x.get("aa"), x["commence"])), None)
-    if snap:
-        return snap["id"], snap
-    g = next((x for x in games if x.get("sport") == sport and ok(x["home"], x["away"], (x.get("homeRef") or {}).get("abbr"),
-                                                                     (x.get("awayRef") or {}).get("abbr"), x["commence"])), None)
-    return (g["id"] if g else None), None
+            return None
+    def side(n, ab, want):
+        return bool({R.norm(n), R.norm(ab or "")} & want)
+    near = [c for c in cands if gap(c[5]) is not None and gap(c[5]) < 4 * 3600]      # series play the same teams on back-to-back days
+    for c in near:
+        if side(c[1], c[3], hn) and side(c[2], c[4], an):
+            return c[0], c[6], False
+    for c in near:
+        if side(c[1], c[3], an) and side(c[2], c[4], hn):
+            return c[0], c[6], True
+    def loose(n, ab, espn):
+        # a team our refs resolved to a different ESPN team is a different team; one they couldn't resolve may be this one
+        return not ab and bool(n) and bool(espn.get("name"))
+    hits = {}
+    for c in near:
+        if gap(c[5]) > 30 * 60:
+            continue
+        if (side(c[1], c[3], hn) and loose(c[2], c[4], away)) or (side(c[2], c[4], an) and loose(c[1], c[3], home)):
+            hits.setdefault(c[0], (c, False))
+        elif (side(c[1], c[3], an) and loose(c[2], c[4], home)) or (side(c[2], c[4], hn) and loose(c[1], c[3], away)):
+            hits.setdefault(c[0], (c, True))
+    if len(hits) == 1:
+        c, sw = next(iter(hits.values()))
+        snap = c[6] or next((x for x in snaps if x.get("id") == c[0]), None)
+        return c[0], snap, sw
+    return None, None, False
+
+
+def _swap(doc):
+    """a final whose home/away is the other way round from our game: turned to our orientation (scores, line score, box
+    and team stats follow the team, so only the two sides and the team-stat columns change)"""
+    doc["home"], doc["away"] = doc["away"], doc["home"]
+    for t in doc.get("teamStats") or []:
+        t["h"], t["a"] = t.get("a"), t.get("h")
+    doc["swapped"] = True
+    return doc
 
 
 def _doc(sport, e, s, snaps, games):
@@ -192,7 +233,9 @@ def _doc(sport, e, s, snaps, games):
     home, away = _side(comp["home"]), _side(comp["away"])
     st = (hdr.get("status") or e.get("status") or {}).get("type") or {}
     when = datetime.fromisoformat((e.get("date") or hdr.get("date")).replace("Z", "+00:00"))
-    gid, snap = _match(snaps, games, sport, home, away, when)
+    gid, snap, sw = _match(snaps, games, sport, home, away, when)
+    if sw:
+        home, away = away, home
     pre = _pre(snap)
     res = None
     if pre and home["score"] is not None and away["score"] is not None:
@@ -208,7 +251,8 @@ def _doc(sport, e, s, snaps, games):
             "commence": when.isoformat().replace("+00:00", "Z"), "date": str(_pt(when)), "status": st.get("shortDetail") or st.get("description") or "Final",
             "home": home, "away": away, "teamStats": _team_stats(s, home["abbr"]) if s else [], "plays": _plays(s) if s else [],
             "box": _box(s) if s else {}, "pre": pre, "result": res,
-            "venue": ((hdr.get("venue") or (s or {}).get("gameInfo", {}).get("venue") or {}).get("fullName"))}
+            "venue": ((hdr.get("venue") or (s or {}).get("gameInfo", {}).get("venue") or {}).get("fullName")),
+            **({"swapped": True} if sw else {})}
 
 
 def _tennis_decided(doc):
