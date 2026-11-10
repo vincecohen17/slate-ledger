@@ -1591,6 +1591,11 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"tracker failed: {type(e).__name__}: {str(e)[:100]}")
         n_graded, params, card = 0, tracker.load_params(DATA_DIR), []
     mups = matchup.build_all(game_docs, prop_docs, DATA_DIR, today)
+    try:        # props no sportsbook prices (faceoffs won, pick'em-only stats): an estimate from the player's last games
+        import history
+        history.stamp(DATA_DIR, prop_docs, NOW, log=log)
+    except Exception as e:
+        log(f"history failed: {type(e).__name__}")
     n_cal = tracker.apply(params, game_docs, prop_docs)
     edge_list = build.edges(game_docs, prop_docs)
     try:

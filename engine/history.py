@@ -1,140 +1,109 @@
-"""Historical closing odds for backtests (The Odds API historical endpoints; 10 credits per market returned).
+"""History estimate for props no sportsbook prices (Nov 10): faceoffs won, odd pick'em-only stats.
 
-For each league and season in PLAN, day by day:
-  1. the historical events list for that day (which games, when they start),
-  2. one snapshot per game 10 minutes before start (the close) with the game lines and the main player props,
-     from up to 10 books (one credit unit),
-  3. de-vigged like the live board (sharp-weighted consensus) and saved compactly:
-     history/<sport>/<season>/<YYYY-MM-DD>.json.gz  [{id, commence, home, away, lines:[...], props:[...]}]
-Resumable: history/state.json remembers finished days and credits spent. A run stops before the job time limit
-and asks GitHub to start the next run until every day is done or the history budget is used.
-"""
-import gzip
+A prop row with no fair (no two books quote it; only the pick'em apps list it) gets histFair {Over, Under} from the
+player's own recent games in our daily box scores (stats/<league>/<season>/<date>.json, read with tracker.stat): the mean
+of his last LAST games where the stat was recorded (at least MIN_N), shrunk a little toward his season mean, at the row's
+number with build.p_over (his own dispersion when there are enough games). It is NOT a fair: rows keep fair null, so it
+never makes an edge, a pick or a CLV. The site's projection uses it for a leg nothing else prices, labelled as an
+estimate from his last games."""
+import glob
 import json
 import os
-import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import timedelta
 
 import build as B
-import config as C
+import tracker as T
 
-BOOKS = ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel", "betmgm", "williamhill_us", "bovada", "betrivers", "espnbet"]
-GAME = ["h2h", "spreads", "totals"]
-MARKETS = {
-    "basketball_nba": GAME + ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists"],
-    "icehockey_nhl": GAME + ["player_shots_on_goal", "player_points", "player_goal_scorer_anytime", "player_total_saves", "player_assists"],
-    "americanfootball_nfl": GAME + ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions", "player_anytime_td",
-                                    "player_pass_tds", "player_rush_attempts", "player_pass_completions"],
-    "americanfootball_ncaaf": GAME,
-    "baseball_mlb": GAME,
-}
-# (sport, season label used by the stats files, first day, last day or None = yesterday)
-PLAN = [
-    ("basketball_nba", "2026-27", "2026-10-20", None),
-    ("icehockey_nhl", "2026-27", "2026-10-06", None),
-    ("americanfootball_nfl", "2026", "2026-09-09", None),
-    ("basketball_nba", "2025-26", "2025-10-21", "2026-04-12"),
-    ("icehockey_nhl", "2025-26", "2025-10-07", "2026-04-16"),
-    ("americanfootball_nfl", "2025", "2025-09-04", "2026-01-04"),
-    ("americanfootball_ncaaf", "2025", "2025-08-23", "2025-12-13"),
-    ("americanfootball_ncaaf", "2026", "2026-08-29", None),
-    ("baseball_mlb", "2026", "2026-03-26", "2026-09-27"),
-]
-BUDGET = 400_000
-TIME_LIMIT_S = 38 * 60
+LEAGUE_DIR = {"icehockey_nhl": "nhl", "basketball_nba": "nba", "basketball_wnba": "wnba", "basketball_ncaab": "ncaab",
+              "americanfootball_nfl": "nfl", "americanfootball_ncaaf": "cfb"}
+LAST, MIN_N, LOOKBACK_DAYS = 15, 5, 120
 
 
-def _iso(dt):
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+def _norm(s):
+    return " ".join(str(s or "").lower().replace(".", "").replace("'", "").replace("-", " ").split())
 
 
-def compact(ev, label):
-    """closing fairs only: lines (market, point, team, fair) and props (market, player, point, fair, books)"""
-    g = B.build_game(ev, label)
-    B.add_extra_lines(ev, g)
-    lines = [{"m": l["market"], "pt": l.get("point"), "team": l.get("team"), "fair": l["fair"], "w": l.get("fairWeight"), "main": l.get("isMain")}
-             for l in g["lines"] if l.get("fair")]
-    props = []
-    for d in B.build_props(ev, label).values():
-        for r in d["rows"]:
-            if r.get("fair"):
-                props.append({"m": d["market"], "player": r["player"], "pt": r.get("point"), "fair": r["fair"], "w": r.get("fairWeight"),
-                              "main": r.get("isMain"), "mean": r.get("mean")})
-    return {"id": ev["id"], "commence": ev["commence_time"], "home": ev["home_team"], "away": ev["away_team"], "lines": lines, "props": props}
-
-
-def run(api, data_dir, started=None):
-    started = started or time.time()
-    sp = os.path.join(data_dir, "history", "state.json")
-    try:
-        st = json.load(open(sp))
-    except Exception:
-        st = {"done": {}, "spent": 0, "games": 0}
-    yesterday = (datetime.now(timezone.utc) - timedelta(hours=7)).date() - timedelta(days=1)
-    stop = None
-    for sport, season, first, last in PLAN:
-        key = f"{sport}|{season}"
-        done = set(st["done"].get(key, []))
-        d0 = date.fromisoformat(first)
-        d1 = date.fromisoformat(last) if last else yesterday
-        day = d0
-        while day <= d1:
-            ds = day.isoformat()
-            day += timedelta(days=1)
-            if ds in done:
-                continue
-            if time.time() - started > TIME_LIMIT_S:
-                stop = "time"
-                break
-            if st["spent"] >= BUDGET:
-                stop = "budget"
-                break
-            t0 = datetime.fromisoformat(ds + "T15:00:00+00:00")       # 8 AM PT: that day's games are listed
-            try:
-                evs = api.historical_events(sport, _iso(t0), commenceTimeFrom=_iso(t0), commenceTimeTo=_iso(t0 + timedelta(days=1)))
-            except Exception as e:
-                st.setdefault("errors", []).append(f"{key} {ds} events {type(e).__name__}")
-                continue
-            out = []
-            before = api.used_run
-            for ev in (evs or {}).get("data", []):
-                close = datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00")) - timedelta(minutes=10)
-                try:
-                    res = api.historical_event_odds(sport, ev["id"], _iso(close), MARKETS[sport], BOOKS)
-                except Exception as e:
-                    st.setdefault("errors", []).append(f"{key} {ds} {type(e).__name__}")
-                    continue
-                data = (res or {}).get("data")
-                if data and data.get("bookmakers"):
-                    try:
-                        out.append(compact(data, C.label(sport)))
-                    except Exception as e:
-                        st.setdefault("errors", []).append(f"{key} {ds} build {type(e).__name__}")
-            st["spent"] += api.used_run - before
-            fn = os.path.join(data_dir, "history", sport, season, f"{ds}.json.gz")
-            os.makedirs(os.path.dirname(fn), exist_ok=True)
-            with gzip.open(fn, "wt") as f:
-                json.dump(out, f, separators=(",", ":"))
-            st["games"] += len(out)
-            done.add(ds)
-            st["done"][key] = sorted(done)
-            st["errors"] = st.get("errors", [])[-50:]
-            json.dump(st, open(sp, "w"))
-        if stop:
-            break
-    st["complete"] = stop is None
-    st["at"] = _iso(datetime.now(timezone.utc))
-    json.dump(st, open(sp, "w"))
-    return st, stop
-
-
-def load(data_dir, sport, season):
-    """{date: [games]} of closing fairs for a season"""
-    import glob
+def _logs(data_dir, sport, now):
+    """player name -> [(date, box dict)] oldest first, from the last LOOKBACK_DAYS of daily box scores"""
+    lg = LEAGUE_DIR.get(sport)
+    if not lg:
+        return {}
+    since = (now - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
     out = {}
-    for fn in sorted(glob.glob(os.path.join(data_dir, "history", sport, season, "*.json.gz"))):
+    for fn in sorted(glob.glob(os.path.join(data_dir, "stats", lg, "*", "*.json"))):
+        day = os.path.basename(fn)[:10]
+        if day < since:
+            continue
         try:
-            out[os.path.basename(fn)[:10]] = json.load(gzip.open(fn, "rt"))
+            d = json.load(open(fn))
         except Exception:
-            pass
+            continue
+        for g in d.get("games") or []:
+            for p in g.get("players") or []:
+                if p.get("dnp"):
+                    continue
+                out.setdefault(_norm(p.get("name")), []).append((day, p))
     return out
+
+
+def estimate(sport, market, player, point, logs):
+    """{p_over, mean, n} from the player's last games, or None"""
+    rows = logs.get(_norm(player)) or []
+    vals = []
+    for _, p in rows:
+        try:
+            v = T.stat(sport, market, p)
+        except Exception:
+            v = None
+        if v is not None:
+            vals.append(float(v))
+    if len(vals) < MIN_N:
+        return None
+    last = vals[-LAST:]
+    mean_l, mean_s = sum(last) / len(last), sum(vals) / len(vals)
+    w = len(last) / (len(last) + 5)                 # a short sample leans on the season
+    mean = w * mean_l + (1 - w) * mean_s
+    if mean <= 0:
+        return None
+    try:
+        if len(last) >= 8 and not B._is_normal(market):
+            var = sum((v - mean_l) ** 2 for v in last) / (len(last) - 1)
+            k = max(1.0, min(3.0, var / mean_l)) if mean_l > 0 else None
+            saved = B.DISPERSION.setdefault(sport, {}).get(market)
+            B.DISPERSION[sport][market] = k or saved or 1.3
+            try:
+                po = B.p_over(market, mean, point, sport)
+            finally:
+                if saved is None:
+                    B.DISPERSION[sport].pop(market, None)
+                else:
+                    B.DISPERSION[sport][market] = saved
+        else:
+            po = B.p_over(market, mean, point, sport)
+    except Exception:
+        return None
+    if po is None:
+        return None
+    return {"p": min(0.99, max(0.01, po)), "mean": round(mean, 2), "n": len(last)}
+
+
+def stamp(data_dir, prop_docs, now, log=print):
+    """histFair on every prop row with no fair; returns how many rows got one"""
+    cache, n = {}, 0
+    for doc in prop_docs:
+        sport = doc.get("sport")
+        if sport not in LEAGUE_DIR:
+            continue
+        for r in doc.get("rows") or []:
+            if r.get("fair") or r.get("point") is None or not r.get("player"):
+                continue
+            if sport not in cache:
+                cache[sport] = _logs(data_dir, sport, now)
+            e = estimate(sport, doc["market"], r["player"], r["point"], cache[sport])
+            if e:
+                r["histFair"] = {"Over": round(e["p"], 4), "Under": round(1 - e["p"], 4)}
+                r["histMean"], r["histN"] = e["mean"], e["n"]
+                n += 1
+    if n:
+        log(f"history: {n} unpriced prop rows estimated from players' last games")
+    return n

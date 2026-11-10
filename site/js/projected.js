@@ -121,7 +121,7 @@ export const betLegs = (b) => (b.legs && b.legs.length ? b.legs : [b]).map((x, i
 // what we already knew. Running stats and scores never go backwards, a cleared line stays cleared, and the last live
 // reading is kept (up to 3 hours) until a newer live number or the final arrives.
 const memo = new Map(), stMemo = new Map();
-const RANK = { final: 5, live: 4, "live market": 3, "live model": 3, "last pre-game": 1, now: 1, "when logged": 0 };
+const RANK = { final: 5, live: 4, "live market": 3, "live model": 3, "last pre-game": 1, now: 1, "his last games": 1, "when logged": 0 };
 const legKey = (l) => [l.gameId, l.market, l.side, l.point, l.player, l.team].join("|");
 export function gameState(gid) {
   const st = S.liveGames.get(gid)?.state || (S.live?.games || []).find((x) => x.id === gid)?.state;
@@ -197,6 +197,10 @@ function legRaw(leg) {
     // a line no book prices (a pick'em app's own number): the player's sharp mean from his priced line, at this number
     const e = propEst(docs, leg);
     if (e != null) return { p: e, src: "now" };
+    // a stat no sportsbook prices at all (faceoffs won, pick'em-only markets): the engine's estimate from his last games
+    // (history.py histFair; never a fair, so it never makes an edge), marked as an estimate
+    const kh = r && sideKey(r.histFair, leg.side);
+    if (kh) return { p: r.histFair[kh], src: "his last games", est: true, histN: r.histN, histMean: r.histMean };
   }
   return { p: leg.fair ?? null, src: "when logged" };
 }
@@ -326,7 +330,7 @@ function progress0(leg, r) {
   }
   const d = S.liveGames.get(leg.gameId), st = gameState(leg.gameId);
   const g = S.games.get(leg.gameId);
-  if (!st) return { cls: "muted", icon: "○", text: g ? `Starts ${fmtTime(g.commence)}` : "Not started", bar: { cur: 0, line: null, proj: null } };
+  if (!st) return { cls: "muted", icon: "○", text: (g ? `Starts ${fmtTime(g.commence)}` : "Not started") + (r && r.est && r.histN ? ` · no book prices this: est. from his last ${r.histN} games (avg ${r.histMean})` : ""), bar: { cur: 0, line: null, proj: null } };
   const base = (leg.market || "").replace("alternate_", ""), pt = leg.point, m = d?.model || {};
   const over = leg.side === "Over" || leg.side === "Yes";
   const bar = (cur, target, proj) => {      // how far along: filled to now, tick at the line, dot at the projected finish

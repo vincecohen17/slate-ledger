@@ -191,7 +191,11 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   Claude to log (bets he placed, wallet deposits / withdrawals, a promo) go in fixes/new.json [{op promo|bet|wallet, id, doc, match?,
   markUsed?}], created once by ledger.apply_inbox (latest/inbox_state.json; never overwrites; a promo with match reuses an unused one
   he already saved; bet promoId "@<inbox id>"). A stake split between cash and bonus is logged as two bets at the same all-in price.
-  On the site, a leg on a line no book prices (a pick'em app's own number) is estimated from the player's sharp mean.
+  On the site, a leg on a line no book prices (a pick'em app's own number) is estimated from the player's sharp mean. A stat no
+  sportsbook prices at all (faceoffs won, other pick'em-only markets) gets histFair / histMean / histN from `engine/history.py`
+  (each pre-game run, after matchup: the player's last 15 games in stats/<league>/<season>/*.json via tracker.stat, at least
+  5, shrunk toward his season mean, build.p_over with his own dispersion when 8+ games); it is never a fair (no edge, pick or
+  CLV). The site's projection uses it last (src "his last games", est), and the leg's pre-game text says so.
   Parlays across games or days: grade_bets writes legsDone {index: {y, stat, void}} on the open bet as each leg's game goes
   final, and the site shows those legs as won or lost (projected.legRaw). Bets carry lastGame (their last game's start,
   written at grading and backfilled hourly): the Pacific day of that game is the bet's day everywhere (analysis gameDay,
