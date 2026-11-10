@@ -38,9 +38,13 @@ def _logs(data_dir, sport, now):
             d = json.load(open(fn))
         except Exception:
             continue
+        if not isinstance(d, dict):
+            continue            # a league whose daily file isn't a box score (NFL stats come from nflverse in another shape)
         for g in d.get("games") or []:
-            for p in g.get("players") or []:
-                if p.get("dnp"):
+            if not isinstance(g, dict) or not isinstance(g.get("players"), list):
+                continue
+            for p in g["players"]:
+                if not isinstance(p, dict) or p.get("dnp"):
                     continue
                 out.setdefault(_norm(p.get("name")), []).append((day, p))
     return out
