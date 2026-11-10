@@ -183,7 +183,7 @@ def daily(data_dir, days=45):
             for p in json.load(open(fn)):
                 d = (p.get("commence") or p.get("date") or "")[:10]
                 if d >= lo and p.get("clv") is not None and not (p.get("closeAge") is not None and p["closeAge"] > CLOSE_OK_MIN):
-                    by.setdefault(d, {"clv": [], "gap": [], "pclv": [], "cal": []})["pclv"].append(p.get("clvCal", p["clv"]))
+                    by.setdefault(d, {"clv": [], "gap": [], "pclv": [], "cal": []})["pclv"].append(p["clvCal"] if p.get("clvCal") is not None else p["clv"])
         except Exception:
             pass
     out = []
