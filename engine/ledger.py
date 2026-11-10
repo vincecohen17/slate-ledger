@@ -8,6 +8,7 @@ Bets (Firestore bets/{id}, written by the site) get an `auto` field {result, clv
 A bet or pick names its bet with gameId + market + side (+ point, player, team). Older picks only have the selection text;
 those are matched to the snapshot's rows by player, number and words.
 """
+import closemkt as CMK
 import closecal
 import glob
 import json
@@ -325,21 +326,49 @@ def grade_bet(data_dir, legs, dec, fin_by_gid):
         for c in cl:
             pc *= c
         clv = round(pc * dec - 1, 4)          # expected return per $1 at the price taken, valued at the closing fair
-    # calibrated CLV: each leg's close corrected to how our closes have actually done (closecal); the honest version
-    clv_cal = None
-    if clv is not None:
-        import closecal
-        pk = 1.0
-        for leg, g in zip(legs, out):
-            if g["y"] is None:
-                continue
-            pk *= closecal.cal(g["close"], "prop" if leg.get("player") else "line", data_dir, g.get("t") or "main")
-        clv_cal = round(pk * dec - 1, 4)
-    # the oldest close behind any leg: CLV is only as trustworthy as its stalest close (minutes before the start)
+    # CLV is measured against the market consensus at the close (closemkt, Nov 10): the books quoting each leg's exact
+    # number in the last pull before the start, de-vigged, with nothing of ours layered on. Our own fair at the close
+    # (self-corrected, model-repriced where thin) stays beside it as clvOurs; no consensus at a number -> no CLV.
     ages = [g.get("age") for g in live]
     age = max(ages) if live and all(a is not None for a in ages) else None
-    return {"result": result, "clv": clv, "closeFair": round(pc, 4) if clv is not None else None, "legs": out,
-            "est": any(g.get("est") for g in live), "closeAge": age, "clvCal": clv_cal}
+    m = market_close(data_dir, legs, dec, [g["y"] for g in out])
+    return {"result": result, "clv": m.get("clv"), "closeFair": m.get("closeFair"), "legs": out, "closeAge": m.get("closeAge"),
+            "est": any(g.get("est") for g in live), "clvCal": None, "closeSrc": "market", "clvMktV": CMK.VERSION,
+            "clvOurs": clv, "closeOurs": round(pc, 4) if clv is not None else None, "closeAgeOurs": age,
+            "clvImp": m.get("clvImp"), "closeImp": m.get("closeImp"), "clvWhy": m.get("why")}
+
+
+def market_close(data_dir, legs, dec, ys=None):
+    """closemkt.bet_close with each game's sport and start from its pre-game snapshot, else from the raw pulls"""
+    cache = {}
+
+    def meta(gid):
+        if gid not in cache:
+            sn = _snap(data_dir, gid)
+            cache[gid] = (sn["sport"], sn["commence"]) if sn else CMK.meta(data_dir, gid)
+        return cache[gid]
+    def from_snapshot(leg):
+        """the snapshot's raw (unshifted) fair for this exact number when it was a real market consensus: a main game line,
+        or a prop / alt row quoted by 2+ books that wasn't repriced from the main line (a repriced row carries the main
+        row's weight while not being the main number)"""
+        sn = _snap(data_dir, leg.get("gameId"))
+        if not sn:
+            return None
+        row, same = _canon(sn, leg)
+        if row is None or row.get("f") is None:
+            return None
+        peers = [r for r in sn.get("rows", []) if r["mk"] == row["mk"] and r.get("player") == row.get("player") and r.get("team") == row.get("team")]
+        main = max(peers, key=lambda r: ((r.get("w") or 0), (r.get("x") or {}).get("nb") or 0)) if peers else row
+        nb = (row.get("x") or {}).get("nb") or 0
+        main_line = row["mk"] in ("h2h", "spreads", "totals") and not row.get("player")
+        if not main_line and (nb < CMK.MIN_BOOKS or (row is not main and (row.get("w") or 0) >= (main.get("w") or 0))):
+            return None
+        p = row["f"] if same else 1 - row["f"]
+        return {"p": round(p, 4), "age": T.close_age(sn, bool(row.get("player")) or not main_line), "src": "snapshot"}
+    try:
+        return CMK.bet_close(data_dir, legs, dec, lambda g: meta(g)[0], lambda g: meta(g)[1], results=ys, fallback=from_snapshot)
+    except Exception as e:
+        return {"clv": None, "why": f"error {type(e).__name__}"}
 
 
 def leg_results(legs, out):
@@ -391,7 +420,10 @@ def _pick_dec(p):
     return am, (1 + am / 100) if am > 0 else (1 + 100 / -am)
 
 
-def grade_picks(data_dir, fin_by_gid, days=10, log=print):
+_MKT = ("clv", "closeFair", "closeAge", "clvCal", "closeSrc", "clvMktV", "clvOurs", "closeOurs", "clvImp", "closeImp", "clvWhy")
+
+
+def grade_picks(data_dir, fin_by_gid, days=60, log=print):
     n = 0
     for fn in sorted(glob.glob(os.path.join(data_dir, "picks", "*.json")))[-days:]:
         try:
@@ -402,7 +434,8 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
         for p in picks:
             # every tier grades, "likely" too (0 units: no profit, but its result, flat return and CLV are the record)
             # graded before calibrated CLV, or under an older calibration (closecal.VERSION)
-            refill = p.get("status") in ("won", "lost", "push") and p.get("clvCalV") != closecal.VERSION
+            # graded before CLV moved to the closing market consensus (closemkt.VERSION): re-measure, keep the result
+            refill = p.get("status") in ("won", "lost", "push") and p.get("clvMktV") != CMK.VERSION
             if p.get("status") not in (None, "open", "pending") and not refill:
                 continue
             snap = _snap(data_dir, p.get("gameId"))
@@ -433,8 +466,10 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
             g = grade_bet(data_dir, [leg], dec, fin_by_gid)
             if not g:
                 continue
-            if refill:          # keep the posted grade; add the newer measures only
-                p["clvCal"], p["closeAge"], p["clvCalV"] = g.get("clvCal"), g.get("closeAge"), closecal.VERSION
+            if refill:          # keep the posted grade; re-measure CLV against the closing market consensus
+                if "clvPrev" not in p:
+                    p["clvPrev"] = p.get("clv")
+                p.update({k: g.get(k) for k in _MKT})
                 if p.get("flat") is None:
                     p["flat"] = round(dec - 1, 3) if p["status"] == "won" else -1.0 if p["status"] == "lost" else 0.0
                 changed = True
@@ -446,10 +481,7 @@ def grade_picks(data_dir, fin_by_gid, days=10, log=print):
             # flat 1-unit return at the graded price: compares tiers and sports on one scale whatever the stake
             p["flat"] = round(dec - 1, 3) if g["result"] == "won" else -1.0 if g["result"] == "lost" else 0.0
             p["gradedAt"], p["gradeSrc"], p["gradeVenue"] = am, src, gv
-            p["clv"] = g["clv"]
-            p["closeFair"] = g["closeFair"]
-            p["closeAge"] = g.get("closeAge")
-            p["clvCal"], p["clvCalV"] = g.get("clvCal"), closecal.VERSION
+            p.update({k: g.get(k) for k in _MKT})
             if g["legs"] and g["legs"][0].get("stat") is not None:
                 p["finalStat"] = g["legs"][0]["stat"]
             changed = True
@@ -533,6 +565,9 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
         up = {"auto": {"result": g["result"], "clv": g["clv"], "closeFair": g["closeFair"], "closeAge": g.get("closeAge"), "clvCal": g.get("clvCal"),
                        "legs": leg_results(legs, g["legs"]), "closeEst": g.get("est") or None,
                        "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}}
+        if not is_live(b, data_dir, legs):        # measured against the closing market consensus: no re-measure later
+            up.update({"closeSrc": "market", "clvMktV": CMK.VERSION, "clvImp": g.get("clvImp"), "closeImp": g.get("closeImp"),
+                       "clvOurs": g.get("clvOurs"), "clvWhy": g.get("clvWhy")})
         lg = last_game(data_dir, legs)
         if lg and not b.get("lastGame"):
             up["lastGame"] = lg
@@ -635,8 +670,20 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
             up.update({k: legs[0].get(k) for k in ("market", "side", "point", "player", "team") if legs[0].get(k) is not None})
         # clvCal / closeAge arrived later: settled pre-game bets get them once (live bets use the live fair instead)
         live = is_live(b, data_dir, legs)
-        need_cal = not live and b.get("clvCalV") != closecal.VERSION       # never calibrated, or under an older calibration
-        need = b.get("clv") is None or not b.get("legResults") or b.get("fairAtLog") is None or need_cal
+        # CLV against the closing market consensus (closemkt): every settled pre-game bet once per closemkt.VERSION; the
+        # number it had before is kept as clvPrev. Needs only the raw pulls, so bets past the snapshot window get it too.
+        if not live and b.get("clvMktV") != CMK.VERSION:
+            ys = [r.get("y") for r in (b.get("legResults") or [])] or None
+            m = market_close(data_dir, legs, b.get("dec"), ys if ys and len(ys) == len(legs) else None)
+            up.update({"clv": m.get("clv"), "closeFair": m.get("closeFair"), "closeAge": m.get("closeAge"), "clvCal": None,
+                       "closeSrc": "market", "clvMktV": CMK.VERSION, "clvImp": m.get("clvImp"), "closeImp": m.get("closeImp"),
+                       "clvWhy": m.get("why")})
+            if "clvPrev" not in b:
+                up["clvPrev"] = b.get("clv")
+            if b.get("auto"):
+                up.update({"auto.clv": m.get("clv"), "auto.closeFair": m.get("closeFair"), "auto.closeAge": m.get("closeAge"), "auto.clvCal": None})
+        need_cal = False
+        need = (b.get("clv") is None and live) or not b.get("legResults") or b.get("fairAtLog") is None
         if need:
             try:
                 g = grade_bet(data_dir, legs, b.get("dec"), fin_by_gid)
@@ -645,15 +692,13 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
             if g:
                 if g["result"] != b.get("status"):
                     mism.append({"id": snap.id, "status": b.get("status"), "engine": g["result"]})
-                if need_cal:
-                    up.update({"clvCal": g.get("clvCal"), "closeAge": g.get("closeAge"), "clvCalV": closecal.VERSION})
-                if b.get("clv") is None:
+                if b.get("clv") is None and "clv" not in up:
                     if live:
                         lc = b.get("liveCheck") or {}
                         if lc.get("clv") is not None:
                             up.update({"clv": lc["clv"], "closeFair": lc.get("fair")})
                     elif g["clv"] is not None:
-                        up.update({"clv": g["clv"], "closeFair": g["closeFair"], "closeEst": g.get("est") or None, "closeAge": g.get("closeAge"), "clvCal": g.get("clvCal")})
+                        up.update({k: g.get(k) for k in _MKT})
                 if not b.get("legResults"):
                     up["legResults"] = leg_results(legs, g["legs"])
                 fl = live_fair_at_log(b, live, g)

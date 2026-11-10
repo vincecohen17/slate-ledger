@@ -159,7 +159,20 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   multiplied, or the app's table; per-pick multipliers typed in) and logs it with the promo attached.
 - `engine/ledger.py` grades after each game: Vince's pending bets (writes bets/{id}.auto {result, clv, closeFair}; the site
   settles them with the promo math) and our picks (status, profit in units, clv, closeFair in picks/<date>.json).
-  CLV = closing sharp fair x decimal price - 1, from the pre-game snapshot (tracker keeps them in `track/closed/` 21 days).
+  CLV = the market consensus at the close x decimal price - 1 (`engine/closemkt.py`, since Nov 10; product over a parlay's
+  live legs): each leg's close is rebuilt from the saved raw pulls (snapshots/<UTC day>/<HHMMSS>_<sport>_lines|event_<id>
+  .json.gz, the last pull before the start that carries the market, looking back 3 days), the books quoting that exact
+  number on both sides (2+), de-vigged and weighted as build._consensus (sharp-weighted, all books equally when no sharp
+  book quotes it), with nothing of ours on it: no fairadj shift, no repricing from a main line or model, no one-sided
+  estimate, no calibration. Where no raw pull carried the market, the pre-game snapshot's raw f is used when it was a real
+  consensus (a main game line, or a prop / alt row with 2+ books that wasn't repriced: a repriced row carries the main
+  row's weight without being the main number), closeSrc "snapshot". No consensus at the number (a pick'em app's own line,
+  a one-sided alt) -> clv null with clvWhy; such a prop gets clvImp (the consensus main row translated to that number with
+  build.mean_from_line / p_over), shown apart on the site and never counted. Bets and picks keep clvOurs (our fair at the
+  close, the old measure), clvPrev (the number before the switch), closeSrc "market", clvMktV (closemkt.VERSION: a bump
+  re-measures every settled pre-game bet in backfill_settled and every graded pick in grade_picks); clvCal is null for
+  bets and picks now (closecal still calibrates the edge report card). Live bets keep the live check. Leg closes are cached
+  in latest/closemkt_cache.json. Site KPI "Avg CLV vs close" with "market consensus at the close · n of N".
   Bets and picks name the bet with gameId, market, side, point (that side's own line), player, team.
   Period game lines (_q1-_q4, _h1/_h2, _p1-_p3, 1st_N_innings; hockey _q1 = P1) grade from the final's line score
   (ledger._period_score); a 4th quarter or 2nd half that went to overtime is left ungraded (books differ on OT).
