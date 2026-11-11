@@ -1190,7 +1190,7 @@ def auto():
                     queue.append((hrs, s, ev, ext, close, bool(h)))
         queue.sort(key=lambda x: (not x[5], x[0]))          # hot games first, so a budget stop never starves them
         n_events = 0
-        for _, s, ev, ext, close, is_hot in queue:
+        for hrs_ev, s, ev, ext, close, is_hot in queue:
             try:
                 bad = st.setdefault("badMarkets", {}).get(s, [])
                 mk = C.event_markets(s) if ext else C.core_markets(s)
@@ -1212,7 +1212,11 @@ def auto():
                 prev = None
             data = _merge_event(prev, data)
             cache_put(f"event_{ev['id']}.json", data)
-            if close or ev["id"] not in st.setdefault("savedEv", {}):
+            # a hot game refreshes every few minutes, so its pulls are never CLOSE_STALE_MIN old and `close` stays false:
+            # save any pull inside the close window when the last saved one is that old (else its CLV close is a day old)
+            in_win = 0 <= hrs_ev * 60 <= C.CLOSE_WINDOW_MIN
+            if close or ev["id"] not in st.setdefault("savedEv", {}) or (
+                    in_win and _age_min(st["savedEv"].get(ev["id"])) > C.CLOSE_STALE_MIN):
                 save_raw(s, f"event_{ev['id']}", data)     # history: first full view and the close, not every refresh
                 st["savedEv"][ev["id"]] = iso(NOW)
             st["events"][ev["id"]] = iso(NOW)

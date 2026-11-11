@@ -19,7 +19,8 @@ from datetime import datetime, timezone
 import build as B
 import config as C
 
-VERSION = 3
+VERSION = 4                    # 4: a stale raw close (> FRESH_MIN) gives way to a fresher snapshot consensus
+FRESH_MIN = 30
 MIN_BOOKS = 2
 MAX_AGE_MIN = 72 * 60          # look back up to 3 days; the close's age decides whether CLV counts (fresh = 30 min)
 
@@ -248,9 +249,12 @@ def bet_close(data_dir, legs, dec, sport_of, commence_of, results=None, fallback
         if c is None:
             c = leg_close(data_dir, leg, sport, com)
             # no saved raw pull carried this market: the pre-game snapshot's raw consensus row, when it is one
-            if c.get("p") is None and c.get("why", "").startswith("no pull") and fallback:
+            # or the last raw pull carrying it is stale (a hot game's close went unsaved before Nov 11): the
+            # snapshot's consensus when it is fresher
+            stale = (c.get("age") or 0) > FRESH_MIN
+            if fallback and ((c.get("p") is None and c.get("why", "").startswith("no pull")) or stale):
                 fb = fallback(leg)
-                if fb:
+                if fb and (not stale or (fb.get("p") is not None and fb.get("age") is not None and fb["age"] < c["age"])):
                     c = fb
             cache[key] = c
         out.append(c)
