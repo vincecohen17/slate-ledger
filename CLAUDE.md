@@ -57,7 +57,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   league x agrees x 5%+ cell has held its fair over 100+ graded, e.logicBacked; one it disagrees with is muted where that cell
   has z <= -2; edgecard dim logicSize) and residual: a walk-forward residual model logit(close) + b . features per sport|kind
   on live rows that carry tracker features x {mm market mean, md/mr model mean, op open fair, opPt, nb, fw, disp books' no-vig
-  sd}; reported only (Reports > Models), wired into fairs only if it beats the close with t >= 2.
+  sd}; reported only (Reports > Models), wired into fairs only if it beats the close with t >= 2 (SE clustered by game since Nov 11;
+  opens are stamped before tracker.snapshot and market.run, so op / opPt and props' move / against reasons exist since Nov 11).
 - Model support (build.edges): support = (modelP - venue cost) / (fair - cost), where the model sits from the price (0) to our
   fair (1); supBand below (<0) | between (0-1) | near (1-1.5) | beyond (1.5+). On 5%+ edges between/near won, below and beyond lost
   (beyond = model and fair share an error, mostly model-shaped alt fairs). Rank weight between 1.5 / near 1.2 / beyond 0.6 /

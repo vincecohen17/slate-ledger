@@ -1602,12 +1602,18 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"history failed: {type(e).__name__}")
     n_cal = tracker.apply(params, game_docs, prop_docs)
     edge_list = build.edges(game_docs, prop_docs)
+    import edgecard
+    n_moved = 0
+    try:        # opening fairs first: the tracker's snapshot keeps them (residual feature op) and market.explain reads them
+        n_moved = edgecard.opens(DATA_DIR, game_docs, prop_docs, NOW)      # (props' move / against reasons)
+        edgecard.annotate_moves(edge_list, game_docs, prop_docs)
+    except Exception as e:
+        log(f"opens failed: {type(e).__name__}")
     try:
         tracker.snapshot(DATA_DIR, game_docs, prop_docs, NOW)
     except Exception as e:
         log(f"snapshot failed: {type(e).__name__}")
     # the edges' report card: log new edges, refresh their fairs to the close, grade finished ones, re-rank by history
-    import edgecard
     ecard, pbook, mcard, mboard = None, None, None, None
     try:        # market behavior: line movement by book, who moved first, DraftKings splits -> doc["mkt"], e["mkt"]
         import market
@@ -1615,7 +1621,6 @@ def publish(game_docs, prop_docs, status, stamp):
     except Exception as e:
         log(f"market failed: {type(e).__name__}: {str(e)[:100]}")
     try:
-        n_moved = edgecard.opens(DATA_DIR, game_docs, prop_docs, NOW)
         try:            # steam: fair moved toward the edge's side in the last hour (graded by the report card)
             edgecard.steam(DATA_DIR, edge_list, game_docs, prop_docs, NOW)
         except Exception as e:
@@ -1645,7 +1650,6 @@ def publish(game_docs, prop_docs, status, stamp):
         except Exception:
             pass
         edgecard.rerank(edge_list, ecard)
-        edgecard.annotate_moves(edge_list, game_docs, prop_docs)
         try:        # what the record says to lean on and avoid right now (Edges page, pick runs), stamped on each edge
             import playbook
             pbook = playbook.build(DATA_DIR, ecard, params)

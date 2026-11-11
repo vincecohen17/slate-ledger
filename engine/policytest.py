@@ -215,7 +215,8 @@ def _xrow(r):
 
 def residual(data_dir, min_rows=1500):
     """walk-forward residual model on live rows that carry features: logit(P) = logit(close) + b . features, fit on
-    earlier days per sport|kind, scored on each new day against the close alone (log loss, day-clustered SE).
+    earlier days per sport|kind, scored on each new day against the close alone (log loss, SE clustered by game where
+    rows carry gid, else by day; day clusters alone stayed under 6 so no t was ever reported).
     Wired into fairs only if it beats the close (t >= 2)."""
     live, _ = MS._load(data_dir)
     rows = [r for r in live if r.get("x")]
@@ -232,6 +233,7 @@ def residual(data_dir, min_rows=1500):
         X = [_xrow(r) for r in rs]
         lf = np.array([a for a, _ in X]); F = np.array([b for _, b in X]); y = np.array([r["y"] for r in rs], float)
         dd = np.array([r["d"] for r in rs])
+        gid = [r.get("gid") for r in rs]
         gains, cl, coefs = [], [], None
         for d in days[3:]:
             tr, te = dd < d, dd == d
@@ -247,12 +249,12 @@ def residual(data_dir, min_rows=1500):
             coefs = b
             pm = 1 / (1 + np.exp(-lf[te])); pn = 1 / (1 + np.exp(-np.clip(lf[te] + F[te] @ b, -30, 30)))
             gains += list(MS._ll_rows(pm, y[te]) - MS._ll_rows(pn, y[te]))
-            cl += [d] * int(te.sum())
+            cl += [gid[i] or d for i in np.flatnonzero(te)]
         if not gains:
             continue
         gv = np.array(gains)
-        se = MS._cluster_se(gv, np.array([days.index(c) for c in cl]))
-        out["groups"][g] = {"n": len(rs), "scored": len(gv), "gain": round(float(gv.mean()), 6), "se": None if se is None else round(se, 6),
+        se = MS._cluster_se(gv, np.array(cl))
+        out["groups"][g] = {"n": len(rs), "scored": len(gv), "clusters": len(set(cl)), "gain": round(float(gv.mean()), 6), "se": None if se is None else round(se, 6),
                             "t": None if not se else round(float(gv.mean()) / se, 2), "coef": dict(zip(FEATS, [round(float(c), 4) for c in coefs]))}
     return out
 
