@@ -9,11 +9,13 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   points 2.8 / PRA 3.2 since Nov 6, rebounds 1.3 since Nov 7, fit on alt-line outcomes; in-play remaining-stat chances, WNBA / NCAAB
   and double-doubles keep DISPERSION_PREV; our stat model's own mean uses DISPERSION_MODEL where it needs another width, rebounds 1.5,
   via p_over(..., model=True) in matchup); site/js/dist.js mirrors the market side. Tests: `python engine/tests/test_build.py`.
-  Backtests: mode backtest (env BT_SPORTS=comma list reruns only those sports; the rest keep their saved rows).
+  Backtests: mode backtest (env BT_SPORTS=comma list reruns only those sports; the rest keep their saved rows); the closing-odds
+  history they replay is engine/oddshistory.py (mode history); engine/history.py is the player-history estimate (histFair).
 - Models: `model_nba.py`, `model_nhl.py` (MoneyPuck + goalie GSAx), `model_nfl.py` (nflverse EPA + player shares; QB passing from
   the passer's own last-10 volume x efficiency), `model_cfb.py` (opponent-adjusted ridge ratings shrunk to FBS/FCS tiers), `model_extra.py` (soccer Poisson, tennis Elo), `model_mlb.py` (Statcast per-PA odds-ratio model: platoon,
   park, weather, lineups; exact batter/pitcher prop distributions; F5 and team totals).
-  `matchup.py` builds matchup docs, stamps model probabilities on lines/props, calibrates prop levels to market,
+  `matchup.py` builds matchup docs, stamps model probabilities on lines/props (none where the player has no projection for the
+  market's stat, e.g. a QB the NFL model doesn't have as the passer: abstain, never read it as 0), calibrates prop levels to market,
   and builds projected lineups. `stats.py` collects ESPN box scores/injuries (NBA, WNBA, NHL, NFL, CFB, nine soccer leagues), MoneyPuck, nflverse,
   ESPN tennis; `stats_mlb.py` collects Baseball Savant (custom/expected leaderboards, splits, arsenals, park factors)
   and MLB StatsAPI (schedule with lineups/probables/weather, rosters, handedness, game logs).

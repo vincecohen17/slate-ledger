@@ -266,6 +266,18 @@ def test_tennis_spreads_and_totals_grade_in_games():
     assert ledger._tennis_games(snap, dict(f, home={"name": "Karolina Muchova", "line": [6]}, away={"name": "Elina Svitolina", "line": [3]})) is None
 
 
+def test_model_abstains_without_a_projection_for_the_stat():
+    import matchup
+    qb = {"name": "Starting Passer", "proj": {"att": 33.0, "pass_yds": 240.0, "rush_yds": 12.0}}
+    backup = {"name": "Other Passer", "proj": {"rush_yds": 9.0, "rec_yds": 0.0}}     # the model doesn't have him as the passer
+    sides = {"home": {"players": [qb, backup]}, "away": {"players": []}}
+    docs = [{"market": "player_pass_yds", "rows": [{"player": "Starting Passer", "point": 235.5}, {"player": "Other Passer", "point": 195.5}]},
+            {"market": "player_pass_rush_yds", "rows": [{"player": "Other Passer", "point": 210.5}]}]
+    matchup._stamp_props(docs, sides, {"player_pass_yds": ["pass_yds"], "player_pass_rush_yds": ["pass_yds", "rush_yds"]}, "americanfootball_nfl")
+    assert docs[0]["rows"][0]["model"]["mean"] == 240.0
+    assert "model" not in docs[0]["rows"][1] and "model" not in docs[1]["rows"][0]     # no stat projection is not a projection of 0
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

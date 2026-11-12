@@ -137,7 +137,7 @@ def firestore_db():
 
 def run_history():
     """historical closing odds, resumable; hands off to a fresh run before the job time limit"""
-    import history
+    import oddshistory as history     # engine/history.py is the player-history estimate (histFair) since Nov 10
     key = os.environ.get("ODDS_API_KEY")
     if not key:
         raise RuntimeError("ODDS_API_KEY secret is missing or empty")
@@ -1453,7 +1453,7 @@ def _backtest_summary():
     out = {}
     try:
         st = json.load(open(os.path.join(DATA_DIR, "history", "state.json")))
-        import history
+        import oddshistory as history
         out["history"] = {"games": st.get("games", 0), "spent": st.get("spent", 0), "budget": history.BUDGET, "complete": st.get("complete"),
                           "at": st.get("at"), "days": {k: len(v) for k, v in st.get("done", {}).items()}}
     except Exception:

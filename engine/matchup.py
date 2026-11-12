@@ -312,7 +312,12 @@ def _stamp_props(pdocs, sides, markets, sport, goalie_fn=None):
                     r["last10"] = [round(sum(v), 1) for v in zip(*[l10[k] for k in keys])]
                 if p.get("out"):
                     continue
-                mean = sum(p["proj"].get(k, 0) * w for k, w in wts.items())
+                if any(k not in p["proj"] for k in keys):
+                    # no projection for this stat (a QB the NFL model doesn't have as his team's passer has no att / pass_yds):
+                    # the model abstains; reading the missing stat as 0 stamped P(Over) ~ 0 on starters the books priced at
+                    # 30 attempts (Nov 8) and made every under "model agrees"
+                    continue
+                mean = sum(p["proj"][k] * w for k, w in wts.items())
             if r.get("point") is None:
                 if d["market"] in YES_POISSON:
                     py = 1 - math.exp(-max(mean, 0))

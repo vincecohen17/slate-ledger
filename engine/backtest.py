@@ -14,7 +14,7 @@ import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-import history as H
+import oddshistory as H
 import matchup as MU
 import model_cfb
 import model_nba
