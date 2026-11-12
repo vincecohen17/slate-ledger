@@ -174,6 +174,20 @@ def close_age(snap, is_prop):
 # ---------------------------------------------------------------------------
 # results
 
+def _same_start(gdate, commence, hours=12):
+    """a stats-file game's start (ESPN date) within `hours` of our snapshot's commence; unknown start counts as a match"""
+    if not gdate:
+        return True
+    try:
+        a = datetime.fromisoformat(str(gdate).replace("Z", "+00:00"))
+        b = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+    except Exception:
+        return True
+    if a.tzinfo is None:
+        a = a.replace(tzinfo=timezone.utc)
+    return abs((a - b).total_seconds()) <= hours * 3600
+
+
 def _espn_game(data_dir, snap):
     lg = LG.get(snap["sport"])
     if not lg:
@@ -195,6 +209,10 @@ def _espn_game(data_dir, snap):
                 continue
             for g in games:
                 have = {ALIAS.get(g["home"]["abbr"], g["home"]["abbr"]), ALIAS.get(g["away"]["abbr"], g["away"]["abbr"])}
+                # the same two teams on back-to-back nights (NBA/NHL two-game sets): the box score must be this game's,
+                # not the night before's (Nov 11: a pick graded on the previous night's rebounds)
+                if have == want and not _same_start(g.get("date"), snap["commence"]):
+                    continue
                 if have == want and g["home"].get("score") is not None:
                     swap = ALIAS.get(g["home"]["abbr"], g["home"]["abbr"]) != ALIAS.get(snap.get("ha"), snap.get("ha"))
                     hs, as_ = g["home"]["score"], g["away"]["score"]

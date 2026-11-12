@@ -240,6 +240,23 @@ def test_finals_match_neutral_and_loose_names():
     assert doc["home"]["score"] == 90 and doc["teamStats"][0] == {"k": "FG", "h": "33", "a": "30"}
 
 
+def test_back_to_back_same_teams_use_this_nights_box():
+    import tempfile, json as J
+    import tracker as T
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "stats", "nba", "2026-27"))
+    g = lambda when, reb: {"id": "x", "date": when, "home": {"abbr": "POR", "score": 120.0}, "away": {"abbr": "OKC", "score": 100.0},
+                           "players": [{"name": "Toumani Camara", "rebounds": reb}]}
+    J.dump({"games": [g("2026-11-11T03:00Z", 3.0)]}, open(os.path.join(d, "stats", "nba", "2026-27", "2026-11-10.json"), "w"))
+    snap = {"id": "g2", "sport": "basketball_nba", "home": "Portland Trail Blazers", "away": "Oklahoma City Thunder", "ha": "POR",
+            "aa": "OKC", "commence": "2026-11-12T03:10:00Z"}
+    assert T._espn_game(d, snap) is None                            # the night before's box is not tonight's (falls back to ESPN)
+    J.dump({"games": [g("2026-11-12T03:00Z", 5.0)]}, open(os.path.join(d, "stats", "nba", "2026-27", "2026-11-11.json"), "w"))
+    res = T._espn_game(d, snap)
+    assert res and list(res["players"].values())[0]["rebounds"] == 5.0
+    assert T._espn_game(d, dict(snap, commence="2026-11-11T03:10:00Z"))["hs"] == 120.0   # the first game still finds its own box
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):
