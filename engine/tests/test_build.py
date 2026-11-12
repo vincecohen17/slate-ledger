@@ -257,6 +257,15 @@ def test_back_to_back_same_teams_use_this_nights_box():
     assert T._espn_game(d, dict(snap, commence="2026-11-11T03:10:00Z"))["hs"] == 120.0   # the first game still finds its own box
 
 
+def test_tennis_spreads_and_totals_grade_in_games():
+    import ledger
+    snap = {"id": "t1", "sport": "tennis_wta", "home": "Elina Svitolina", "away": "Karolina Muchova"}
+    f = {"status": "Final", "home": {"name": "Karolina Muchova", "line": [6, 2, 2]}, "away": {"name": "Elina Svitolina", "line": [3, 6, 6]}}
+    assert ledger._tennis_games(snap, f) == {"hs": 15.0, "as": 10.0, "players": {}}     # swapped to our home player
+    assert ledger._tennis_games(snap, dict(f, status="Retired")) is None
+    assert ledger._tennis_games(snap, dict(f, home={"name": "Karolina Muchova", "line": [6]}, away={"name": "Elina Svitolina", "line": [3]})) is None
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

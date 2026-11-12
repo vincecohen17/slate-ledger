@@ -242,6 +242,11 @@ def grade_leg(data_dir, leg, fin_by_gid):
             return {"y": y, "close": close, "score": [res["hs"], res["as"]], "age": T.close_age(snap, True), "t": t}
         if base not in ("h2h", "spreads", "totals", "team_totals"):
             return None
+    if not per and base in ("spreads", "totals") and str(snap.get("sport") or "").startswith("tennis"):
+        # tennis spreads and totals are in games (game handicap, total games), not sets: graded from the set line score
+        res = _tennis_games(snap, fin_by_gid.get(snap["id"]))
+        if res is None:
+            return None
     canon_side = snap["home"] if base in ("h2h", "spreads") else "Over"
     row_pt = pt
     if base == "spreads" and pt is not None and T._norm(side or "") != T._norm(snap["home"]):
@@ -262,6 +267,23 @@ def _period_of(base):
     """('_q1', 'q1') for a period market key (totals_q1, spreads_h1, h2h_3_way_h1, totals_1st_5_innings), else None"""
     m = _PERIOD_RE.search(base or "")
     return (m.group(0), m.group(1)) if m else None
+
+
+def _tennis_games(snap, f):
+    """{hs, as} games won by each player (home/away of our snapshot) in a completed tennis match, from the final's set
+    line score (a tiebreak set reads 7-6); None for a retirement, walkover, suspension or a line score that can't be read"""
+    if not f or f.get("status") != "Final" or not f.get("home") or not f.get("away"):
+        return None
+    try:
+        hl = [float(x) for x in f["home"].get("line") or []]
+        al = [float(x) for x in f["away"].get("line") or []]
+    except (TypeError, ValueError):
+        return None
+    if len(hl) < 2 or len(hl) != len(al):
+        return None
+    swap = T._norm(f["home"].get("name") or "") != T._norm(snap["home"]) and T._norm(f["away"].get("name") or "") == T._norm(snap["home"])
+    h, a = sum(hl), sum(al)
+    return {"hs": a if swap else h, "as": h if swap else a, "players": {}}
 
 
 def _period_score(snap, per, f):
