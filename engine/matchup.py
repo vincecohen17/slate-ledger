@@ -310,7 +310,9 @@ def _stamp_props(pdocs, sides, markets, sport, goalie_fn=None):
                 l10 = p.get("last10") or {}
                 if all(k in l10 for k in keys) and all(w == 1.0 for w in wts.values()):
                     r["last10"] = [round(sum(v), 1) for v in zip(*[l10[k] for k in keys])]
-                if p.get("out"):
+                if p.get("out") or p.get("benchOnly"):
+                    # benchOnly (NBA / WNBA): outside the model's rotation; 2025-27 NBA backtest: the model lost 550 nats
+                    # (calibrated, t 4.8 by game) to the close on those players' props, mostly P(Over) ~ 0 on real minutes
                     continue
                 if any(k not in p["proj"] for k in keys):
                     # no projection for this stat (a QB the NFL model doesn't have as his team's passer has no att / pass_yds):

@@ -278,6 +278,19 @@ def test_model_abstains_without_a_projection_for_the_stat():
     assert "model" not in docs[0]["rows"][1] and "model" not in docs[1]["rows"][0]     # no stat projection is not a projection of 0
 
 
+def test_nba_props_abstain_outside_the_rotation():
+    import matchup
+    import model_nba
+    starter = {"name": "Rotation Guard", "proj": {"pts": 18.0}, "projMin": 32.0}
+    bench = {"name": "Deep Bench", "proj": {"pts": 0.7}, "projMin": 2.2, "benchOnly": True}
+    sides = {"home": {"players": [starter, bench]}, "away": {"players": []}}
+    docs = [{"market": "player_points", "rows": [{"player": "Rotation Guard", "point": 17.5}, {"player": "Deep Bench", "point": 8.5}]}]
+    matchup._stamp_props(docs, sides, {"player_points": ["pts"]}, "basketball_nba")
+    assert docs[0]["rows"][0]["model"]["mean"] == 18.0
+    assert "model" not in docs[0]["rows"][1]          # the books price him as a rotation player; our minutes model doesn't
+    assert model_nba.NBA.ROT_MIN == 10
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):
