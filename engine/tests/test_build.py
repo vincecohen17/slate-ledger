@@ -198,6 +198,22 @@ def test_suspended_tennis_is_not_final():
     assert not json.load(open(os.path.join(d, "finals", "state.json"))).get("done", {}).get(f"tennis/atp|{day}")
 
 
+def test_tennis_replaced_match_is_void():
+    import ledger, json, tempfile
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "track", "open"))
+    snap = {"id": "tw1", "sport": "tennis_wta_finals", "commence": "2026-11-13T20:00:00Z", "home": "Mirra Andreeva",
+            "away": "Karolina Muchova", "rows": []}
+    json.dump(snap, open(os.path.join(d, "track", "open", "tw1.json"), "w"))
+    alt = {"gameId": "tw2", "sport": "tennis_wta_finals", "status": "Final", "commence": "2026-11-13T20:10:00Z",
+           "home": {"name": "Mirra Andreeva", "score": 2}, "away": {"name": "Diana Shnaider", "score": 0}}
+    leg = {"gameId": "tw1", "market": "h2h", "side": "Karolina Muchova"}
+    g = ledger.grade_leg(d, leg, {"tw2": alt})
+    assert g and g.get("void") and g["y"] is None                       # Muchova withdrew; an alternate played Andreeva
+    other = dict(alt, home={"name": "Aryna Sabalenka", "score": 2})
+    assert ledger.grade_leg(d, leg, {"tw2": other}) is None             # neither player: no evidence, stays open
+
+
 def test_period_lines_grade_from_line_score():
     import ledger, json, tempfile
     d = tempfile.mkdtemp()

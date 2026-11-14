@@ -166,6 +166,33 @@ def _scratched(snap, res, leg, fin_by_gid, max_age=60, min_rows=10):
     return not _priced_at_close(snap, leg["player"], max_age=max_age)
 
 
+def _tennis_replaced(snap, fin_by_gid, start, min_hours=6, window_h=6):
+    """a tennis match that never happened as listed: 6+ hours after its start there is no final for it, but a final in
+    the same event, within a few hours of its start, has exactly one of its two players against someone else (a
+    withdrawal replaced by an alternate, e.g. a WTA Finals round-robin match). Books void bets on a match not played."""
+    sport = str(snap.get("sport") or "")
+    if not sport.startswith("tennis") or snap.get("id") in fin_by_gid:
+        return False
+    if datetime.now(timezone.utc) - start < timedelta(hours=min_hours):
+        return False
+    ours = {T._norm(snap.get("home") or ""), T._norm(snap.get("away") or "")}
+    if len(ours) != 2 or "" in ours:
+        return False
+    for f in fin_by_gid.values():
+        if f.get("sport") != sport or f.get("status") != "Final" or not f.get("home") or not f.get("away"):
+            continue
+        try:
+            fs = datetime.fromisoformat(str(f.get("commence")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if abs((fs - start).total_seconds()) > window_h * 3600:
+            continue
+        names = {T._norm(f["home"].get("name") or ""), T._norm(f["away"].get("name") or "")}
+        if len(names & ours) == 1:
+            return True
+    return False
+
+
 def grade_leg(data_dir, leg, fin_by_gid):
     """{y: 1/0/None(push), close: sharp fair of this side at the close} or None while not final"""
     snap = _snap(data_dir, leg.get("gameId"))
@@ -180,6 +207,9 @@ def grade_leg(data_dir, leg, fin_by_gid):
     is_prop = bool(leg.get("player"))
     res = _result(data_dir, snap, fin_by_gid, is_prop)
     if not res:
+        if not is_prop and _tennis_replaced(snap, fin_by_gid, start):
+            # one of the players withdrew and an alternate (or no one) played instead: books void the match bets
+            return {"y": None, "close": None, "void": True, "replaced": True}
         return None
     close, est = None, False
     t = "main"
