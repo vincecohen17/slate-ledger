@@ -214,6 +214,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   (_watch_wanted: a pending bet or pick on a game started in the last 5 h or starting within WATCH_AHEAD_H = 6 h, no watcher
   running). Before the first game starts it waits (a check every 5 min, presence every minute); at 50 min it dispatches the
   next watcher itself (_dispatch_watch(chain=True)), because GitHub runs the */5 cron only every few hours (Nov 2026: ~6 h).
+  Its data snapshot is committed from a checkout up to 50 min old, so a conflicted rebase (alerts_state etc.) is finished by
+  engine/snapmerge.py (JSON deep-merged, this run wins clashes; .jsonl lines unioned) instead of dropping the snapshot (Nov 15).
   Live sports: NBA, WNBA, NCAAB (D-I scoreboard groups=50, halves 2 x 20), NHL, NFL, NCAAF, MLB, soccer, tennis.
   The watcher also stays up while any board game starts within 6 h and: (a) closes: a game starting within CLOSE_ASK_MIN
   (12) minutes whose prices are older than CLOSE_STALE_MIN gets an auto run (_closer), so closes don't depend on the cron;
