@@ -349,7 +349,12 @@ function progress0(leg, r) {
     const room = Math.ceil(pt) - 1 - cur;
     return { cls: proj != null && proj < pt ? "pos" : "neg", icon: "●", text: `${fmtN(cur)} of ${pt} · room for ${fmtN(Math.max(0, room))} more${proj != null ? ` · on pace for ${fmtN(proj)}` : ""}`, bar: bar(cur, pt, proj) };
   }
-  const hs = st.home?.score, as_ = st.away?.score;
+  let hs = st.home?.score, as_ = st.away?.score;
+  if ((hs == null || as_ == null) && Array.isArray(st.players) && st.players.length === 2 && base !== "h2h") {
+    // tennis: game spreads and totals count games (sets carry no score field); a tiebreak counts as one game
+    const hm = d?.home || g?.home, pl = st.players, hi = N(pl[0].name) === N(hm) ? 0 : 1, sum = (p) => (p.sets || []).reduce((a, b) => a + (+b || 0), 0);
+    hs = sum(pl[hi]); as_ = sum(pl[1 - hi]);
+  }
   if (hs == null || as_ == null) return { cls: "muted", icon: "●", text: "In play" };
   const home = d?.home || g?.home, isHome = N(leg.side) === N(home);
   const ab = (h) => (h ? (d?.homeRef || g?.homeRef)?.abbr : (d?.awayRef || g?.awayRef)?.abbr) || (h ? "home" : "away");

@@ -404,7 +404,7 @@ def live(watch=False, full=True, pres=None):
             edges_all += E
             docs.append({"id": g["id"], "league": g["league"], "sport": s, "home": g["home"], "away": g["away"], "commence": g["commence"],
                          "homeRef": g.get("homeRef"), "awayRef": g.get("awayRef"), "state": st,
-                         "model": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in (pj or {}).items()},
+                         "model": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in (pj or {}).items() if k != "gdist"},
                          "lines": g["lines"], "props": props, "edges": E[:40], "betLegs": bl, "updated": iso(NOW)})
     # games that just ended still have open bets until the ledger grades them: keep them in the live feed with the final
     # score and each leg's final stat, so a finished bet reads won or lost instead of going back to "not started"

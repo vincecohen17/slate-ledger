@@ -345,6 +345,59 @@ def serve_probs(p_match, best_of=3, base=0.64):
     return base + d, base - d
 
 
+def _set_games(sa, sb, ga=0, gb=0, a_srv=True):
+    """{(games A, games B) at the end of the set: prob} from the current games (a tiebreak counts as one game, 7-6)"""
+    ha, hb = _hold(sa), _hold(sb)
+    tb_a, tb_b = _tiebreak(sa, sb), 1 - _tiebreak(sb, sa)
+    out = {}
+
+    def walk(a, b, srv, pr):
+        if pr < 1e-9:
+            return
+        if (a >= 6 and a - b >= 2) or a == 7 or (b >= 6 and b - a >= 2) or b == 7:
+            out[(a, b)] = out.get((a, b), 0) + pr
+            return
+        if a == 6 and b == 6:
+            t = tb_a if srv else tb_b
+            out[(7, 6)] = out.get((7, 6), 0) + pr * t
+            out[(6, 7)] = out.get((6, 7), 0) + pr * (1 - t)
+            return
+        p = ha if srv else 1 - hb
+        walk(a + 1, b, not srv, pr * p)
+        walk(a, b + 1, not srv, pr * (1 - p))
+    walk(ga, gb, a_srv, 1.0)
+    return out
+
+
+def _avg_srv(sa, sb, ga, gb, a_srv):
+    if a_srv is not None:
+        return _set_games(sa, sb, ga, gb, a_srv)
+    x, y = _set_games(sa, sb, ga, gb, True), _set_games(sa, sb, ga, gb, False)
+    return {k: 0.5 * x.get(k, 0) + 0.5 * y.get(k, 0) for k in set(x) | set(y)}
+
+
+def tennis_games(sa, sb, best_of=3, sets_a=0, sets_b=0, ga=0, gb=0, a_srv=None, done_a=0, done_b=0):
+    """{(total games A, total games B) at the end of the match: prob}; done_* = games in the sets already finished"""
+    need = best_of // 2 + 1
+    fresh = _avg_srv(sa, sb, 0, 0, None)
+    state = {}                                             # (sets A, sets B, games A, games B) -> prob
+    for (a, b), pr in _avg_srv(sa, sb, ga, gb, a_srv).items():
+        k = (sets_a + (a > b), sets_b + (b > a), done_a + a, done_b + b)
+        state[k] = state.get(k, 0) + pr
+    out = {}
+    while state:
+        nxt = {}
+        for (x, y, A, B), pr in state.items():
+            if x >= need or y >= need:
+                out[(A, B)] = out.get((A, B), 0) + pr
+                continue
+            for (a, b), q in fresh.items():
+                k = (x + (a > b), y + (b > a), A + a, B + b)
+                nxt[k] = nxt.get(k, 0) + pr * q
+        state = nxt
+    return out
+
+
 def project_tennis(st, home, p_home):
     """live match win chance for `home` from sets and games (points are not in the feed)"""
     pl = st["players"]
@@ -358,7 +411,21 @@ def project_tennis(st, home, p_home):
     gb = Bp["sets"][-1] if Bp["sets"] else 0
     srv = True if A.get("serving") else False if Bp.get("serving") else None
     p = tennis_match(sa, sb, st.get("bestOf", 3), sets_a, sets_b, min(ga, 7), min(gb, 7), srv)
-    return {"pHome": p, "sets": [sets_a, sets_b], "games": [ga, gb], "serve": [round(sa, 3), round(sb, 3)], "left": None}
+    out = {"pHome": p, "sets": [sets_a, sets_b], "games": [ga, gb], "serve": [round(sa, 3), round(sb, 3)], "left": None}
+    try:                                                   # match games: game spreads and totals (a tiebreak is one game)
+        da = sum(A["sets"][i] if i < len(A["sets"]) else 0 for i in range(n - 1))
+        db = sum(Bp["sets"][i] if i < len(Bp["sets"]) else 0 for i in range(n - 1))
+        dist = tennis_games(sa, sb, st.get("bestOf", 3), sets_a, sets_b, min(ga, 7), min(gb, 7), srv, da, db)
+        tot = sum(dist.values()) or 1.0
+        mm = sum((a - b) * q for (a, b), q in dist.items()) / tot
+        mt = sum((a + b) * q for (a, b), q in dist.items()) / tot
+        out.update({"gamesWon": [da + ga, db + gb], "margin": round(mm, 2), "total": round(mt, 2),
+                    "sdMargin": round(max(0.5, math.sqrt(sum(((a - b) - mm) ** 2 * q for (a, b), q in dist.items()) / tot)), 2),
+                    "sdTotal": round(max(0.5, math.sqrt(sum(((a + b) - mt) ** 2 * q for (a, b), q in dist.items()) / tot)), 2),
+                    "gdist": [[a, b, round(q / tot, 5)] for (a, b), q in dist.items() if q / tot >= 1e-5]})
+    except Exception:
+        pass
+    return out
 
 
 def _pois(mu, n=25):
@@ -402,7 +469,24 @@ def line_probs(sport, g, pj):
                 return {"Over": po, "Under": 1 - po}
         return f
     if sport.startswith("tennis_"):
-        return lambda l: {home: pj["pHome"], away: 1 - pj["pHome"]} if l["market"] == "h2h" else None
+        gd = pj.get("gdist")
+
+        def tf(l):
+            mk, pt = l["market"].replace("alternate_", ""), l.get("point")
+            if mk == "h2h":
+                return {home: pj["pHome"], away: 1 - pj["pHome"]}
+            if not gd or pt is None:
+                return None
+            if mk == "spreads":                # the line's point is the home side's (as in the team sports above)
+                w = sum(q for a, b, q in gd if a - b + pt > 0)
+                ps = sum(q for a, b, q in gd if a - b + pt == 0)
+                return {home: w + ps / 2, away: 1 - w - ps / 2}
+            if mk == "totals":
+                o = sum(q for a, b, q in gd if a + b > pt)
+                ps = sum(q for a, b, q in gd if a + b == pt)
+                return {"Over": o + ps / 2, "Under": 1 - o - ps / 2}
+            return None
+        return tf
     if sport.startswith("soccer_"):
         ph, pa = _pois(pj["lh"], 15), _pois(pj["la"], 15)
         H, A = pj["hs"], pj["as"]

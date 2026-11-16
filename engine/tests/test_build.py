@@ -307,6 +307,18 @@ def test_nba_props_abstain_outside_the_rotation():
     assert model_nba.NBA.ROT_MIN == 10
 
 
+def test_live_tennis_games():
+    import live as LV
+    st = {"players": [{"name": "Al Pha", "sets": [6, 2], "serving": True}, {"name": "Be Ta", "sets": [3, 1]}], "bestOf": 3}
+    pj = LV.project_tennis(st, "Al Pha", 0.6)
+    assert pj["gamesWon"] == [8, 4] and abs(sum(q for a, b, q in pj["gdist"]) - 1) < 1e-3
+    assert all(a + b >= 16 for a, b, q in pj["gdist"])        # 9 + 3 games already played, at least 4 more to finish
+    f = LV.line_probs("tennis_atp_finals", {"home": "Al Pha", "away": "Be Ta"}, pj)
+    sp, tt = f({"market": "spreads", "point": -3.5}), f({"market": "totals", "point": 21.5})
+    assert 0.5 < sp["Al Pha"] < 1 and abs(sp["Al Pha"] + sp["Be Ta"] - 1) < 1e-9
+    assert 0 < tt["Over"] < 1 and f({"market": "h2h"})["Al Pha"] > 0.6
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):
