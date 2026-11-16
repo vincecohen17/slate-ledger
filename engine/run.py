@@ -293,10 +293,13 @@ def live(watch=False, full=True, pres=None):
     bet_legs = {g: dict(v) for g, v in (ls.get("betLegs") or {}).items()}
     prop_games = set(sorted(bet_legs)[:4])          # live prop prices cost credits: at most 4 games besides the watched one
     # our open prop picks get the same live and final stat (read from the picks files here: no database reads)
-    pick_games = set()
+    pick_games, pick_line_games = set(), set()
     try:
         for pk in load_picks(3):
-            if pk.get("status") in ("void", "won", "lost", "push") or pk.get("tier") == "likely" or not pk.get("gameId") or not pk.get("player"):
+            if pk.get("status") in ("void", "won", "lost", "push") or pk.get("tier") == "likely" or not pk.get("gameId"):
+                continue
+            if not pk.get("player"):            # a game-line pick: the game is watched (score, clock, prompt grading), no stat leg
+                pick_line_games.add(pk["gameId"])
                 continue
             r = LB.resolve({k: pk.get(k) for k in ("gameId", "market", "side", "point", "player", "team")} | {"label": pk.get("selection")}, DATA_DIR)
             if r and r.get("player"):
@@ -308,7 +311,10 @@ def live(watch=False, full=True, pres=None):
     bet_games = set(bet_legs)
     ungraded_ids = set(ls.get("betGamesOpen") if "betGamesOpen" in ls else (ls.get("betGames") or []))
     # the games the watcher keeps current: any open bet leg (moneylines, spreads and totals too) or open prop pick
-    watch_ids = bet_games | set(ls.get("betGames") or [])
+    # ... and open game-line picks (spreads, totals, moneylines), which have no stat leg but still need the live score
+    # and a prompt rebuild when they end (Nov 16: an ATP spread pick in play was invisible to the watcher)
+    pick_games |= pick_line_games
+    watch_ids = bet_games | set(ls.get("betGames") or []) | pick_line_games
     for s in sports:
         if full:
             try:
@@ -788,7 +794,7 @@ def _watch_wanted():
         log(f"watch: open bets not read ({type(e).__name__})")
     if not want:
         try:
-            want = any(pk.get("status") not in ("void", "won", "lost", "push") and pk.get("tier") != "likely" and pk.get("player")
+            want = any(pk.get("status") not in ("void", "won", "lost", "push") and pk.get("tier") != "likely" and pk.get("gameId")
                        and lo <= (pk.get("commence") or "") <= hi for pk in load_picks(2))
         except Exception:
             pass

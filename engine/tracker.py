@@ -296,6 +296,9 @@ def stat(sport, market, p):
                 "player_rush_tds": lambda: _v(p, "rushing.rushingTouchdowns"), "player_reception_tds": lambda: _v(p, "receiving.receivingTouchdowns"),
                 "player_rush_longest": lambda: _v(p, "rushing.longRushing"), "player_reception_longest": lambda: _v(p, "receiving.longReception"),
                 "player_sacks": lambda: _v(p, "defensive.sacks"), "player_tackles_assists": lambda: _v(p, "defensive.totalTackles"),
+                # assisted tackles (the books' "assists" on football): ESPN gives total and solo only
+                "player_assists": lambda: None if _v(p, "defensive.totalTackles") is None
+                else _v(p, "defensive.totalTackles") - (_v(p, "defensive.soloTackles") or 0),
                 "player_solo_tackles": lambda: _v(p, "defensive.soloTackles"), "player_kicking_points": lambda: _v(p, "kicking.totalKickingPoints"),
                 "player_field_goals": lambda: _v(p, "kicking.fieldGoalsMade/fieldGoalAttempts", 0),
                 "player_pats": lambda: _v(p, "kicking.extraPointsMade/extraPointAttempts", 0)}.get(m, lambda: None)()

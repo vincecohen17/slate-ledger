@@ -184,7 +184,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   market/side are read from their labels (also used by ledger grading). Live bets (bet.live, logged from the Live tab,
   live edges, or any bet on a game in play, with liveState score/clock) get liveCheck {fair, clv, mins}: the live fair
   5-30 minutes after the bet, which grading uses as their CLV (the pre-game close says nothing about a live price).
-  Open prop picks get betLegs too ("<pickId>#0"). A game that has ended but still has open bets or picks stays in the live
+  Open prop picks get betLegs too ("<pickId>#0"); open game-line picks (spreads, totals, moneylines) have no stat leg but
+  their games are watched too (score, clock, the rebuild when they end; Nov 16). A game that has ended but still has open bets or picks stays in the live
   feed (doc final: true, ESPN's final state via scoreboards(post=...), final stats with no time left) until they grade; its
   teams come from live_state liveMeta, else the pre-game snapshot track/open/<gameId>.json, else the bet's matchup.
   First-period player props (_q1, _p1, _h1/_1h): the box score's total is the period total until the window ends, then the

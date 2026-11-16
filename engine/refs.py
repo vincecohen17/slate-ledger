@@ -62,7 +62,11 @@ NICK = {"mike": "michael", "mikey": "michael", "bill": "william", "will": "willi
         "steve": "steven", "jon": "jonathan", "johnny": "john", "jeff": "jeffrey", "greg": "gregory", "pat": "patrick",
         "rick": "richard", "ricky": "richard", "dick": "richard", "ken": "kenneth", "kenny": "kenneth", "max": "maxwell",
         "nate": "nathaniel", "dave": "david", "tim": "timothy", "ron": "ronald", "ray": "raymond", "fred": "frederick",
-        "vince": "vincent", "manny": "manuel", "alec": "alexander"}
+        "vince": "vincent", "manny": "manuel", "alec": "alexander",
+        # Russian first names transliterated two ways (Yegor Chinakhov on the board, Egor in ESPN's box score), and
+        # nicknames ESPN uses as the name (Bub Carrington for Carlton)
+        "yegor": "egor", "yevgeny": "evgeny", "yevgeni": "evgeny", "evgenii": "evgeny", "evgeni": "evgeny",
+        "alexey": "alexei", "aleksei": "alexei", "dmitry": "dmitri", "dmitrii": "dmitri", "bub": "carlton"}
 
 
 def _name_parts(name):
