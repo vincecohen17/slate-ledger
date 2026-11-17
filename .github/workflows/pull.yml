@@ -23,6 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
+        # a hung clone (Nov 17: 60 min on this step) held the whole main lane; normally it takes ~20 s
+        timeout-minutes: 6
         with:
           repository: vincecohen17/slate-ledger-data
           token: ${{ secrets.DATA_REPO_TOKEN }}
