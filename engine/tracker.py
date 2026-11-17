@@ -11,7 +11,8 @@ and the report card on the Reports page shows how the model is doing against the
 Files in the data repo:
   track/open/<gameId>.json      latest pre-game snapshot
   track/graded/<sport>.jsonl    one row per graded line: group, model p, fair p, result
-  calib/params.json             fitted a, b, w per group (plus pooled fallbacks)
+  calib/params.json             fitted a, b, w per group (plus pooled fallbacks); "main" / "alt" (a, b) per group fit
+                                on rows whose raw fair is within 0.4-0.6 / outside it (applied by the row's own fair)
 """
 import glob
 import gzip
@@ -23,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 import stats as ST
 
 MIN_GROUP, MIN_POOL = 150, 400
+FIT_VERSION = 2          # bump to refit calib/params.json on the next run (2: main / alt strata, Nov 17)
 LG = {"basketball_nba": "nba", "basketball_wnba": "wnba", "icehockey_nhl": "nhl", "americanfootball_nfl": "nfl",
       "americanfootball_ncaaf": "cfb", **{v[1]: k for k, v in ST.SOCCER.items()}}
 ALIAS = {"UTAH": "UTA", "GSW": "GS", "NOP": "NO", "SAS": "SA", "NYK": "NY", "WAS": "WSH", "UTH": "UTA"}
@@ -474,7 +476,7 @@ def _fit_ab(xs, ys, lam=20.0, lo=0.2, hi=1.5):
 def fit(data_dir, force=False):
     """refits only when the graded files changed (the backtest files are large); otherwise returns the saved fit"""
     files = sorted(glob.glob(os.path.join(data_dir, "track", "graded", "*.jsonl")) + glob.glob(os.path.join(data_dir, "track", "graded", "*.jsonl.gz")))
-    sig = [[os.path.basename(f), os.path.getsize(f)] for f in files]
+    sig = [["fitVersion", FIT_VERSION]] + [[os.path.basename(f), os.path.getsize(f)] for f in files]
     sp = os.path.join(data_dir, "calib", "fit_sig.json")
     if not force and ST.load_json(data_dir, "calib/fit_sig.json") == sig:
         params, report = load_params(data_dir), ST.load_json(data_dir, "calib/report.json")
@@ -517,6 +519,12 @@ def _fit(data_dir, files):
             ll = _ll([_sig(w * _lg(c) + (1 - w) * _lg(f)) for c, f in zip(cal, fs)], ys)
             best = min(best, (ll, w))
         params[gk] = {"a": round(a, 4), "b": round(b, 4), "w": best[1], "n": len(rs)}
+        # main-like vs alt rows get their own (a, b) (Nov 17 lab: one fit is a compromise between bt mains and live ladders)
+        for st in ("main", "alt"):
+            sub = [(x, y) for x, y, f in zip(xs, ys, fs) if _stratum(f) == st]
+            if len(sub) >= (MIN_POOL if pooled else MIN_GROUP):
+                sa, sb = _fit_ab([x for x, _ in sub], [y for _, y in sub])
+                params[gk][st] = {"a": round(sa, 4), "b": round(sb, 4), "n": len(sub)}
         report.append({"group": gk, "n": len(rs), "llModel": round(_ll([r["p"] for r in rs], ys), 4), "llCal": round(_ll(cal, ys), 4),
                        "llMarket": round(_ll(fs, ys), 4), "llBlend": round(best[0], 4), "a": round(a, 3), "b": round(b, 3), "w": best[1],
                        "hit": round(sum(ys) / len(ys), 3)})
@@ -534,12 +542,32 @@ def load_params(data_dir):
     return ST.load_json(data_dir, "calib/params.json") or {}
 
 
-def _cal(params, gk, p):
+def _stratum(f):
+    """main-like (the raw sharp fair of the tracked side within 0.4-0.6) or alt; None when there is no fair"""
+    if f is None:
+        return None
+    return "main" if abs(f - 0.5) <= 0.1 else "alt"
+
+
+def _cal(params, gk, p, f=None):
+    """calibrated model chance: the (group, stratum) fit, else the pooled sport|kind|* stratum fit, else the group's
+    single fit, else the pooled one. Strata by the raw fair (Nov 17 lab, walk-forward on live rows: +8.7 mnats/row,
+    t 6.0 clustered by game; mains +15.0, alts +7.5)."""
     sport, kind = gk.split("|")[:2]
-    pr = params.get(gk) or params.get(f"{sport}|{kind}|*")
-    if not pr or p is None:
+    g0, g1 = params.get(gk), params.get(f"{sport}|{kind}|*")
+    if p is None:
+        return p
+    st = _stratum(f)
+    pr = (st and ((g0 or {}).get(st) or (g1 or {}).get(st))) or g0 or g1
+    if not pr:
         return p
     return _sig(pr["a"] + pr["b"] * _lg(p))
+
+
+def _fair_of(r, side):
+    f = r.get("fairRaw") or r.get("fair") or {}
+    v = f.get(side) if isinstance(f, dict) else None
+    return v if isinstance(v, (int, float)) else None
 
 
 def apply(params, game_docs, prop_docs):
@@ -553,7 +581,7 @@ def apply(params, game_docs, prop_docs):
             if not m or not side or side not in m:
                 continue
             other = next((o for o in l["outcomes"] if o != side), None)
-            c = _cal(params, group(g["sport"], "line", l["market"]), m[side])
+            c = _cal(params, group(g["sport"], "line", l["market"]), m[side], _fair_of(l, side))
             if c is not None and other:
                 m["_raw"] = {side: m[side]}
                 m[side], m[other] = round(c, 4), round(1 - c, 4)
@@ -566,7 +594,7 @@ def apply(params, game_docs, prop_docs):
             side, other = ("Over", "Under") if "Over" in m else ("Yes", "No") if "Yes" in m else (None, None)
             if not side:
                 continue
-            c = _cal(params, group(d["sport"], "prop", d["market"]), m[side])
+            c = _cal(params, group(d["sport"], "prop", d["market"]), m[side], _fair_of(r, side))
             if c is not None:
                 m["_raw"] = {side: m[side]}
                 m[side], m[other] = round(c, 4), round(1 - c, 4)
