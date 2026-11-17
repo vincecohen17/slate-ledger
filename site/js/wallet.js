@@ -1,6 +1,7 @@
 // The wallet: what's really in each app, and what you've really made there.
 // Entries (Firestore wallet/{id}): {id, venue, type: "balance" | "deposit" | "withdrawal" | "bonus", cash?, bonus?,
-// amount?, at, note?}. A balance check-in is what the app shows right now (cash and bonus). From the latest check-in the
+// amount?, asCash?, at, note?}. A bonus with asCash landed in the cash balance (DK Predictions Dollars, say): it is spent
+// and withdrawn like cash, and counts as profit when credited. A balance check-in is what the app shows right now (cash and bonus). From the latest check-in the
 // wallet replays everything since: deposits and withdrawals, bonus credits, every bet placed (cash bets take cash,
 // bonus-funded bets take bonus) and every bet settled (a cash bet returns stake + profit; a bonus bet's winnings come back
 // as cash; a push or void returns the stake to where it came from). So it always knows what each app should hold.
@@ -50,7 +51,7 @@ export function venueState(venue0, now = Date.now()) {
   }
   ev.sort((a, b) => a.at - b.at || (a.e?.type === "balance" ? 1 : 0) - (b.e?.type === "balance" ? 1 : 0));
   const cashLike = !!S.settings?.bonusCash?.[venue];
-  let cash = 0, bonus = 0, started = start == null, dep = 0, wd = 0, opening = null, unacc = 0, unaccBonus = 0, bonusIn = 0, bonusAll = 0, bonusStaked = 0;
+  let cash = 0, bonus = 0, started = start == null, dep = 0, wd = 0, opening = null, unacc = 0, unaccBonus = 0, bonusIn = 0, bonusAll = 0, bonusStaked = 0, bonusCashIn = 0;
   const log = [];
   const openAt = (at, f = (b) => !noCash(b)) => bets.filter((b) => f(b) && t(b.createdAt) <= at && (!DONE.includes(b.status) || t(b.settledAt || b.createdAt) + 1 > at)).reduce((x, b) => x + b.stake, 0);
   for (const x of ev) {
@@ -68,7 +69,8 @@ export function venueState(venue0, now = Date.now()) {
       }
       if (e.type === "deposit") { cash += +e.amount || 0; if (opening != null) dep += +e.amount || 0; }
       if (e.type === "withdrawal") { cash -= +e.amount || 0; if (opening != null) wd += +e.amount || 0; }
-      if (e.type === "bonus") { bonus += +e.amount || 0; bonusAll += +e.amount || 0; if (opening != null) bonusIn += +e.amount || 0; }
+      if (e.type === "bonus" && e.asCash) { cash += +e.amount || 0; if (opening != null) bonusCashIn += +e.amount || 0; }
+      else if (e.type === "bonus") { bonus += +e.amount || 0; bonusAll += +e.amount || 0; if (opening != null) bonusIn += +e.amount || 0; }
       log.push(e);
       continue;
     }
@@ -92,10 +94,10 @@ export function venueState(venue0, now = Date.now()) {
   const real = opening != null ? wd + now0 - opening - dep : null;
   // where the profit came from: settled bets, check-ins that differed from the ledger, and (bonus-as-cash apps) bonus
   // credited minus bonus staked; "other" is whatever's left (bets placed before tracking that settled after, etc.)
-  const adj = unacc + (cashLike ? unaccBonus : 0), bonusNet = cashLike ? bonusIn - bonusStaked : 0;
+  const adj = unacc + (cashLike ? unaccBonus : 0), bonusNet = (cashLike ? bonusIn - bonusStaked : 0) + bonusCashIn;
   const other = real != null ? real - ledger - adj - bonusNet : null;
   return { venue, cash, bonus, openCash, openBonus, dep, wd, opening, real, ledger, unacc, unaccBonus, bonusIn, start, cashLike, now: now0,
-    moneyIn: opening != null ? opening + dep : null, adj, bonusNet, other, bonusAll,
+    moneyIn: opening != null ? opening + dep : null, adj, bonusNet, bonusCashIn, other, bonusAll,
     checkedAt: checks.length ? checks.at(-1).at : null, tracked: opening != null, log: log.reverse(),
     nBets: bets.filter((b) => start != null && t(b.createdAt) >= start).length };
 }

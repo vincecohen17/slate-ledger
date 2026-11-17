@@ -15,7 +15,7 @@ const sgn = (v) => `${v > 0.005 ? "+" : ""}${money(v)}`;
 
 function entryLine(e) {
   const lab = e.type === "balance" ? `Check-in: ${money(+e.cash || 0)} cash${+e.bonus ? `, ${money(+e.bonus)} bonus` : ""}${e.first ? " (tracking starts)" : ""}`
-    : e.type === "deposit" ? `Deposit ${money(+e.amount)}` : e.type === "withdrawal" ? `Withdrawal ${money(+e.amount)}` : `Bonus received ${money(+e.amount)}`;
+    : e.type === "deposit" ? `Deposit ${money(+e.amount)}` : e.type === "withdrawal" ? `Withdrawal ${money(+e.amount)}` : `Bonus received ${money(+e.amount)}${e.asCash ? " (as cash)" : ""}`;
   const off = e.type === "balance" && !e.first && (Math.abs(e.diffCash) > 0.009 || Math.abs(e.diffBonus) > 0.009)
     ? ` <span class="tiny ${cls(e.diffCash)}">expected ${money(e.expCash)}${Math.abs(e.diffBonus) > 0.009 ? ` / ${money(e.expBonus)} bonus` : ""}: off ${sgn(e.diffCash)}${Math.abs(e.diffBonus) > 0.009 ? ` cash, ${sgn(e.diffBonus)} bonus` : ""}</span>`
     : e.type === "balance" && !e.first ? ` <span class="tiny pos">matches the ledger</span>` : "";
@@ -35,7 +35,7 @@ function appCard(w) {
       <div><div class="k">Profit</div><div class="v num ${cls(w.real)}">${w.real != null ? sgn(w.real) : "–"}</div><div class="s">${w.tracked ? "money out + now − money in" : "after a check-in"}</div></div>
     </div>
     ${w.tracked ? `<div class="tiny muted">Money in ${money(w.moneyIn)} (started with ${money(w.opening)}${w.dep ? ` + deposited ${money(w.dep)}` : ""}) · money out ${money(w.wd)} · in the app now ${money(w.now)}</div>
-      <div class="row tiny" style="gap:10px;flex-wrap:wrap">${part("bets settled", w.ledger, "profit of the bets you logged here that settled since tracking started")}${part("check-in adjustments", w.adj, "check-ins that differed from what your logged bets predicted: counted in the profit")}${part("bonus credited − bonus staked", w.bonusNet, "bonus funds count as money at this app")}${w.other != null && Math.abs(w.other) > 0.5 ? part("other", w.other, "bets placed before tracking started that settled after, and rounding") : ""}</div>` : ""}
+      <div class="row tiny" style="gap:10px;flex-wrap:wrap">${part("bets settled", w.ledger, "profit of the bets you logged here that settled since tracking started")}${part("check-in adjustments", w.adj, "check-ins that differed from what your logged bets predicted: counted in the profit")}${part(w.cashLike ? "bonus credited − bonus staked" : "bonus credited as cash", w.bonusNet, "bonus credited at this app: bonus that landed as cash, plus bonus balance where it counts as money")}${w.other != null && Math.abs(w.other) > 0.5 ? part("other", w.other, "bets placed before tracking started that settled after, and rounding") : ""}</div>` : ""}
     ${Math.abs(w.unacc) > 0.5 || Math.abs(w.unaccBonus) > 0.5 ? `<div class="tiny ${cls(w.unacc)}">Check-ins differed from the ledger by ${sgn(w.unacc)} cash${Math.abs(w.unaccBonus) > 0.5 ? `, ${sgn(w.unaccBonus)} bonus` : ""}${w.cashLike || Math.abs(w.unaccBonus) < 0.5 ? "" : " (bonus differences don't count here until they turn into cash)"}. It's in the profit; if it was an unlogged bet or a typo, logging or fixing it moves it into "bets settled".</div>` : ""}
     <label class="row tiny" style="gap:6px;align-items:center;justify-content:flex-start"><input type="checkbox" style="width:auto;flex:none;margin:0" data-bcash="${w.venue}" ${w.cashLike ? "checked" : ""}> Bonus funds here work like cash (count them as money; turning bonus into cash isn't profit)</label>
     <div class="row" style="gap:6px;flex-wrap:wrap">
@@ -86,7 +86,7 @@ function walletSheet(type, venue) {
     ${type === "balance" ? `<p class="small" style="margin:0">Type exactly what ${esc(name)} shows right now.${w.tracked ? ` Your logged bets say it should be <b>${money(w.cash)}</b> cash${w.bonus ? ` and <b>${money(w.bonus)}</b> bonus` : ""}.` : " This starts tracking: it's your starting point for real profit here."}</p>
       <div class="fgrid"><label class="f">Cash $<input id="wl-cash" inputmode="decimal" value="${w.tracked ? w.cash.toFixed(2) : ""}"></label><label class="f">Bonus funds $<input id="wl-bonus" inputmode="decimal" value="${w.tracked && w.bonus ? w.bonus.toFixed(2) : ""}" placeholder="0"></label></div>
       <div class="tiny muted" id="wl-diff"></div>`
-    : `<div class="fgrid"><label class="f">Amount $<input id="wl-amt" inputmode="decimal"></label></div>`}
+    : `<div class="fgrid"><label class="f">Amount $<input id="wl-amt" inputmode="decimal"></label></div>${type === "bonus" ? `<label class="row tiny" style="gap:6px;align-items:center;justify-content:flex-start"><input type="checkbox" id="wl-ascash" style="width:auto;flex:none;margin:0"> It landed in my cash balance (spent and withdrawn like cash)</label>` : ""}`}
     <div class="fgrid"><label class="f">When<input id="wl-at" type="datetime-local" value="${now}"></label><label class="f">Note (optional)<input id="wl-note" placeholder="${type === "bonus" ? "e.g. no-sweat refund" : ""}"></label></div>
     <div class="row"><button class="btn" id="wl-save">Save</button><button class="btn ghost" id="wl-cancel">Cancel</button></div></div>`, (el, close) => {
     $("#wl-cancel", el).onclick = close;
@@ -108,6 +108,7 @@ function walletSheet(type, venue) {
       } else {
         e.amount = parseFloat($("#wl-amt", el).value);
         if (!(e.amount > 0)) { toast("Type the amount"); return; }
+        if (type === "bonus" && $("#wl-ascash", el)?.checked) e.asCash = true;
       }
       try { await saveWallet(e); toast("Saved"); close(); } catch (err) { toast("Could not save: " + err.message); }
     };

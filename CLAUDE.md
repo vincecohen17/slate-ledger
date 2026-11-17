@@ -177,6 +177,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   bets and picks now (closecal still calibrates the edge report card). Live bets keep the live check. Leg closes are cached
   in latest/closemkt_cache.json. Site KPI "Avg CLV vs close" with "market consensus at the close · n of N".
   Bets and picks name the bet with gameId, market, side, point (that side's own line), player, team.
+  Hockey h2h_3_way is regulation: graded from the first three periods (Draw = overtime; the pick'em apps' "Will there be
+  overtime? Yes" is logged as it).
   Period game lines (_q1-_q4, _h1/_h2, _p1-_p3, 1st_N_innings; hockey _q1 = P1) grade from the final's line score
   (ledger._period_score); a 4th quarter or 2nd half that went to overtime is left ungraded (books differ on OT).
 - `engine/livebets.py` every live run: each leg of Vince's open bets gets its current stat from the ESPN box score (all sports,
@@ -325,7 +327,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   check-in (its cash, open cash stakes, and bonus where it counts) + deposits; profit = withdrawals + value now - money in,
   so check-in differences count (shown as adjustments, with bets settled and bonus credited - staked as the breakdown).
   settings/owner.bonusCash[app] marks apps whose bonus works like cash (counted as money; converting it isn't profit).
-  DK Pick6 shares the DraftKings account (accountOf). Bonus funds become a promo per app (id wb-<app>, wallet: true) whose
+  DK Pick6 shares the DraftKings account (accountOf). A bonus entry with asCash ("It landed in my cash balance": DK Predictions
+  Dollars) adds to cash, not bonus, and counts in the profit breakdown as bonus credited. Bonus funds become a promo per app (id wb-<app>, wallet: true) whose
   amount follows the wallet's bonus balance (syncWalletPromos).
 - `engine/picklive.py` every run re-checks each open pick's playTo venues (current price, pick'em line still listed, in range vs
   goodAt) -> RTDB pre/pickslive and latest/pickslive.json; the Picks screen shows it. Pick'em payouts: Underdog/Dabble real,

@@ -66,8 +66,17 @@ function fromFinal(f, leg) {
   if (base === "h2h") return hs === as_ ? 0.5 : (hs > as_) === isHome ? 1 : 0;
   if (base === "spreads" && leg.point != null) { const m = (isHome ? hs - as_ : as_ - hs) + leg.point; return m === 0 ? 0.5 : m > 0 ? 1 : 0; }
   if (base === "totals" && leg.point != null) { const t = hs + as_; return t === leg.point ? 0.5 : (t > leg.point) === (leg.side === "Over") ? 1 : 0; }
+  // hockey 3-way (regulation): the first three periods of the line score decide it; Draw = it went to overtime
+  if (base === "h2h_3_way" && (fin3(f) || g?.sport?.startsWith?.("icehockey"))) {
+    const hl = f.home.line, al = f.away.line;
+    if (!Array.isArray(hl) || !Array.isArray(al) || hl.length < 3 || al.length < 3) return null;
+    const rh = +hl[0] + +hl[1] + +hl[2], ra = +al[0] + +al[1] + +al[2];
+    if (leg.side === "Draw") return rh === ra ? 1 : 0;
+    return rh === ra ? 0 : (rh > ra) === isHome ? 1 : 0;
+  }
   return null;
 }
+const fin3 = (f) => f?.league === "NHL" || String(f?.sport || "").startsWith("icehockey");
 
 // live normal approximation for basketball and football when the exact line isn't quoted live
 const SD = { NBA: [12.5, 18.5], WNBA: [11, 15], NFL: [13.5, 13], NCAAF: [15.5, 15] };

@@ -258,6 +258,19 @@ def grade_leg(data_dir, leg, fin_by_gid):
     base = mk.replace("alternate_", "")
     pt = leg.get("point")
     per = _period_of(base)
+    if base == "h2h_3_way" and (snap.get("sport") or "").startswith("icehockey"):
+        # hockey's 3-way line is settled on regulation (60 minutes): Draw = the game went to overtime ("Will there be
+        # overtime? Yes" on the pick'em apps is logged as this)
+        res = _period_score(snap, ("", "reg"), fin_by_gid.get(snap["id"]))
+        if res is None:
+            return None
+        if side == "Draw":
+            y = float(res["hs"] == res["as"])
+        else:
+            mine_home = T._norm(side or "") == T._norm(snap["home"])
+            y = float((res["hs"] > res["as"]) if mine_home else (res["as"] > res["hs"]))
+        # a 3-way row's other side isn't 1 - its fair: keep a close only when the row is this side
+        return {"y": y, "close": close if same else None, "score": [res["hs"], res["as"]], "age": T.close_age(snap, True), "t": t}
     if per:             # a period line (1Q, 1H, P1, first 5 innings): graded from the final's line score
         base = base[: -len(per[0])]
         res = _period_score(snap, per, fin_by_gid.get(snap["id"]))
@@ -346,7 +359,7 @@ def _period_score(snap, per, f):
         if p == "h2" and ot:
             idx = None
     elif reg == 3:              # hockey periods (the site logs a first period as _q1)
-        idx = {"p1": [0], "p2": [1], "p3": [2], "q1": [0]}.get(p)
+        idx = {"p1": [0], "p2": [1], "p3": [2], "q1": [0], "reg": [0, 1, 2]}.get(p)
     else:
         idx = None
     if not idx or any(hl[i] is None or al[i] is None for i in idx):
