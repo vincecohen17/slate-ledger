@@ -85,12 +85,17 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   picks need an adopted method (evidence.methods); dropped methods are never a reason. Recomputed when anything grades or
   hourly.
 - Maker orders (`engine/makers.py`, Nov 17 -> rep.makers, Edges > "Make orders" tab `views/makers.js`, Methods board key
-  "maker" src "paper"): limit orders on Kalshi / Polymarket US / Novig / ProphetX main lines (h2h/spreads/totals at the main
-  number, fairSource sharp) for games within AHEAD_H 6 h: bid side Y one tick ahead of the best price (1 - qX + tick; 1c on
-  Kalshi/Polymarket, 0.5c Novig/ProphetX), bids 25-75c, 2%+ over the fair after the maker fee (assumed Kalshi
-  0.0175 p(1-p), others 0) and cheaper than taking Y. Fill chance = 1 - exp(-integrated eat rate) from a Nov 12-17 study of
-  raw pulls (resting +2-4% orders eaten 2.1/h under 1 h to 0.46/h past 24 h; venue multipliers, ProphetX lowest; fair moved
-  only 0.05 pts after an eat). Policy (Vince): arbs are always locked; otherwise only +EV legs are bet: post one side, or
+  "maker" src "paper"): limit orders on Kalshi / Polymarket US / Novig / ProphetX, every market-priced two-way market (game
+  lines incl. alternates / periods / team totals with fairSource sharp, props with a sharp fair or 3+ books; no model or
+  one-sided fairs) up to AHEAD_H 96 h out: bid side Y one tick ahead of the best price (1 - qX + tick; 1c on
+  Kalshi/Polymarket, 0.5c Novig/ProphetX), bids 25-75c, MIN_EDGE 5%+ over the fair after the maker fee (assumed Kalshi
+  0.0175 p(1-p), others 0), cheaper than taking Y; two-sided venue quotes only, spread <= 25c, ask within 15 pts of the
+  fair, edge under 60% (past those: stale orders / mismatched numbers). competitive = no sportsbook sells the other side
+  cheaper than our order does (1 - bid <= best book cost): ranked first, the site's default filter, else fill chance x0.25.
+  Site bar settings/owner.makerMin (default 10%, Vince), filters kind / lead time / sport. Nov 8-17 study (two-sided
+  quotes): make-take gap main 1.0c inside 6 h, 2.4-2.9c a day+ out; alts 2.4c -> 3-5c; props 4.4c -> ~8c; 10%+ resting
+  levels held their value to the close; eats (size behind shrinking / level gone, which on thin books includes makers
+  moving orders) 1-2/h inside 6 h, 0.2-0.5/h earlier: RATE by kind x lead, venue multipliers. Policy (Vince): arbs are always locked; otherwise only +EV legs are bet: post one side, or
   both when both clear 2% (both filled = an arb); once filled, take the other side only if it is +EV itself or locks
   LOCK_MIN 3%+ (Vince's arb bar), else hold. Paper record track/makers/open.json: filled when the level behind ours is
   eaten or vanishes (pessimistic), cancelled when the fair drops the edge under 0.5%, expired at the start, locked when

@@ -4,7 +4,7 @@ import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$
 import { edgeCard, bindLog } from "./common.js";
 import { arbSheet } from "../arbs.js";
 import { fundStake } from "../arbfund.js";
-import { makersHtml } from "./makers.js";
+import { makersHtml, bindMakers } from "./makers.js";
 
 const F = { league: "All", type: "All", min: 0.015, venue: "All", logic: "All", tab: "edges" };
 
@@ -111,11 +111,12 @@ export function renderEdges(el) {
     return (F.league === "All" || e.league === F.league) && (F.venue === "All" || e.bookName === F.venue) && e.edge >= F.min &&
       (F.type === "All" || (F.type === "Lines" && isLine(e)) || (F.type === "Props" && !isLine(e) && !e.pickem) || (F.type === "Pick'em" && e.pickem));
   }).sort((a, b) => (b.score ?? b.edge) - (a.score ?? a.edge));
-  const tabs = `<div class="bar"><button class="chip ${F.tab === "edges" ? "on" : ""}" data-tab="edges">Edges</button><button class="chip ${F.tab === "opps" ? "on" : ""}" data-tab="opps">Arbs & middles${nOpp ? ` <span class="pill pos">${nOpp}</span>` : ""}</button><button class="chip ${F.tab === "makers" ? "on" : ""}" data-tab="makers">Make orders${(S.reports?.makers?.items || []).length ? ` <span class="pill s">${S.reports.makers.items.filter((o) => new Date(o.commence) > new Date()).length}</span>` : ""}</button></div>`;
+  const tabs = `<div class="bar"><button class="chip ${F.tab === "edges" ? "on" : ""}" data-tab="edges">Edges</button><button class="chip ${F.tab === "opps" ? "on" : ""}" data-tab="opps">Arbs & middles${nOpp ? ` <span class="pill pos">${nOpp}</span>` : ""}</button><button class="chip ${F.tab === "makers" ? "on" : ""}" data-tab="makers">Make orders${S.reports?.makers?.nBarComp ? ` <span class="pill s">${S.reports.makers.nBarComp}</span>` : ""}</button></div>`;
   if (F.tab === "makers") {
     el.innerHTML = tabs + makersHtml();
     $$("[data-tab]", el).forEach((b) => b.onclick = () => { F.tab = b.dataset.tab; renderEdges(el); });
     bindLog(el);
+    bindMakers(el, () => renderEdges(el));
     return;
   }
   if (F.tab === "opps") {

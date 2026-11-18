@@ -1685,7 +1685,7 @@ def publish(game_docs, prop_docs, status, stamp):
     mboard_m, mk_board = None, None
     try:            # maker orders: limit orders worth more than the fair that should fill before the start (paper-tracked)
         import makers
-        mk_board = makers.run(DATA_DIR, game_docs, {d["gameId"]: d for d in (fin or {}).values() if d.get("gameId")}, NOW, log=log)
+        mk_board = makers.run(DATA_DIR, game_docs, prop_docs, {d["gameId"]: d for d in (fin or {}).values() if d.get("gameId")}, NOW, log=log)
     except Exception as e:
         log(f"makers failed: {type(e).__name__}: {str(e)[:100]}")
     try:            # the Methods board: market methods paper-bet near the start, graded after; every method's record
