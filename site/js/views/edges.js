@@ -1,5 +1,5 @@
 import { marketMoves, marketDriven, whyRecord, steamItems, steamList } from "./market.js";
-import { S, testAlert, saveOppCheck } from "../store.js";
+import { S, testAlert, saveOppCheck, saveSettings } from "../store.js";
 import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$, odds } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 import { arbSheet } from "../arbs.js";
@@ -43,7 +43,7 @@ function alertsCard() {
   const qs = (h) => `${((h + 11) % 12) + 1} ${h < 12 ? "AM" : "PM"}`;
   return `<div class="card col" style="gap:8px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>📲 Phone alerts</b>
       <span class="row" style="gap:6px"><button class="btn sm" id="al-test">Send a test</button><button class="btn sm ghost" id="al-how">${alertsOpen ? "Hide" : "How to turn on"}</button></span></div>
-    <div class="tiny muted">No-risk middles alert right away, loudest. Arbs (1%+), middles (2%+ EV) and strong new edges too; edges stay quiet ${qs(a.quietStart)} to ${qs(a.quietEnd)}.</div>
+    <div class="tiny muted">No-risk middles alert right away, loudest. Arbs (3%+), middles (2%+ EV) and strong new edges too; edges stay quiet ${qs(a.quietStart)} to ${qs(a.quietEnd)}.</div>
     ${alertsOpen ? `<ol class="small" style="margin:4px 0 0 18px;padding:0;line-height:1.6">
       <li>Install the free <b>ntfy</b> app (App Store or Google Play).</li>
       <li>Tap <b>+</b> (Subscribe to topic), type this topic exactly, and keep the server as ntfy.sh:<div class="row" style="gap:6px;margin:4px 0"><code class="al-topic">${esc(a.topic)}</code><button class="btn sm ghost" id="al-copy">Copy</button></div></li>
@@ -53,10 +53,12 @@ function alertsCard() {
   </div>`;
 }
 const checked = new Map();     // opp key -> what was reported this session
+// the smallest arb worth acting on (Vince's target since Nov 17: 3%); smaller ones fold under a toggle
+const arbMin = () => S.settings?.arbMin ?? 0.03;
 function oppsHtml() {
   const all = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && (F.league === "All" || o.league === F.league));
   const L = all.filter((o) => o.confirmed), U = all.filter((o) => !o.confirmed);
-  const arbs = L.filter((o) => o.kind === "arb"), free = L.filter((o) => o.kind === "middle" && o.free && !o.suspect), mids = L.filter((o) => o.kind === "middle" && !(o.free && !o.suspect));
+  const arbsAll = L.filter((o) => o.kind === "arb"), arbs = arbsAll.filter((o) => o.profit >= arbMin() - 1e-9), small = arbsAll.filter((o) => o.profit < arbMin() - 1e-9), free = L.filter((o) => o.kind === "middle" && o.free && !o.suspect), mids = L.filter((o) => o.kind === "middle" && !(o.free && !o.suspect));
   const lo = (S.live?.opps || []).filter((o) => (F.league === "All" || o.league === F.league) && !o.suspect);
   const liveAt = S.live?.updated ? Math.round((Date.now() - new Date(S.live.updated)) / 60000) : null;
   return `${alertsCard()}<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 10px"><span class="small">Split a total of</span><input id="op-tot" inputmode="decimal" value="${oppTotal}" style="width:90px"><span class="tiny muted">stakes below are for this total; venues round to cents</span></div>
@@ -65,7 +67,10 @@ function oppsHtml() {
       <p class="note">From in-play prices${liveAt != null ? `, pulled ${liveAt <= 0 ? "just now" : `${liveAt} min ago`}` : ""}. Live prices move by the second and apps suspend markets on every big play: open both apps and check both prices before placing either leg.</p>
       <div class="grid">${lo.map(oppCard).join("")}</div>` : ""}
     ${free.length ? `<div class="sec-title">No-risk middles (${free.length})<span class="line"></span></div><div class="grid">${free.map(oppCard).join("")}</div>` : ""}
-    <div class="sec-title">Arbs (${arbs.length})<span class="line"></span></div>${arbs.length ? `<div class="grid">${arbs.map(oppCard).join("")}</div>` : `<div class="card note">None open right now.</div>`}
+    <div class="sec-title">Arbs (${arbs.length})<span class="line"></span></div>
+    <div class="row" style="gap:6px;align-items:center;flex-wrap:wrap;margin:-2px 0 10px"><span class="tiny muted">Show arbs from</span>${[0.01, 0.02, 0.03, 0.04].map((m) => `<button class="chip ${Math.abs(arbMin() - m) < 1e-9 ? "on" : ""}" data-amin="${m}">${Math.round(m * 100)}%+</button>`).join("")}<span class="tiny muted">3%+ arbs have run about 40 a day since Nov 6, stay up longer (44 min median) and fill deeper; 95% are props, mostly Bovada vs Novig</span></div>
+    ${arbs.length ? `<div class="grid">${arbs.map(oppCard).join("")}</div>` : `<div class="card note">None at ${Math.round(arbMin() * 100)}%+ right now${small.length ? `; ${small.length} smaller below` : ""}.</div>`}
+    ${small.length ? `<button class="btn sm ghost" id="op-small" style="margin-top:8px">${F.showSmall ? "Hide" : "Show"} ${small.length} arb${small.length === 1 ? "" : "s"} under ${Math.round(arbMin() * 100)}%</button>${F.showSmall ? `<div class="grid" style="margin-top:10px;opacity:.85">${small.map(oppCard).join("")}</div>` : ""}` : ""}
     <div class="sec-title">${free.length ? "Other middles" : "Middles"} (${mids.length})<span class="line"></span></div>${mids.length ? `<div class="grid">${mids.map(oppCard).join("")}</div>` : `<div class="card note">None open right now.</div>`}
     ${U.length ? `<div class="sec-title">Unverified (${U.length})<span class="line"></span></div>
       <p class="note">Found in the feed but not confirmed: seen on one pull only, a book price that hasn't updated in 30+ minutes, a DK Predictions or FanDuel Predicts price borrowed from its sportsbook (the app may not list the market), too good to be true, or thin. Each says why. These are what didn't pan out last week, so they're not alerted. When you check one, tap what you found: the engine learns which venues and markets to trust.</p>
@@ -96,7 +101,7 @@ export function renderEdges(el) {
     new Date(e.commence) > new Date(Date.now() - 5 * 60000));
   const bookOf = Object.fromEntries(S.edges.map((e) => [e.bookName, e.book]));
   const chips = (key, vals, fmt = (v) => v) => vals.map((v) => `<button class="chip ${F[key] === v ? "on" : ""}" data-f="${key}" data-v="${esc(v)}">${key === "venue" && bookOf[v] ? bookLogo(bookOf[v], v, 14) : ""}${esc(fmt(v))}</button>`).join("");
-  const nOpp = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && !o.suspect && o.confirmed).length + (S.live?.opps || []).filter((o) => !o.suspect).length;
+  const nOpp = (S.opps || []).filter((o) => new Date(o.commence) > new Date() && !o.suspect && o.confirmed && (o.kind !== "arb" || o.profit >= arbMin() - 1e-9)).length + (S.live?.opps || []).filter((o) => !o.suspect).length;
   // in-play edges: the live board's top 150 plus each open game's own list, deduped, same filters as the pre-game list
   const lg = S.liveGames || new Map(), seen = new Set();
   const liveE = [...(S.live?.edges || []), ...[...lg.values()].flatMap((d) => d.final ? [] : d.edges || [])].filter((e) => {
@@ -115,6 +120,8 @@ export function renderEdges(el) {
     $$("[data-opmax]", el).forEach((b) => b.onclick = () => { oppTotal = +b.dataset.opmax; renderEdges(el); toast(`Stakes split for ${money(oppTotal)}`); });
     $$("[data-arb]", el).forEach((b) => b.onclick = () => arbSheet({ ...OPPS[+b.dataset.arb], total: oppTotal }));
     const uv = el.querySelector("#op-unv"); if (uv) uv.onclick = () => { F.showUnv = !F.showUnv; renderEdges(el); };
+    const sm = el.querySelector("#op-small"); if (sm) sm.onclick = () => { F.showSmall = !F.showSmall; renderEdges(el); };
+    $$("[data-amin]", el).forEach((b) => b.onclick = () => saveSettings({ arbMin: +b.dataset.amin }).then(() => renderEdges(el)).catch((e) => toast("Could not save: " + e.message)));
     $$("[data-opreal]", el).forEach((b) => b.onclick = () => { const o = OPPS[+b.dataset.opreal]; saveOppCheck(o, "real").then(() => { checked.set(o.key, "real"); toast("Saved: real"); renderEdges(el); }).catch((e) => toast("Couldn't save: " + e.message)); });
     $$("[data-opfake]", el).forEach((b) => b.onclick = () => { const [i, book] = b.dataset.opfake.split("|"), o = OPPS[+i]; saveOppCheck(o, "fake", [book]).then(() => { checked.set(o.key, `${o.legs.find((l) => l.book === book)?.name || book} wasn't there`); toast("Saved"); renderEdges(el); }).catch((e) => toast("Couldn't save: " + e.message)); });
     const at = el.querySelector("#al-test"); if (at) at.onclick = () => testAlert().then(() => toast("Test sent: check your phone")).catch((e) => toast("Couldn't send: " + e.message));
