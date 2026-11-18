@@ -339,9 +339,19 @@ def annotate(opps, data_dir, now, db=None, log=print):
         o["confirmed"] = not why
         if o["confirmed"]:
             o["score"] = (o.get("score") or 0) + 2
+        try:            # the running record of every arb / middle (engine/oppreport.py)
+            import oppreport
+            oppreport.arb_ent(o, prev, ent, now)
+        except Exception:
+            pass
     out = sorted(opps, key=lambda x: -(x.get("score") or 0))
     # keep only what's still open (a key that vanished starts over if it comes back)
     json.dump(cur, open(fn, "w"), separators=(",", ":"))
+    try:            # ones that left the board since the last run go to the record
+        import oppreport
+        annotate.closed = oppreport.arb_close(data_dir, {k: v for k, v in seen.items() if k not in cur}, now)
+    except Exception:
+        annotate.closed = 0
     n = sum(1 for o in out if o.get("confirmed"))
     log(f"opps: {len(out)} found, {n} confirmed; reports on {sum(sum(v) for v in rep.values())} legs")
     return out

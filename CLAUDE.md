@@ -111,6 +111,17 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   latest/raw/makerscan/. makers.run merges them (makerscan.docs: build_game / add_extra_lines; newer main lines replace the
   board's, early alts added, fringe games appended with fringe: true); rep.makers.scan / nFringe / nEarly; site Make orders
   tab: Fringe and Early pills, "Fringe sports" filter, scan line. Fringe fills with no final are logged ungraded (fill rate).
+- Where the money is (`engine/oppreport.py`, Nov 17 -> stats/opps_report.json, rep.oppreport, Reports > "Money" tab
+  `views/oppreport.js`): the running record of every arb, middle and maker order. Arbs: opps.annotate stamps each open one's
+  latest/opps_seen.json entry (oppreport.arb_ent: kind, league, prop, venues, best margin, best while verified, money / stake
+  it could take, hours to start) and writes ones that left the board to track/arbs/<PT day first seen>.jsonl (arb_close;
+  rebuilt from the latest/opps.json git history back to Nov 3, rows bf). Summary counts each opportunity once a day: verified
+  and 3%+ a day, median life, stake, by hour first seen (PT), venue pair, venue, sport, lines/props, lead time, day by day,
+  middles. Makers: maker_census (each makers.run) records every 5%+ suggestion once a Pacific day in
+  track/makers/census/<day>.json (45 days; past days' counts cached in stats/maker_census_days.json): 10%+ and 10%+
+  unbeaten a day by early/fringe/board, venue, venue x type, kind, lead, sport, hour. maker_record: the paper record
+  (track/makers/log.jsonl + open filled/locked) by the same cuts plus edge band, competitive, hour posted: fill rate vs
+  estimate, ROI (clustered by game), CLV, profit per order posted. Recomputed hourly or when an arb closes / an order grades.
 - Self-correcting fair (`engine/fairadj.py` -> calib/fairadj.json, applied in build._finish_line via build.FAIR_SHIFT, pre-game
   modes only): a logit shift for the tracked side (Over/Yes/home) per sport|kind and market, recency weighted (half-life 14 d,
   backtest rows a 0.15-weight prior), live only for sport|kinds whose walk-forward gain vs the raw fair is 2+ SE with 200+ scored rows that carried a shift (NBA props:

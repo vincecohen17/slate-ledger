@@ -1729,6 +1729,20 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"opportunities: {sum(o['kind'] == 'arb' for o in opp_list)} arbs, {sum(o['kind'] == 'middle' for o in opp_list)} middles; {n_al} alerts sent")
     except Exception as e:
         log(f"opportunities failed: {type(e).__name__}: {str(e)[:120]}")
+    opp_rep = None
+    try:            # where the money is: arbs, middles and maker orders on their own record (hourly, or when one closed)
+        import oppreport
+        import opps as OP2
+        import makers as MK2
+        ofn = os.path.join(DATA_DIR, "stats", "opps_report.json")
+        old = json.load(open(ofn)) if os.path.exists(ofn) else None
+        if (not old or getattr(OP2.annotate, "closed", 0) or getattr(MK2.run, "graded", 0)
+                or (NOW - datetime.fromisoformat(old["updated"])).total_seconds() > 3600):
+            opp_rep = oppreport.summarize(DATA_DIR, NOW, log=log)
+        else:
+            opp_rep = old
+    except Exception as e:
+        log(f"oppreport failed: {type(e).__name__}: {str(e)[:100]}")
     status["tuning"] = {"graded": n_graded, "groups": len(params), "calibrated": n_cal}
     for e in edge_list:     # what the model knew about this game beyond the box scores (verified news, weather, rest)
         c = (mups.get(e["gameId"]) or {}).get("context")
@@ -1748,6 +1762,8 @@ def publish(game_docs, prop_docs, status, stamp):
             rep["methods"] = methods.compact(mboard_m)
         if mk_board:
             rep["makers"] = mk_board
+        if opp_rep:
+            rep["oppreport"] = opp_rep
         if ecard:
             rep["edgecard"] = ecard
             if pbook:

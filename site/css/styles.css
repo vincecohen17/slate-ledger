@@ -733,3 +733,10 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 .mk-grid .s { font-size: 11px; color: var(--muted); }
 @media (max-width: 520px) { .mk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .mk-plan { margin-top: 8px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); }
+
+/* Reports > Where the money is */
+.or-k { margin-top: 4px; }
+.or-hours { width: 100%; max-width: 560px; height: auto; display: block; margin: 2px 0 6px; }
+.or-hours .or-bar { fill: var(--accent); opacity: .8; }
+.or-hours .or-bar:hover { opacity: 1; }
+.or-hours text { font-size: 5px; fill: var(--muted); }

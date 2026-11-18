@@ -6,6 +6,7 @@ import { modelsDeep, bindModels } from "./models.js";
 import { logicDeep, aiDeep, bindLogic } from "./logic.js";
 import { bindSort, tabify } from "./deep.js";
 import { methodsReport } from "./methods.js";
+import { oppReport, bindOppReport } from "./oppreport.js";
 
 let span = "total", focus = null, ecDim = "venue";
 
@@ -117,6 +118,8 @@ export function renderReports(el) {
     ${st?.errors?.length ? `<div class="card note" style="margin-top:10px">${st.errors.map(esc).join("<br>")}</div>` : ""}
     <div class="bar"><button class="chip ${span === "total" ? "on" : ""}" data-span="total">Since ${R?.since ? esc(R.since.slice(0, 10)) : "start"} · ${R?.runs ?? 0} pulls</button>
       <button class="chip ${span === "now" ? "on" : ""}" data-span="now">Latest pull</button></div>
+    <div class="sec-title">Where the money is: arbs, middles, maker orders<span class="line"></span></div>
+    ${oppReport(R?.oppreport)}
     <div class="sec-title">Methods: what works, what's adopted<span class="line"></span></div>
     ${methodsReport(R?.methods)}
     <div class="sec-title">Edge report card: are our edges real?<span class="line"></span></div>
@@ -143,13 +146,14 @@ export function renderReports(el) {
     ${modelCard(R)}
     <div class="sec-title">Backtests<span class="line"></span></div>
     ${backtestCard(R?.backtest)}`;
-  tabify(el, "reports", [["Methods", ["Methods"]], ["Edges", ["Edge report card"]], ["Books", ["Where the books are off", "Best price share"]], ["Market", ["Market signals"]],
+  tabify(el, "reports", [["Money", ["Where the money is"]], ["Methods", ["Methods"]], ["Edges", ["Edge report card"]], ["Books", ["Where the books are off", "Best price share"]], ["Market", ["Market signals"]],
     ["Model logic", ["Model logic"]], ["AI & news", ["AI flags"]], ["Models", ["Models in depth", "Model report card"]], ["Backtests", ["Backtests"]]]);
   $$("[data-span]", el).forEach((b) => b.onclick = () => { span = b.dataset.span; renderReports(el); });
   $$("[data-ec]", el).forEach((b) => b.onclick = () => { ecDim = b.dataset.ec; renderReports(el); });
   $$("[data-book]", el).forEach((b) => b.onclick = () => { focus = focus === b.dataset.book ? null : b.dataset.book; renderReports(el); });
   bindModels(el, () => renderReports(el));
   bindLogic(el, () => renderReports(el));
+  bindOppReport(el, () => renderReports(el));
   bindSort(el);
   bindTips(el);
 }

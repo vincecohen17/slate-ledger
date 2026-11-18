@@ -306,7 +306,7 @@ def track(data_dir, game_docs, prop_docs, items, now, log=print):
             continue
         op[it["key"]] = {**{k: it.get(k) for k in ("key", "gameId", "league", "sport", "matchup", "commence", "market", "kind", "loc",
                                                     "side", "point", "player", "team", "label", "venue", "bid", "cost", "dec", "fair",
-                                                    "ev", "spread", "pFill", "hrs", "cancelBelow", "competitive")},
+                                                    "ev", "spread", "pFill", "hrs", "cancelBelow", "competitive", "fringe")},
                          "behindSide": it["behind"]["side"], "ourX": round(1 - it["bid"], 4), "lastX": it["behind"]["price"],
                          "lastAvail": it["behind"]["avail"], "at": now.isoformat(), "status": "resting", "outbid": 0}
         fresh.add(it["key"])
@@ -453,8 +453,13 @@ def run(data_dir, game_docs, prop_docs, fin_by_gid, now, log=print):
     items = suggest(game_docs, prop_docs, now)
     for o in items:
         o["now"], o["ifFilled"] = plan(o)
+    try:            # the census: every 5%+ order seen today (engine/oppreport.py)
+        import oppreport
+        oppreport.maker_census(data_dir, items, now)
+    except Exception as e:
+        log(f"makers: census failed ({type(e).__name__})")
     track(data_dir, game_docs, prop_docs, items, now, log)
-    grade(data_dir, fin_by_gid, now, log)
+    run.graded = grade(data_dir, fin_by_gid, now, log)
     shown = [o for o in items if o["ev"] >= SHOW_EDGE][:120] + [o for o in items if o["ev"] < SHOW_EDGE][:30]
     drop = ("loc", "sport", "key", "cancelBelow")
     shown = [{**{k: v for k, v in o.items() if k not in drop}, "cancelBelow": o["cancelBelow"]} for o in shown]
