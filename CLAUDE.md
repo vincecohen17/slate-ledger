@@ -84,6 +84,18 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   with under 30 paper games is dropped / promising on its close record (100+ games, |t| >= 2). Runbook 3a: bet and floor
   picks need an adopted method (evidence.methods); dropped methods are never a reason. Recomputed when anything grades or
   hourly.
+- Maker orders (`engine/makers.py`, Nov 17 -> rep.makers, Edges > "Make orders" tab `views/makers.js`, Methods board key
+  "maker" src "paper"): limit orders on Kalshi / Polymarket US / Novig / ProphetX main lines (h2h/spreads/totals at the main
+  number, fairSource sharp) for games within AHEAD_H 6 h: bid side Y one tick ahead of the best price (1 - qX + tick; 1c on
+  Kalshi/Polymarket, 0.5c Novig/ProphetX), bids 25-75c, 2%+ over the fair after the maker fee (assumed Kalshi
+  0.0175 p(1-p), others 0) and cheaper than taking Y. Fill chance = 1 - exp(-integrated eat rate) from a Nov 12-17 study of
+  raw pulls (resting +2-4% orders eaten 2.1/h under 1 h to 0.46/h past 24 h; venue multipliers, ProphetX lowest; fair moved
+  only 0.05 pts after an eat). Policy (Vince): arbs are always locked; otherwise only +EV legs are bet: post one side, or
+  both when both clear 2% (both filled = an arb); once filled, take the other side only if it is +EV itself or locks
+  LOCK_MIN 3%+ (Vince's arb bar), else hold. Paper record track/makers/open.json: filled when the level behind ours is
+  eaten or vanishes (pessimistic), cancelled when the fair drops the edge under 0.5%, expired at the start, locked when
+  the other side can be taken at the bar; graded into track/methods/graded.jsonl (m maker; locked rows = the pair) and
+  track/makers/log.jsonl (fill rate vs predicted). Suggestions only until the exchange APIs are linked (planned).
 - Self-correcting fair (`engine/fairadj.py` -> calib/fairadj.json, applied in build._finish_line via build.FAIR_SHIFT, pre-game
   modes only): a logit shift for the tracked side (Over/Yes/home) per sport|kind and market, recency weighted (half-life 14 d,
   backtest rows a 0.15-weight prior), live only for sport|kinds whose walk-forward gain vs the raw fair is 2+ SE with 200+ scored rows that carried a shift (NBA props:

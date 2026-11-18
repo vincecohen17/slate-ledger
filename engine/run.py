@@ -1682,7 +1682,12 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"edge card: {n_new} new edges logged, {n_eg} graded, {ecard.get('n', 0)} in the card; {n_moved} lines moved since first seen")
     except Exception as e:
         log(f"edge card failed: {type(e).__name__}: {str(e)[:120]}")
-    mboard_m = None
+    mboard_m, mk_board = None, None
+    try:            # maker orders: limit orders worth more than the fair that should fill before the start (paper-tracked)
+        import makers
+        mk_board = makers.run(DATA_DIR, game_docs, {d["gameId"]: d for d in (fin or {}).values() if d.get("gameId")}, NOW, log=log)
+    except Exception as e:
+        log(f"makers failed: {type(e).__name__}: {str(e)[:100]}")
     try:            # the Methods board: market methods paper-bet near the start, graded after; every method's record
         import methods
         methods.observe(DATA_DIR, game_docs, NOW, log=log)
@@ -1731,6 +1736,8 @@ def publish(game_docs, prop_docs, status, stamp):
             rep["marketcard"] = mcard
         if mboard_m:
             rep["methods"] = methods.compact(mboard_m)
+        if mk_board:
+            rep["makers"] = mk_board
         if ecard:
             rep["edgecard"] = ecard
             if pbook:

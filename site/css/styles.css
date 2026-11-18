@@ -725,3 +725,11 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 @media (max-width: 480px) { .af-v { grid-template-columns: minmax(0, 1fr) 70px; } .af-v > :nth-child(n+3) { grid-column: span 1; } }
 /* Picks: entry legs */
 .en-leg { grid-template-columns: minmax(0, 1fr) auto auto !important; }
+
+/* Edges > Make orders */
+.mk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.mk-grid .k { font-size: 11px; color: var(--muted); }
+.mk-grid .v { font-size: 15px; }
+.mk-grid .s { font-size: 11px; color: var(--muted); }
+@media (max-width: 520px) { .mk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.mk-plan { margin-top: 8px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); }

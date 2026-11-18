@@ -80,6 +80,8 @@ METHODS = [
      lambda s: (s.get("mv") or 0) >= 0.03),
     ("fade_move", "Fade the move", "The side the line moved 3+ points away from.", "market",
      lambda s: (s.get("mv") or 0) <= -0.03),
+    ("maker", "Maker orders", "A limit order on an exchange 2%+ better than the sharp fair, one tick ahead of the best price, "
+     "on games within 6 hours (engine/makers.py). Counted when it would have filled; graded at our price.", "paper", None),
 ]
 BY_KEY = {m[0]: m for m in METHODS}
 
@@ -320,7 +322,15 @@ def summarize(data_dir, now, log=print):
            "since": min((r.get("d") for r in edges if r.get("d")), default=None), "methods": []}
     for key, name, blurb, src, rule in METHODS:
         m = {"key": key, "name": name, "blurb": blurb, "src": src}
-        if src == "edges":
+        if src == "paper":            # its own paper record (track/methods/graded.jsonl, m = key) plus how often they fill
+            m["live"] = _stats([r for r in paper if r.get("m") == key], now)
+            m["status"] = _status(m["live"])
+            try:
+                import makers
+                m["fill"] = makers.fill_summary(data_dir)
+            except Exception:
+                pass
+        elif src == "edges":
             rows = _dedupe([r for r in edges if _safe(rule, r)])
             # the edge log's CLV is against our own fair at the close (model-shaped on alt lines), which runs well above
             # what these edges return: judged on results only
