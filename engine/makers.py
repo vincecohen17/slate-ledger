@@ -61,6 +61,7 @@ MAX_GAP, MAX_OFF, MAX_EV = 0.25, 0.15, 0.60   # a venue spread over 25c, an ask 
 VMULT = {"kalshi": 1.23, "polymarket_us": 1.26, "novig": 1.15, "prophetx": 0.65}
 MAIN = ("h2h", "spreads", "totals")
 TOL = 5e-4
+P_FILL_CAP = 0.8
 TAKE = {b for b, v in C.BOOKS.items() if v.get("venue") and v.get("kind") != "dfs" and b not in ("draftkings", "fanduel")}
 
 
@@ -80,7 +81,7 @@ def p_fill(venue, hours, kind="main"):
         r = next(v for ub, v in tab if (hours - h) <= ub)
         lam += r * step * VMULT.get(venue, 1.0)
         h += step
-    return 1 - math.exp(-lam)
+    return min(P_FILL_CAP, 1 - math.exp(-lam))     # days of resting don't make a fill certain: fairs move, orders get repriced
 
 
 def _cost(venue, bid):
