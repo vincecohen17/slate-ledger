@@ -3,6 +3,7 @@ import { S, testAlert, saveOppCheck } from "../store.js";
 import { esc, bookLogo, am, pct, prob, fmtTime, money, centsTag, toast, kUsd, $$, odds } from "../util.js";
 import { edgeCard, bindLog } from "./common.js";
 import { arbSheet } from "../arbs.js";
+import { fundStake } from "../arbfund.js";
 
 const F = { league: "All", type: "All", min: 0.015, venue: "All", logic: "All", tab: "edges" };
 
@@ -32,7 +33,8 @@ function oppCard(o) {
     ${o.why?.length ? `<div class="tiny op-why" style="margin-top:6px"><b>Check first:</b> ${o.why.map(esc).join(" · ")}</div>` : o.confirmed ? `<div class="tiny pos" style="margin-top:6px">✓ Confirmed: held for ${o.pulls} pulls (${Math.round(o.seenMin || 0)} min), fresh book prices, no borrowed venue prices${o.trust != null && o.trust < 1 ? `, ${Math.round(o.trust * 100)}% real on your checks` : ""}.</div>` : ""}
     ${checked.has(o.key) ? `<div class="tiny muted" style="margin-top:6px">Thanks: your check (${esc(checked.get(o.key))}) trains which venues and markets to trust.</div>`
       : o.key ? `<div class="row tiny" style="gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="muted">Did you check it?</span><button class="btn sm ghost" data-opreal="${OPPS.length - 1}">✓ Both legs were there</button>${o.legs.map((l) => `<button class="btn sm ghost" data-opfake="${OPPS.length - 1}|${esc(l.book)}">✗ ${esc(l.name)} wasn't</button>`).join("")}</div>` : ""}
-    <div class="row" style="justify-content:flex-end;gap:6px;margin-top:8px">${o.maxStake != null && Math.abs(tot - o.maxStake) > 1 && o.maxStake >= 10 ? `<button class="btn sm ghost" data-opmax="${Math.floor(o.maxStake)}" title="split the most these prices fill">Size to ${money(Math.floor(o.maxStake))}</button>` : ""}<button class="btn sm ghost" data-arb="${OPPS.length - 1}" title="log both legs as one ${o.kind} in the ledger">Log both legs</button></div></div>`;
+    ${(() => { const fs = fundStake(o); if (!fs) return ""; return fs.total >= 5 ? `<div class="tiny" style="margin-top:6px">Arb fund: stake <b class="num">${money(fs.total)}</b> (${o.legs.map((l, i) => `${esc(l.name)} ${money(fs.total * o.stakes[i])}`).join(" + ")}) to lock <b class="pos">${money(fs.total * o.profit)}</b>.</div>` : `<div class="tiny muted" style="margin-top:6px">Arb fund: ${esc(fs.why || "nothing to stake")}.</div>`; })()}
+    <div class="row" style="justify-content:flex-end;gap:6px;margin-top:8px">${(() => { const fs = fundStake(o); return fs && fs.total >= 5 && Math.abs(tot - fs.total) > 1 ? `<button class="btn sm ghost" data-opmax="${fs.total}" title="split what the arb fund can stake at both venues">Size to the fund</button>` : ""; })()}${o.maxStake != null && Math.abs(tot - o.maxStake) > 1 && o.maxStake >= 10 ? `<button class="btn sm ghost" data-opmax="${Math.floor(o.maxStake)}" title="split the most these prices fill">Size to ${money(Math.floor(o.maxStake))}</button>` : ""}<button class="btn sm ghost" data-arb="${OPPS.length - 1}" title="log both legs as one ${o.kind} in the ledger">Log both legs</button></div></div>`;
 }
 let alertsOpen = false;
 function alertsCard() {

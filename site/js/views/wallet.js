@@ -6,6 +6,7 @@ import { VENUES, venueName } from "../lab.js";
 import { venueState, walletAll, accountName, accountOf, syncWalletPromos } from "../wallet.js";
 import { divRows } from "./charts.js";
 import { sortTable, td, bindSort } from "./deep.js";
+import { fundCard, bindFund } from "../arbfund.js";
 
 let openHist = new Set();
 const when = (x) => (x ? new Date(x).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" }) : "");
@@ -57,7 +58,7 @@ export function walletHtml() {
   syncWalletPromos();
   const others = VENUES.filter((v) => v.key !== "any" && accountOf(v.key) === v.key && !all.some((w) => w.venue === v.key));
   const inT = sum("moneyIn", tr), outT = sum("wd", tr), nowT = sum("now", tr);
-  return `${all.length ? `<div class="kpis" style="margin-top:12px">
+  return `<div style="margin-top:12px">${fundCard()}</div>${all.length ? `<div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="k">Money in</div><div class="v">${money(inT)}</div><div class="s">started with ${money(sum("opening", tr))} + deposited ${money(sum("dep", tr))}</div></div>
       <div class="kpi"><div class="k">Money out</div><div class="v">${money(outT)}</div><div class="s">withdrawn since tracking</div></div>
       <div class="kpi"><div class="k">In the apps now</div><div class="v">${money(nowT)}</div><div class="s">cash ${money(sum("cash", tr))} + open bets ${money(sum("openCash", tr))}${tr.some((w) => w.cashLike && w.bonus) ? " + bonus that counts" : ""}</div></div>
@@ -116,6 +117,7 @@ function walletSheet(type, venue) {
 }
 
 export function bindWallet(el, rerender) {
+  bindFund(el);
   $$("[data-wact]", el).forEach((b) => b.onclick = () => { const [type, v] = b.dataset.wact.split("|"); walletSheet(type, v); });
   $$("[data-whist]", el).forEach((b) => b.onclick = () => { const v = b.dataset.whist; openHist.has(v) ? openHist.delete(v) : openHist.add(v); rerender(); });
   $$("[data-wdel]", el).forEach((b) => b.onclick = () => { if (b.dataset.c) deleteWallet(b.dataset.wdel); else { b.dataset.c = 1; b.textContent = "?"; b.title = "tap again to delete"; } });

@@ -45,7 +45,42 @@ function pickLive(p) {
     ${progressHtml(pg)}</div>`;
 }
 
+// a pick'em entry (Dabble, PrizePicks, Underdog...): the legs must all hit; it carries the units, its legs are posted as
+// 0u "leg" picks so each one is graded on its own too
+function entryCard(p) {
+  const st = p.status || "pending";
+  const legPicks = new Map([...S.picks.values()].filter((x) => x.entryId === p.id).map((x) => [x.id, x]));
+  const chance = (p.legs || []).reduce((c, l) => (c == null || l.fair == null ? null : c * l.fair), 1);
+  const ev = chance != null && p.mult ? chance * p.mult - 1 : null;
+  const b = pickAsBet(p), live = b && (p.legs || []).some((l) => l.gameId && gameState(l.gameId));
+  const rows = (p.legs || []).map((l, i) => {
+    const lp = l.pickId && legPicks.get(l.pickId), lr = p.legResults?.[i];
+    const ls = lr ? (lr.void ? "void" : lr.y === 1 ? "won" : lr.y === 0 ? "lost" : "push") : lp?.status;
+    const lg = live && b ? betLegs(b)[i] : null, r = lg ? legNow({ ...lg, fair: l.fair ?? null }) : null;
+    return `<div class="lrow en-leg"><span class="small">${esc(l.label || [l.player, l.side, l.point].filter((x) => x != null).join(" "))}${l.matchup ? ` <span class="tiny muted">${esc(l.matchup)}</span>` : ""}</span>
+      <span class="tiny num">${r && r.p != null && r.src !== "final" ? `live ${prob(r.p)}` : l.fair != null ? `fair ${prob(l.fair, 1)}` : ""}${l.mult ? ` · ${(+l.mult).toFixed(2)}x` : ""}</span>
+      <span>${ls === "won" ? `<span class="pill pos">won</span>` : ls === "lost" ? `<span class="pill neg">lost</span>` : ls && !["open", "pending"].includes(ls) ? `<span class="pill">${esc(ls)}</span>` : ""}</span></div>`;
+  }).join("");
+  const tier = p.tier === "floor" ? `<span class="pill">floor</span>` : p.tier === "lean" ? `<span class="pill">lean · tracked</span>` : p.tier === "likely" ? `<span class="pill">likely · 0u</span>` : `<span class="pill s">bet</span>`;
+  const stPill = st === "won" ? `<span class="pill pos">won</span>` : st === "lost" ? `<span class="pill neg">lost</span>` : st === "void" ? `<span class="pill neg">withdrawn</span>` : `<span class="pill">${esc(st)}</span>`;
+  const am_ = p.mult ? (p.mult >= 2 ? Math.round((p.mult - 1) * 100) : Math.round(-100 / (p.mult - 1))) : null;
+  return `<div class="card col ${st === "void" ? "pk-void" : ""}" style="gap:10px">
+    <div class="bet"><div class="col" style="flex:1;min-width:0"><span class="what">${bookTag(p.venue, p.venueName || p.venue, 16)} ${(p.legs || []).length}-pick entry · <b class="num">${p.mult ? (+p.mult).toFixed(2) + "x" : "–"}</b></span>
+      <span class="sub">${esc(p.selection || "")}</span></div>
+      <div class="col" style="align-items:flex-end">${units(p.units)}<span class="tiny muted">${p.units ?? "–"}u${S.settings?.unit && p.units ? ` · $${Math.round(p.units * S.settings.unit)}` : ""}</span></div></div>
+    <div class="row" style="gap:6px;flex-wrap:wrap">${tier}${stPill}${p.clv != null ? `<span class="pill ${p.clv > 0 ? "pos" : "neg"}">CLV ${pct(p.clv)}</span>` : ""}
+      ${chance != null ? `<span class="pill" title="product of the legs' fairs (legs on different games are close to independent)">all hit ${prob(chance, 1)}</span>` : ""}
+      ${ev != null ? `<span class="pill ${ev > 0 ? "pos" : "neg"}" title="expected return per 1u at ${(+p.mult).toFixed(2)}x">EV ${ev > 0 ? "+" : ""}${(ev * 100).toFixed(1)}%</span>` : ""}</div>
+    <div class="ladder">${rows}</div>
+    ${p.logicCase ? `<div class="small" style="line-height:1.45"><b>Why these together:</b> ${esc(p.logicCase)}</div>` : ""}
+    ${p.case ? `<div class="pcase"><div class="pc-h pos">▲ The case</div>${paras(p.case)}</div>` : ""}
+    ${p.risk ? `<div class="pcase risk"><div class="pc-h neg">▼ What could go wrong</div>${paras(p.risk)}</div>` : ""}
+    <div><button class="btn sm ghost" data-log='${esc(JSON.stringify({ label: p.selection, venue: p.venue, am: am_, pickId: p.id, source: "pick", legs: (p.legs || []).map((l) => ({ gameId: l.gameId, commence: l.commence, market: l.market, side: l.side, point: l.point, player: l.player, team: l.team, fair: l.fair, label: l.label })) }))}'>Log this entry</button></div>
+  </div>`;
+}
+
 export function pickCard(p) {
+  if (p.kind === "entry") return entryCard(p);
   const st = p.status || "pending";
   const stPill = st === "won" ? `<span class="pill pos">won</span>` : st === "lost" ? `<span class="pill neg">lost</span>` : st === "void" ? `<span class="pill neg">withdrawn</span>` : `<span class="pill">${esc(st)}</span>`;
   const tier = (p.tier === "floor" ? `<span class="pill">floor</span>` : p.tier === "likely" ? `<span class="pill">likely · 0u</span>` : p.tier === "lean" ? `<span class="pill">lean · tracked</span>` : `<span class="pill s">bet</span>`)
@@ -107,8 +142,10 @@ export function renderPicks(el) {
   const all = [...S.picks.values()].sort((a, b) => (b.date || "").localeCompare(a.date || "") || (a.commence || "").localeCompare(b.commence || ""));
   const days = [...new Set(all.map((p) => p.date))].filter(Boolean);
   if (!day) day = days.includes(todayPT()) ? todayPT() : days[0];
-  const shown = all.filter((p) => p.date === day).sort((a, b) => (a.status === "void") - (b.status === "void"));
-  const graded = all.filter((p) => ["won", "lost", "push"].includes(p.status));
+  // an entry's legs show inside the entry card (they're still graded on their own, at 0u)
+  const shown = all.filter((p) => p.date === day && !(p.tier === "leg" && p.entryId && S.picks.get(p.entryId)))
+    .sort((a, b) => (a.status === "void") - (b.status === "void") || (b.kind === "entry") - (a.kind === "entry"));
+  const graded = all.filter((p) => ["won", "lost", "push"].includes(p.status) && p.tier !== "leg");
   const w = graded.filter((p) => p.status === "won").length, l = graded.filter((p) => p.status === "lost").length;
   const units_ = graded.reduce((s, p) => s + (p.profit ?? 0), 0);
   const clvs = all.filter((p) => p.clv != null);
@@ -117,7 +154,7 @@ export function renderPicks(el) {
     <div class="kpi"><div class="k">Units</div><div class="v ${units_ >= 0 ? "pos" : "neg"}">${units_ >= 0 ? "+" : ""}${units_.toFixed(2)}</div><div class="s">all picks</div></div>
     <div class="kpi"><div class="k">Avg CLV</div><div class="v">${clvs.length ? pct(clvs.reduce((s, p) => s + p.clv, 0) / clvs.length) : "–"}</div><div class="s">${clvs.length} with a close</div></div>
     <div class="kpi"><div class="k">Today</div><div class="v">${all.filter((p) => p.date === todayPT()).length}</div><div class="s">picks posted${all.some((p) => p.date === todayPT() && p.status === "void") ? ` · ${all.filter((p) => p.date === todayPT() && p.status === "void").length} withdrawn` : ""}</div></div></div>`;
-  const inPlay = all.filter((p) => isOpen(p) && p.tier !== "likely" && p.gameId && gameState(p.gameId));
+  const inPlay = all.filter((p) => isOpen(p) && !["likely", "leg"].includes(p.tier) && p.gameId && (p.kind === "entry" ? (p.legs || []).some((l) => l.gameId && gameState(l.gameId)) : gameState(p.gameId)));
   if (inPlay.length) {
     const u = (x) => `${x >= 0 ? "+" : ""}${(x || 0).toFixed(2)}u`;
     h += `<div class="sec-title"><span class="neg">●</span>&nbsp;Our picks in play (${inPlay.length})<span class="line"></span></div>
@@ -129,7 +166,7 @@ export function renderPicks(el) {
   const posted = shown.filter((p) => p.status !== "void" && ["bet", "floor", "lean"].includes(p.tier));
   if (posted.length >= 3) {
     const mix = new Map();
-    posted.forEach((p) => { const k = `${p.league} ${p.player ? "props" : "lines"}`; mix.set(k, (mix.get(k) || 0) + 1); });
+    posted.forEach((p) => { const k = p.kind === "entry" ? "Pick'em entries" : `${p.league} ${p.player ? "props" : "lines"}`; mix.set(k, (mix.get(k) || 0) + 1); });
     const cells = [...mix.entries()].sort((a, b) => b[1] - a[1]), top = cells[0][1] / posted.length;
     h += `<div class="row" style="gap:6px;flex-wrap:wrap;margin:-4px 0 10px"><span class="tiny muted">Mix</span>${cells.map(([k, n]) => `<span class="pill ${n / posted.length > 0.5 ? "warn" : ""}">${esc(k)} ${n}</span>`).join("")}
       ${top > 0.5 ? `<span class="tiny muted">${Math.round(top * 100)}% in one place: the runs cap that at half unless nothing else qualifies</span>` : ""}</div>`;

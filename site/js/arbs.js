@@ -6,6 +6,7 @@ import { S, saveBet, savePromo } from "./store.js";
 import { esc, am, prob, money, sheet, toast, uid, decFromAm, todayPT, bookLogo, oddsFromInput, centsTag, $, $$, oddsTxt } from "./util.js";
 import { VENUES } from "./lab.js";
 import { settleProfit, isBoost, promoOpen, singleUse } from "./promo.js";
+import { fundCfg, fundState } from "./arbfund.js";
 
 const DONE = ["won", "lost", "push", "void"];
 const promoOf = (b) => (b.promoId ? S.promos.get(b.promoId) : null);
@@ -97,6 +98,7 @@ export function arbSheet(pre = {}) {
       ${fromBoard ? `<div class="tiny muted">${esc(pre.league || "")} · ${esc(pre.matchup || "")}</div>` : `<div class="bar" style="margin:0">${["arb", "middle"].map((k) => `<button class="chip ${k === kind ? "on" : ""}" data-k="${k}">${k === "arb" ? "Arb (same line, both sides)" : "Middle (two numbers)"}</button>`).join("")}</div>`}
       ${legs0.map(legHtml).join("")}
       <label class="row lb-boost" style="gap:8px;align-items:center"><input type="checkbox" id="ab-auto" checked><span class="small">Size the other leg so both results pay the same (promos counted)</span></label>
+      ${fundCfg() ? `<label class="row lb-boost" style="gap:8px;align-items:center"><input type="checkbox" id="ab-fund" ${pre.fund !== false && kind === "arb" ? "checked" : ""}><span class="small">Count in the arb fund <span class="tiny muted">(stakes come out of the fund, returns go back in)</span></span></label>` : ""}
       <div class="ab-pay card" style="padding:10px 12px"></div>
       <p class="note">Type the prices you actually got. Both legs save as normal bets and grade themselves${fromBoard ? "" : " (typed-in legs need a W/L tap)"}, but the ledger counts the pair as one result: its net profit, not a win and a loss.</p>
       <div class="row"><button class="btn" id="ab-save">Save both legs</button><button class="btn ghost" id="ab-cancel">Cancel</button></div>
@@ -141,7 +143,11 @@ export function arbSheet(pre = {}) {
       const L2 = read();
       if (L2.some((x) => !x.label || !x.dec || !(x.stake > 0))) { toast("Each leg needs a bet, odds and a stake"); return; }
       const gid = uid(), now = new Date().toISOString();
-      const group = { id: gid, kind, n: 2, at: now, ...(pre.window ? { window: pre.window } : {}), ...(pre.pMiddle != null ? { pMiddle: pre.pMiddle } : {}) };
+      const group = { id: gid, kind, n: 2, at: now, ...(pre.window ? { window: pre.window } : {}), ...(pre.pMiddle != null ? { pMiddle: pre.pMiddle } : {}), ...($("#ab-fund", el)?.checked ? { fund: true } : {}) };
+      if (group.fund) {         // the fund can only stake what it holds at each venue
+        const F = fundState(), short = L2.find((x) => (F?.avail[x.venue] || 0) + 0.005 < x.stake);
+        if (short) { toast(`The fund only holds ${money(F?.avail[short.venue] || 0)} at ${short.venue}: lower the stakes, untick the fund, or log a move first`); return; }
+      }
       const bets = L2.map((x, i) => {
         const src = legs0[i] || {}, v = venues.find((y) => y.key === x.venue);
         return { id: uid() + i, createdAt: now, date: todayPT(), label: x.label, venue: v.key, venueName: v.name, am: x.odds, dec: x.dec, stake: x.stake,

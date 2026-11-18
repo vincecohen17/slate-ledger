@@ -38,7 +38,8 @@ const profitOf = (b) => (b.profit != null ? b.profit : settleProfit(b, promoOf(b
 
 export function venueState(venue0, now = Date.now()) {
   const venue = accountOf(venue0);
-  const entries = [...S.wallet.values()].filter((w) => accountOf(w.venue) === venue).sort((a, b) => t(a.at) - t(b.at));
+  // arb fund entries (type "fund") are an earmark inside the app, not money in or out of it: arbfund.js reads them
+  const entries = [...S.wallet.values()].filter((w) => w.type !== "fund" && accountOf(w.venue) === venue).sort((a, b) => t(a.at) - t(b.at));
   const bets = [...S.bets.values()].filter((b) => accountOf(b.venue) === venue && b.stake > 0);
   if (!entries.length && !bets.length) return null;
   const checks = entries.filter((e) => e.type === "balance");
@@ -103,7 +104,7 @@ export function venueState(venue0, now = Date.now()) {
 }
 
 export function walletAll() {
-  const venues = new Set([...[...S.wallet.values()].map((w) => accountOf(w.venue))]);
+  const venues = new Set([...[...S.wallet.values()].filter((w) => w.type !== "fund").map((w) => accountOf(w.venue))]);
   return [...venues].map((v) => venueState(v)).filter(Boolean);
 }
 

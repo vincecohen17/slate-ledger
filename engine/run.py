@@ -298,6 +298,19 @@ def live(watch=False, full=True, pres=None):
         for pk in load_picks(3):
             if pk.get("status") in ("void", "won", "lost", "push") or pk.get("tier") == "likely" or not pk.get("gameId"):
                 continue
+            if pk.get("kind") == "entry":       # a pick'em entry: each leg tracked as "<entryId>#<i>"
+                for i, lg in enumerate(pk.get("legs") or []):
+                    if not lg.get("gameId"):
+                        continue
+                    if not lg.get("player"):
+                        pick_line_games.add(lg["gameId"])
+                        continue
+                    r = LB.resolve({k: lg.get(k) for k in ("gameId", "market", "side", "point", "player", "team")} | {"label": lg.get("label")}, DATA_DIR)
+                    if r and r.get("player"):
+                        pick_games.add(lg["gameId"])
+                        bet_legs.setdefault(lg["gameId"], {})[f"{pk['id']}#{i}"] = {k: r.get(k) for k in ("gameId", "market", "side", "point", "player", "label")} \
+                            | {"matchup": lg.get("matchup") or pk.get("matchup"), "league": lg.get("league") or pk.get("league"), "commence": lg.get("commence") or pk.get("commence")}
+                continue
             if not pk.get("player"):            # a game-line pick: the game is watched (score, clock, prompt grading), no stat leg
                 pick_line_games.add(pk["gameId"])
                 continue
@@ -1029,7 +1042,9 @@ def _hot(st, core_of):
         rank[gid] = min(rank.get(gid, 9.0), r)
     for pk in load_picks(3):
         if pk.get("status") not in ("void", "won", "lost", "push") and pk.get("gameId"):
-            add(pk["gameId"], "pick", pk.get("market"), 0)
+            for lg in (pk.get("legs") if pk.get("kind") == "entry" else None) or [pk]:
+                if lg.get("gameId"):
+                    add(lg["gameId"], "pick", lg.get("market"), 0)
     bets = st.get("hotBets") or {}
     if _age_min(bets.get("at")) > 15:
         legs = []
@@ -1621,6 +1636,7 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"snapshot failed: {type(e).__name__}")
     # the edges' report card: log new edges, refresh their fairs to the close, grade finished ones, re-rank by history
     ecard, pbook, mcard, mboard = None, None, None, None
+    n_eg = 0
     try:        # market behavior: line movement by book, who moved first, DraftKings splits -> doc["mkt"], e["mkt"]
         import market
         mboard = market.run(DATA_DIR, game_docs, edge_list, NOW, log)
@@ -1666,6 +1682,19 @@ def publish(game_docs, prop_docs, status, stamp):
         log(f"edge card: {n_new} new edges logged, {n_eg} graded, {ecard.get('n', 0)} in the card; {n_moved} lines moved since first seen")
     except Exception as e:
         log(f"edge card failed: {type(e).__name__}: {str(e)[:120]}")
+    mboard_m = None
+    try:            # the Methods board: market methods paper-bet near the start, graded after; every method's record
+        import methods
+        methods.observe(DATA_DIR, game_docs, NOW, log=log)
+        n_mt = methods.grade(DATA_DIR, {d["gameId"]: d for d in (fin or {}).values() if d.get("gameId")}, NOW, log=log)
+        mfn = os.path.join(DATA_DIR, "stats", "methods.json")
+        old = json.load(open(mfn)) if os.path.exists(mfn) else None
+        if n_mt or n_eg or not old or (NOW - datetime.fromisoformat(old["updated"])).total_seconds() > 3600:
+            mboard_m = methods.summarize(DATA_DIR, NOW, log=log)
+        else:
+            mboard_m = old
+    except Exception as e:
+        log(f"methods failed: {type(e).__name__}: {str(e)[:100]}")
     opp_list = []
     try:            # arbs and middles across Vince's venues, then phone alerts for the strong new ones
         import opps as OP
@@ -1700,6 +1729,8 @@ def publish(game_docs, prop_docs, status, stamp):
         rep["backtest"] = _backtest_summary()
         if mcard:
             rep["marketcard"] = mcard
+        if mboard_m:
+            rep["methods"] = methods.compact(mboard_m)
         if ecard:
             rep["edgecard"] = ecard
             if pbook:

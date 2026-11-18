@@ -698,3 +698,30 @@ table.st th[data-dir="a"]::after { content: " ▲"; font-size: 9px; } table.st t
 .dtabs .chip { flex-shrink: 0; }
 .mkt-item.steam { border-left: 3px solid var(--accent); padding-left: 10px; }
 .steam-card { border-color: var(--accent); }
+
+/* Reports > Methods */
+.mt-row { display: grid; gap: 3px; padding: 9px 0; border-top: 1px solid var(--line); min-width: 0; }
+.mt-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mt-spark { margin-left: auto; flex: none; }
+.mt-spark polyline { fill: none; stroke-width: 1.5; }
+.mt-spark polyline.up { stroke: var(--pos); }
+.mt-spark polyline.dn { stroke: var(--neg); }
+.mt-spark line.z { stroke: var(--line); stroke-width: 1; }
+
+/* Wallet > Arb fund */
+.af .kpis { margin-top: 8px; }
+.af-reb { margin-top: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.af-vs { display: grid; gap: 6px; margin-top: 10px; }
+.af-v { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(60px, 1fr) auto auto; gap: 8px; align-items: center; min-width: 0; }
+.af-bar { position: relative; height: 8px; border-radius: 4px; background: var(--line); overflow: visible; }
+.af-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); }
+.af-bar b { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--fg, currentColor); opacity: .7; }
+.af-chart { width: 100%; max-width: 520px; height: auto; margin-top: 10px; display: block; }
+.af-chart polyline { fill: none; stroke-width: 1.5; }
+.af-chart .act { stroke: var(--pos); stroke-width: 2.2; }
+.af-chart .tgt { stroke: var(--accent); stroke-dasharray: 4 3; }
+.af-chart .slow { stroke: var(--muted); stroke-dasharray: 2 3; }
+.af-chart .lab { font: 10px var(--sans); fill: var(--muted); }
+@media (max-width: 480px) { .af-v { grid-template-columns: minmax(0, 1fr) 70px; } .af-v > :nth-child(n+3) { grid-column: span 1; } }
+/* Picks: entry legs */
+.en-leg { grid-template-columns: minmax(0, 1fr) auto auto !important; }

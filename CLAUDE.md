@@ -71,6 +71,19 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   won-fair split into fair move + beat the close, support curve, sport/kind x band, matched agrees-disagrees, daily) and
   mutingSupport; site Reports > Model logic (`views/logic.js`). Model fixes go in the data repo stats/model_changes.json
   (before / after backtest log loss), shown at the top of Models in depth.
+- Methods board (`engine/methods.py`, Nov 17 -> stats/methods.json, rep.methods, Reports > Methods tab `views/methods.js`):
+  every way of betting as a named rule with its own record. Edge methods (price edge 3%+ / 5%+, model backs / past / against
+  the edge, steam, venue lag, moved toward, stale pick'em line) read track/edgecard rows (feed errors and mismatched closes
+  dropped), one row per side (the biggest-edge venue), judged on results only (their CLV is against our own fair). Market
+  methods (fade / ride the public, follow the sharp money, tickets over money, RLM, sharp-led, chase / fade the move) paper-bet
+  1u at the best venue price (Vince's non-DFS venues, fair 0.2-0.8) in the last FLAG_MIN 90 minutes (observe after
+  market.run -> track/methods/open.json; grade with ledger.grade_leg + closemkt.leg_close -> track/methods/graded.jsonl,
+  backfilled Nov 4-17 from the board history); their earlier record is the market card's sides at the no-vig close.
+  Stats clustered by game: ROI, SE, t, CLV (market methods), last 14 days, leagues, daily. Status: adopted (100+ games and ROI
+  t >= 2, or market CLV t >= 2 with ROI >= 0), dropped (t <= -2), promising (30+ games, t >= 1.5), testing; a market method
+  with under 30 paper games is dropped / promising on its close record (100+ games, |t| >= 2). Runbook 3a: bet and floor
+  picks need an adopted method (evidence.methods); dropped methods are never a reason. Recomputed when anything grades or
+  hourly.
 - Self-correcting fair (`engine/fairadj.py` -> calib/fairadj.json, applied in build._finish_line via build.FAIR_SHIFT, pre-game
   modes only): a logit shift for the tracked side (Over/Yes/home) per sport|kind and market, recency weighted (half-life 14 d,
   backtest rows a 0.15-weight prior), live only for sport|kinds whose walk-forward gain vs the raw fair is 2+ SE with 200+ scored rows that carried a shift (NBA props:
@@ -327,7 +340,13 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   check-in (its cash, open cash stakes, and bonus where it counts) + deposits; profit = withdrawals + value now - money in,
   so check-in differences count (shown as adjustments, with bets settled and bonus credited - staked as the breakdown).
   settings/owner.bonusCash[app] marks apps whose bonus works like cash (counted as money; converting it isn't profit).
-  DK Pick6 shares the DraftKings account (accountOf). A bonus entry with asCash ("It landed in my cash balance": DK Predictions
+  DK Pick6 shares the DraftKings account (accountOf). Arb fund (`site/js/arbfund.js`, Nov 17, Wallet card): an earmark inside
+  the arb venues (settings/owner.arbFund {startedAt, alloc default Novig 45 / Bovada 35 / ProphetX 20, rebalanceAt 0.6,
+  target 0.01}); wallet entries type "fund" {venue, amount, kind seed | add | out | move} (ignored by venueState), arb pairs
+  logged with "Count in the arb fund" (group.fund) take stakes from the venue's fund balance and return what each leg pays
+  there. fundState: per-venue available / riding, value, profit, compounded daily growth vs 1%/day, a rebalance prompt
+  (a venue 60%+ of the fund, or 7+ days and 10+ points off the split; "Log the move" writes the fund move plus the wallet
+  withdrawal / deposit). Arb cards show what the fund can stake (both venues' fund cash, at most 35% of the fund, the fill). A bonus entry with asCash ("It landed in my cash balance": DK Predictions
   Dollars) adds to cash, not bonus, and counts in the profit breakdown as bonus credited. Bonus funds become a promo per app (id wb-<app>, wallet: true) whose
   amount follows the wallet's bonus balance (syncWalletPromos).
 - `engine/picklive.py` every run re-checks each open pick's playTo venues (current price, pick'em line still listed, in range vs
@@ -353,7 +372,12 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   risk (a paragraph on what could go wrong), marketFair, modelP, keyStats[{label,value,note?,tone}], confirm[],
   market (Odds API key), side, point (the side's own line), player?, team?, early? (posted the night before by the early look,
   earlyAt), checks {logic, model, price} and logicCase (bet tier needs all three; price-only edges are never picks), evidence {lean: [playbook cells], support}; graded by the engine: status, profit, clv, closeFair, clvCal, closeAge,
-  flat (1u return at the graded price). Tiers: bet, floor (0.25u), lean (0.1u, tracked volume), likely (0u); every tier grades
+  flat (1u return at the graded price). Pick'em entries (Nov 17, runbook 8f): selections only pick'em apps take are never
+  singles; each leg is a pick with tier "leg" (0u, entryId) and the bet is one pick {kind: "entry", venue, mult, legs
+  [{pickId, gameId, market, side, point, player, team, label, fair, mult}], units}, graded by ledger._grade_entry (every leg
+  must hit; a void leg drops out with its factor; CLV = legs' consensus closes x mult - 1); Picks page entryCard (legs live
+  as "<entryId>#<i>" betLegs, all-hit chance, EV), legs hidden from the grid, record excludes legs.
+  Tiers: bet, floor (0.25u), lean (0.1u, tracked volume), likely (0u); every tier grades
   (likely too, since Nov 4). Pick runs (scheduled tasks): morning 7:37, pregame 1:53, and an evening run for late games and
   overnight tennis/soccer (needs Vince's approval to enable). They aim for 1 pick per 2 games across all sports (8+ a day), work
   niche sports with logic-led cases (never bet tier under 5 books), and read the fast read first: a sport or tier with 15+

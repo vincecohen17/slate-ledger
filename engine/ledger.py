@@ -503,6 +503,11 @@ def grade_picks(data_dir, fin_by_gid, days=60, log=print):
             refill = p.get("status") in ("won", "lost", "push") and p.get("clvMktV") != CMK.VERSION
             if p.get("status") not in (None, "open", "pending") and not refill:
                 continue
+            if p.get("kind") == "entry":
+                if _grade_entry(data_dir, p, fin_by_gid, refill):
+                    changed = True
+                    n += 0 if refill else 1
+                continue
             snap = _snap(data_dir, p.get("gameId"))
             if not snap:
                 continue
@@ -554,6 +559,47 @@ def grade_picks(data_dir, fin_by_gid, days=60, log=print):
         if changed:
             json.dump(picks, open(fn, "w"), indent=1, ensure_ascii=False)
     return n
+
+
+def _grade_entry(data_dir, p, fin_by_gid, refill=False):
+    """a pick'em entry (Nov 17): every leg must hit; the payout is the entry's multiplier (mult). A pushed or void leg
+    drops out and takes its own per-pick factor with it (leg mult when the legs carry one, else the entry's evenly), the
+    way Dabble and PrizePicks shrink an entry. CLV: the legs' market consensus at the close x the multiplier - 1."""
+    legs = [{k: lg.get(k) for k in ("gameId", "market", "side", "point", "player", "team")} for lg in p.get("legs") or []]
+    mult = p.get("mult")
+    if not legs or not mult or any(not lg.get("gameId") or not lg.get("market") for lg in legs):
+        return False
+    g = grade_bet(data_dir, legs, mult, fin_by_gid)
+    if not g:
+        return False
+    ys = [x.get("y") for x in g["legs"]]
+    live = [i for i, y in enumerate(ys) if y is not None]
+    pl = p.get("legs")
+    if len(live) == len(legs):
+        dec = mult
+    elif all(isinstance(lg.get("mult"), (int, float)) for lg in pl):
+        dec = 1.0
+        for i in live:
+            dec *= pl[i]["mult"]
+    else:
+        dec = mult ** (len(live) / len(legs))
+    p["legResults"] = [{"y": x.get("y"), "stat": x.get("stat"), "void": bool(x.get("void"))} for x in g["legs"]]
+    if refill:
+        if "clvPrev" not in p:
+            p["clvPrev"] = p.get("clv")
+        p.update({k: g.get(k) for k in _MKT})
+        return True
+    u = p.get("units") or 0
+    res = g["result"] if live else "push"
+    if res == "won" and len(live) == 1 and dec <= 1.0001:
+        res = "push"
+    p["status"] = "void" if all(x.get("void") for x in g["legs"]) else res
+    p["profit"] = round(u * (dec - 1), 3) if res == "won" else -u if res == "lost" else 0
+    p["flat"] = round(dec - 1, 3) if res == "won" else -1.0 if res == "lost" else 0.0
+    p["gradedAt"] = round((dec - 1) * 100) if dec >= 2 else round(-100 / (dec - 1)) if dec > 1 else None
+    p["gradeSrc"], p["gradeVenue"], p["gradedMult"] = "entry", p.get("venue"), round(dec, 4)
+    p.update({k: g.get(k) for k in _MKT})
+    return True
 
 
 def _find_pick(data_dir, pid):

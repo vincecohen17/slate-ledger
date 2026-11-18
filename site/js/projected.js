@@ -119,6 +119,11 @@ export function resolveLeg(leg) {
 // an open pick as a bet for project(): units at the best in-range play-to price, else goodAt
 const decA = (a) => a > 0 ? 1 + a / 100 : 1 + 100 / -a;
 export function pickAsBet(p) {
+  if (p.kind === "entry") {       // a pick'em entry: the legs are the bet, paid at the entry's multiplier
+    if (!p.mult || !(p.legs || []).length) return null;
+    const a = p.mult >= 2 ? Math.round((p.mult - 1) * 100) : Math.round(-100 / (p.mult - 1));
+    return { ...p, label: p.selection, dec: p.mult, am: a, venue: p.venue, venueName: p.venueName || p.venue, stake: p.units };
+  }
   const ins = (p.playTo || []).filter((v) => v.inRange && typeof v.price === "number");
   const best = ins.length ? ins.reduce((x, y) => (decA(y.price) > decA(x.price) ? y : x)) : null;
   const a = best ? best.price : p.goodAt;
