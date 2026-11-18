@@ -1246,7 +1246,17 @@ def auto():
             n_events += 1
             n_hot += is_hot
         pulled.append(f"{n_events} events" + (f" ({n_hot} hot)" if n_hot else ""))
-    st["usedToday"] = st.get("usedToday", 0) + api.used_run
+    ms_used = 0
+    if paid and room - api.used_run > 500:
+        try:        # maker scan: early markets and fringe sports for the maker-order board, hourly, its own day cap
+            import makerscan
+            if makerscan.due(DATA_DIR, NOW):
+                ms_used = makerscan.scan(OddsAPI(key), DATA_DIR, NOW, st.get("lines") or {}, log=log)
+                if ms_used:
+                    pulled.append(f"maker scan ({ms_used} credits)")
+        except Exception as e:
+            log(f"makerscan failed: {type(e).__name__}: {str(e)[:100]}")
+    st["usedToday"] = st.get("usedToday", 0) + api.used_run + ms_used
     if api.remaining is not None:
         st["remaining"] = api.remaining
     for k in ("events", "eventsX", "savedEv"):      # forget finished events
@@ -1254,7 +1264,7 @@ def auto():
     if force:
         st["lastForce"] = force_at
     stale_stats = _age_min(st.get("stats")) > 20
-    if not api.used_run and not stale_stats:
+    if not api.used_run and not ms_used and not stale_stats:
         save_state(st)
         log(f"active={active} nothing stale ({len(hot)} hot games, all fresh)")
         return

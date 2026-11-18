@@ -101,6 +101,16 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   eaten or vanishes (pessimistic), cancelled when the fair drops the edge under 0.5%, expired at the start, locked when
   the other side can be taken at the bar; graded into track/methods/graded.jsonl (m maker; locked rows = the pair) and
   track/makers/log.jsonl (fill rate vs predicted). Suggestions only until the exchange APIs are linked (planned).
+  Maker scan (`engine/makerscan.py`, Nov 17, from auto runs on the paid plan when due): early markets and fringe sports for
+  the maker board. Hourly, main lines (h2h/spreads/totals) from the sharp books + Betfair/Matchbook + Vince's exchanges and
+  books (15 books, 6 credits a sport): board sports only when their line pull is 45+ min old (no snapshot), every other
+  active non-outright sport (fringe: more soccer leagues, rugby, cricket, AFL, ...) unless none of Kalshi / Polymarket US /
+  Novig / ProphetX quoted it in the last 24 h (saved to snapshots as <sport>_lines for closes). Every 4 h, alternate
+  spreads / totals / team totals for NFL / NCAAF / NBA / NHL games 36-96 h out (6 credits a game; the full runs pull no
+  event markets past 36 h). MAKER_SCAN_DAY_MAX 10k credits/day (latest/makerscan_state.json), payloads in
+  latest/raw/makerscan/. makers.run merges them (makerscan.docs: build_game / add_extra_lines; newer main lines replace the
+  board's, early alts added, fringe games appended with fringe: true); rep.makers.scan / nFringe / nEarly; site Make orders
+  tab: Fringe and Early pills, "Fringe sports" filter, scan line. Fringe fills with no final are logged ungraded (fill rate).
 - Self-correcting fair (`engine/fairadj.py` -> calib/fairadj.json, applied in build._finish_line via build.FAIR_SHIFT, pre-game
   modes only): a logit shift for the tracked side (Over/Yes/home) per sport|kind and market, recency weighted (half-life 14 d,
   backtest rows a 0.15-weight prior), live only for sport|kinds whose walk-forward gain vs the raw fair is 2+ SE with 200+ scored rows that carried a shift (NBA props:

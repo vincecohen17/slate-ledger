@@ -193,6 +193,13 @@ STEAM_WINDOW_MIN = 20
 STEAM_MOVE = 0.02
 STEAM_EDGE = 0.015
 STEAM_DAY_MAX = 12000          # the watcher asks for an auto run this often while hot games are on the board
+# Maker scan (engine/makerscan.py, from auto runs): early markets and fringe sports for the maker-order board. Main lines
+# from sharp books + exchanges + Vince's books hourly (6 credits a sport; board sports only when their lines are 45+ min
+# old; fringe sports with no exchange quotes skipped for a day), early alternates for NFL / NCAAF / NBA / NHL games
+# 36-96 h out every 4 h (6 credits a game). Own daily cap.
+MAKER_SCAN_EVERY_MIN = 60
+MAKER_SCAN_ALT_EVERY_MIN = 240
+MAKER_SCAN_DAY_MAX = 10000
 
 # Monthly pacing on the 5M plan: the billing cycle restarts on this day of the month; part of each cycle is kept for
 # historical-odds backtests; the rest is spread over the days left, weighted toward big slates.

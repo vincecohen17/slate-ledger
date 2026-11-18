@@ -212,7 +212,7 @@ def suggest(game_docs, prop_docs, now):
                     "matchup": f"{d.get('away')} @ {d.get('home')}", "commence": d["commence"], "market": loc["market"],
                     "kind": kind, "loc": loc, "side": Y, "point": pt, "player": loc.get("player"),
                     "team": (loc.get("team") or (Y if "totals" not in loc["market"] and kind != "prop" else None)),
-                    "label": _label(loc, Y, pt), "venue": v, "venueName": C.BOOKS.get(v, {}).get("name", v),
+                    "label": _label(loc, Y, pt), "fringe": bool(d.get("fringe")), "venue": v, "venueName": C.BOOKS.get(v, {}).get("name", v),
                     "bid": round(bid, 4), "cost": round(cost, 4), "dec": round(1 / cost, 4), "am": M.american_from_prob(cost),
                     "fair": round(fy, 4), "ev": round(ev, 4), "spread": round(spread, 4) if spread is not None else None,
                     "pFill": round(pf, 3), "exp100": round(ev * pf * 100, 2), "hrs": round(hrs, 2),
@@ -371,6 +371,7 @@ def grade(data_dir, fin_by_gid, now, log=print):
             g = None
         if g is None:
             if now - start > timedelta(days=4):
+                logs.append({**e, "d": day, "ungraded": True})     # no final for it (fringe leagues): still a fill
                 op.pop(k)
             continue
         y = None if g.get("void") else g.get("y")
@@ -437,6 +438,17 @@ def fill_summary(data_dir):
 
 
 def run(data_dir, game_docs, prop_docs, fin_by_gid, now, log=print):
+    scan = {}
+    try:        # early markets and fringe sports from the maker scan (engine/makerscan.py), merged into the board's games
+        import makerscan
+        try:
+            lines_at = json.load(open(os.path.join(data_dir, "latest", "refresh_state.json"))).get("lines") or {}
+        except Exception:
+            lines_at = {}
+        game_docs = makerscan.docs(data_dir, now, game_docs, lines_at)
+        scan = makerscan.load(data_dir)
+    except Exception as e:
+        log(f"makers: scan merge failed ({type(e).__name__}: {str(e)[:80]})")
     items = suggest(game_docs, prop_docs, now)
     for o in items:
         o["now"], o["ifFilled"] = plan(o)
@@ -448,5 +460,8 @@ def run(data_dir, game_docs, prop_docs, fin_by_gid, now, log=print):
     return {"at": now.isoformat(), "items": shown, "n": len(items), "nBar": sum(1 for o in items if o["ev"] >= SHOW_EDGE),
             "nBarComp": sum(1 for o in items if o["ev"] >= SHOW_EDGE and o["competitive"]),
             "paper": fill_summary(data_dir),
+            "scan": {"at": scan.get("at"), **(scan.get("last") or {}), "fringeGames": sum(1 for d in game_docs if d.get("fringe"))},
+            "nFringe": sum(1 for o in items if o.get("fringe") and o["ev"] >= SHOW_EDGE),
+            "nEarly": sum(1 for o in items if o["hrs"] > 36 and o["ev"] >= SHOW_EDGE),
             "rules": {"minEdge": MIN_EDGE, "showEdge": SHOW_EDGE, "cancelEdge": CANCEL_EDGE, "aheadH": AHEAD_H, "feeK": MAKER_FEE_K,
                       "lockMin": LOCK_MIN}}

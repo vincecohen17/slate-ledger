@@ -20,7 +20,7 @@ function card(o) {
   return `<div class="card mk-card">
     <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="row" style="gap:6px;align-items:center">${bookLogo(o.venue, o.venueName, 20)}<b>${esc(sideLabel(o))}</b></span>
       <span class="pill pos">+${(o.ev * 100).toFixed(1)}% if it fills</span></div>
-    <div class="tiny muted">${esc(o.league || "")} · ${esc(o.matchup)} · ${fmtTime(o.commence)} (${o.hrs < 1 ? `${Math.round(o.hrs * 60)} min` : `${o.hrs.toFixed(1)} h`})</div>
+    <div class="tiny muted">${o.fringe ? `<span class="pill">Fringe</span> ` : ""}${o.hrs > 36 ? `<span class="pill">Early</span> ` : ""}${esc(o.league || "")} · ${esc(o.matchup)} · ${fmtTime(o.commence)} (${o.hrs < 1 ? `${Math.round(o.hrs * 60)} min` : `${o.hrs.toFixed(1)} h`})</div>
     <div class="mk-grid">
       <div><div class="k">Post a bid at</div><div class="v">${cents ? `<b class="num">${c(o.bid)}</b> <span class="tiny muted">a share</span>` : `<b class="num">${c(o.bid)}</b> <span class="tiny muted">implied</span>`}</div>
         <div class="s">${oddsP(o.cost)}${o.fee ? ` <span class="tiny muted">with the maker fee</span>` : ""}</div></div>
@@ -41,13 +41,13 @@ export function makersHtml() {
   if (!M) return `<div class="card note">Builds on the next engine run.</div>`;
   const live = (M.items || []).filter((o) => new Date(o.commence) > new Date());
   const items = live.filter((o) => o.ev >= mkMin() - 1e-9 && (!MF.comp || o.competitive) && (MF.kind === "All" || o.kind === MF.kind)
-    && (MF.lead === "All" || leadOf(o.hrs) === MF.lead) && (MF.league === "All" || o.league === MF.league));
+    && (MF.lead === "All" || leadOf(o.hrs) === MF.lead) && (MF.league === "All" || (MF.league === "Fringe" ? o.fringe : o.league === MF.league)));
   const chip = (k, v, lab) => `<button class="chip ${MF[k] === v ? "on" : ""}" data-mf="${k}" data-v="${esc(String(v))}">${esc(lab ?? v)}</button>`;
-  const leagues = ["All", ...new Set(live.map((o) => o.league).filter(Boolean))];
+  const leagues = ["All", ...(live.some((o) => o.fringe) ? ["Fringe"] : []), ...new Set(live.map((o) => o.league).filter(Boolean))];
   const filters = `<div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0 6px"><span class="tiny muted">Edge if it fills</span>${[0.05, 0.10, 0.15, 0.20].map((m) => `<button class="chip ${Math.abs(mkMin() - m) < 1e-9 ? "on" : ""}" data-mkmin="${m}">${Math.round(m * 100)}%+</button>`).join("")}
       <button class="chip ${MF.comp ? "on" : ""}" data-mf="comp" data-v="${MF.comp ? "" : "1"}" title="your price for the taker is at least as good as every sportsbook's">Takers can't beat it elsewhere</button></div>
     <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">${["All", "main", "alt", "prop"].map((k) => chip("kind", k, k === "All" ? "All markets" : kindName[k])).join("")}<span style="width:8px"></span>${["All", "Within 6 h", "6-24 h", "A day+"].map((k) => chip("lead", k, k === "All" ? "Any time" : k)).join("")}</div>
-    <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:10px">${leagues.map((l) => chip("league", l, l === "All" ? "All sports" : l)).join("")}</div>`;
+    <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:10px">${leagues.map((l) => chip("league", l, l === "All" ? "All sports" : l === "Fringe" ? "Fringe sports (off the board)" : l)).join("")}</div>`;
   const meth = (S.reports?.methods?.methods || []).find((m) => m.key === "maker");
   const P = M.paper || {}, L = meth?.live || {};
   const r = M.rules || {};
@@ -63,6 +63,7 @@ export function makersHtml() {
       <div class="tiny muted" style="margin-top:4px">Counted filled when the level behind ours gets eaten or disappears (the pessimistic read); cancelled when the fair moves our edge under ${((r.cancelEdge ?? 0.005) * 100).toFixed(1)}%. Also on Reports > Methods.</div></div>
     ${filters}
     <div class="tiny muted" style="margin-bottom:8px">${items.length} shown of ${live.length} found at ${Math.round((r.minEdge ?? 0.05) * 100)}%+ (${M.nBar ?? "?"} at 10%+, ${M.nBarComp ?? "?"} of them with no sportsbook beating them for the taker).</div>
+    ${M.scan?.at ? `<div class="tiny muted" style="margin-bottom:8px">Early and fringe scan (hourly, sharp books + exchanges): last ${fmtTime(M.scan.at)}, ${M.scan.withVenue ?? 0} sports with exchange quotes pulled, ${M.scan.fringeGames ?? 0} fringe games on the list, ${M.scan.alts ?? 0} early alt pulls. At 10%+: ${M.nEarly ?? 0} a day and a half or more out, ${M.nFringe ?? 0} in fringe sports.</div>` : ""}
     ${items.length ? `<div class="grid">${items.map(card).join("")}</div>` : `<div class="card note">None with these filters right now.</div>`}
     <p class="tiny muted" style="margin-top:8px">Maker fees assumed: Kalshi 0.0175 x p x (1-p) a contract; Polymarket US, Novig and ProphetX none. Check each venue's fee page before relying on it.</p>`;
 }
