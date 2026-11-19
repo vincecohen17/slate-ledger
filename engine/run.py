@@ -584,6 +584,7 @@ def live(watch=False, full=True, pres=None):
                             and datetime.fromisoformat(d["commence"].replace("Z", "+00:00")) > NOW - timedelta(hours=7))}
 
 
+FINAL_ASKS = 4             # rebuilds the watcher asks for a finished game that hasn't graded (15 minutes apart)
 WATCH_AHEAD_H = 6          # the watcher starts this far ahead of the first game with an open leg and waits for it
 
 
@@ -675,6 +676,7 @@ def watch():
     passes = {True: 0, False: 0}
     idle, r = 0, {}
     asked, seen_live, graded_ask, last_grade = set(), set(), {}, 0.0      # graded_ask: gameId -> when its rebuild was asked
+    grade_asks = {}             # gameId -> rebuilds asked for it (a final still ungraded keeps the watcher up, at most FINAL_ASKS)
     st0 = load_state()
     last_hot = 0.0
     last_steam, steam_api, steam_cr = 0.0, None, 0
@@ -711,6 +713,8 @@ def watch():
         if ended and time.time() - last_grade > 120:
             if _dispatch("rebuild", "grade finals"):
                 graded_ask.update({x: time.time() for x in ended})
+                for x in ended:
+                    grade_asks[x] = grade_asks.get(x, 0) + 1
                 seen_live -= ended
                 last_grade = time.time()
         # hot games (picks, open bets, arbs, edges): an auto run every HOT_ASK_MIN refreshes whatever of them is past the
@@ -726,7 +730,11 @@ def watch():
                 steam_cr += _steam_pass(steam_api or None)
             except Exception as e:
                 log(f"watch: steam failed ({type(e).__name__}: {str(e)[:80]})")
-        if not (r.get("need") or r.get("upcoming") or site_live or board_soon or hot_soon):
+        # a finished game whose bets or picks haven't graded yet keeps the watcher up so its rebuild is asked again every
+        # 15 minutes (Nov 19: the last game of the night ended, its one rebuild ran before ESPN had the final, and the
+        # watcher quit, so its picks waited hours for the next cron run); FINAL_ASKS rebuilds at most per game
+        final_wait = [x for x in (r.get("final") or []) if grade_asks.get(x, 0) < FINAL_ASKS]
+        if not (r.get("need") or r.get("upcoming") or site_live or board_soon or hot_soon or final_wait):
             log("watch: nothing left in play and no game starting soon")
             break
         if time.time() - t0 > 50 * 60:
