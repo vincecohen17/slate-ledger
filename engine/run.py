@@ -167,8 +167,10 @@ def presence_doc():
         return {}
     import rt
     a = rt.presence(DATA_DIR)
+    if a.get("at") and _age_min(a["at"]) < 10:
+        return a                # the site writes the Realtime Database; Firestore is only its fallback (Nov 20)
     try:
-        b = db.document("presence/owner").get().to_dict() or {}
+        b = db.document("presence/owner").get(timeout=10).to_dict() or {}
     except Exception:
         b = {}
     return a if (a.get("at") or "") >= (b.get("at") or "") else b
@@ -267,7 +269,7 @@ def live(watch=False, full=True, pres=None):
             _db = firestore_db()
             if _db:
                 found, live_open, open_games, ungraded = {}, [], set(), set()
-                for snap in _db.collection("bets").where("status", "==", "pending").stream():
+                for snap in _db.collection("bets").where("status", "==", "pending").stream(timeout=30):
                     b = snap.to_dict() or {}
                     open_games |= {x["gameId"] for x in (b.get("legs") or [b]) if x.get("gameId")}
                     done = (b.get("auto") or {}).get("legsDone") or b.get("legsDone") or {}
@@ -680,6 +682,7 @@ def watch():
     st0 = load_state()
     last_hot = 0.0
     last_steam, steam_api, steam_cr = 0.0, None, 0
+    was_live = False
     while True:
         NOW = datetime.now(timezone.utc)
         t1 = time.time()
@@ -692,6 +695,9 @@ def watch():
             board_soon = True
         pres = presence_doc()
         site_live = bool(pres.get("live")) and _age_min(pres.get("at")) <= 3
+        if site_live != was_live:           # Nov 20: say when the Live screen opens / closes, to time the switch
+            log(f"watch: site {'on' if site_live else 'off'} a live screen (heartbeat {round(_age_min(pres.get('at')), 1)} min old)")
+            was_live = site_live
         waiting = r.get("upcoming") and not r.get("need") and not site_live
         if waiting and idle % 5:            # nothing in play yet: a full check every 5 minutes, presence every minute
             idle += 1
@@ -741,6 +747,8 @@ def watch():
             log("watch: 50 minutes up; starting the next watcher")
             _dispatch_watch(chain=True)
             break
+        if time.time() - t1 > 90:
+            log(f"watch: slow pass, {round(time.time() - t1)} s (full {site_live})")
         time.sleep(max(5, 60 - (time.time() - t1)))
     log(f"watch: {passes[True]} full passes, {passes[False]} free passes in {round((time.time() - t0) / 60)} min"
         + (f", steam scans spent {steam_cr} credits" if steam_cr else ""))
@@ -806,7 +814,7 @@ def _watch_wanted():
             pass
     want = False
     try:
-        for snap in db.collection("bets").where("status", "==", "pending").stream():
+        for snap in db.collection("bets").where("status", "==", "pending").stream(timeout=30):
             b = snap.to_dict() or {}
             if any(lo <= (x.get("commence") or starts.get(x.get("gameId")) or b.get("commence") or "") <= hi for x in (b.get("legs") or [b])):
                 want = True
@@ -1076,7 +1084,7 @@ def _hot(st, core_of):
         try:
             db = firestore_db()
             if db:
-                for snap in db.collection("bets").where("status", "==", "pending").stream():
+                for snap in db.collection("bets").where("status", "==", "pending").stream(timeout=30):
                     b = snap.to_dict() or {}
                     for x in (b.get("legs") or [b]):
                         if x.get("gameId"):
