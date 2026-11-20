@@ -1720,6 +1720,12 @@ def publish(game_docs, prop_docs, status, stamp):
             playbook.tag(edge_list, pbook, NOW)
         except Exception as e:
             log(f"playbook failed: {type(e).__name__}: {str(e)[:80]}")
+        try:        # the fixed rules (engine/policy.py): 3% floor, 5% unless model-backed or pick'em, losing types/venues off
+            import policy
+            n_pol = policy.apply(edge_list)
+            log(f"policy: {n_pol} of {len(edge_list)} edges off the main list by rule")
+        except Exception as e:
+            log(f"policy failed: {type(e).__name__}: {str(e)[:80]}")
         status["moved"] = n_moved
         log(f"edge card: {n_new} new edges logged, {n_eg} graded, {ecard.get('n', 0)} in the card; {n_moved} lines moved since first seen")
     except Exception as e:

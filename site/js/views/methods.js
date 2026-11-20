@@ -29,8 +29,8 @@ export function methodsReport(M) {
     return `<div class="mt-row">
       <div class="mt-head"><span class="pill ${cls}" title="${esc(tip)}">${esc(lab)}</span><b>${esc(m.name)}</b>${spark(L.spark || Cc?.spark)}</div>
       <div class="tiny muted">${esc(m.blurb)}</div>
-      <div class="small">${m.src === "edges" ? `At the flagged price (best venue per side): ${rec(L)}` : m.src === "paper" ? `Filled paper orders, at our price: ${rec(L)}` : `Paper bets at the best venue price: ${rec(L)}`}</div>
-      ${m.fill ? `<div class="tiny muted">Posted on paper: ${m.fill.filled + (m.fill.filledOpen || 0)} filled, ${m.fill.cancelled} cancelled, ${m.fill.expired} expired, ${m.fill.resting} resting${m.fill.fillRate != null ? ` · fill rate ${Math.round(m.fill.fillRate * 100)}% (estimated ${Math.round((m.fill.predicted || 0) * 100)}%)` : ""}</div>` : ""}
+      <div class="small">${m.src === "edges" ? `At the flagged price (best venue per side): ${rec(L)}` : m.src === "paper" ? `Possible fills on paper (one-sided), at our price: ${rec(L)}${m.locks && m.locks.n ? ` · locked pairs apart: ${rec(m.locks)}` : ""}${m.paperOnly ? " · paper only, never adopted until real orders run" : ""}` : `Paper bets at the best venue price: ${rec(L)}`}</div>
+      ${m.fill ? `<div class="tiny muted">Posted on paper: ${m.fill.filled + (m.fill.filledOpen || 0)} possibly filled, ${m.fill.cancelled} cancelled, ${m.fill.expired} expired, ${m.fill.resting} resting${m.fill.fillRate != null ? ` · fill rate ${Math.round(m.fill.fillRate * 100)}% (estimated ${Math.round((m.fill.predicted || 0) * 100)}%)` : ""}</div>` : ""}
       ${m.src === "market" ? `<div class="small">Earlier, at the closing fair price (no vig): ${rec(Cc)}${m.closeRead ? ` <span class="tiny muted">· ${esc(m.closeRead)}</span>` : ""}</div>` : ""}
       ${L.recent ? `<div class="tiny muted">Last 14 days: ${L.recent.games} games, ROI ${sgn(L.recent.roi)}${(L.leagues || []).length ? ` · ${L.leagues.slice(0, 4).map((x) => `${esc(x.k)} ${sgn(x.roi)} (${x.games})`).join(" · ")}` : ""}</div>` : ""}
     </div>`;

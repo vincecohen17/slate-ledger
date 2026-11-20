@@ -158,8 +158,10 @@ export function renderEdges(el) {
     <div class="bar" style="margin-top:0">${chips("logic", ["All", "Market-driven", "On the playbook", "Model backs it"])}<span class="spacer"></span>${chips("venue", venues)}<span class="spacer"></span>
       ${[0.015, 0.03, 0.05].map((m) => `<button class="chip ${F.min === m ? "on" : ""}" data-min="${m}">${(m * 100).toFixed(1)}%+</button>`).join("")}</div>
     <p class="note">Prices at your venues that beat the sharp no-vig fair, ranked by edge and by how that kind of edge has actually done, half on its whole record and half on the last few days. Edges in a cell the record says to skip get their own section; kinds that keep losing to their fair go to the bottom until their record recovers.</p>
-    ${(() => { const live = items.filter((e) => !e.muted && !e.avoid), skip = items.filter((e) => !e.muted && e.avoid), muted = items.filter((e) => e.muted);
+    ${(() => { const live = items.filter((e) => !e.muted && !e.avoid), skip = items.filter((e) => !e.muted && e.avoid), muted = items.filter((e) => e.muted && !e.policy),
+        ruled = items.filter((e) => e.policy);
       const kinds = [...new Set(muted.map((e) => e.muted))];
+      const rules = [...new Set(ruled.map((e) => e.muted))];
       return `${live.length ? `<div class="grid tight">${live.slice(0, 150).map(edgeCard).join("")}</div>` : `<div class="empty"><h3>Nothing at this threshold</h3>Lower the minimum edge or check back after the next pull.</div>`}
       ${skip.length ? `<div class="sec-title">The record says skip (${skip.length})<span class="line"></span></div>
         <p class="note">Real price gaps, but in a cell that has lost to the close by 2+ standard errors, counted by game (each card says which). Not alerted.</p>
@@ -168,10 +170,15 @@ export function renderEdges(el) {
       ${muted.length ? `<div class="sec-title">Losing so far (${muted.length})<span class="line"></span></div>
         <p class="note">These kinds have won less than their fair said by 2+ standard errors over 100+ graded edges (${esc(kinds.join(", "))}), so they're left out of alerts and picks. They come back on their own if the record turns.</p>
         <button class="btn sm ghost" id="ed-muted">${F.showMuted ? "Hide them" : "Show them"}</button>
-        ${F.showMuted ? `<div class="grid tight" style="margin-top:10px;opacity:.75">${muted.slice(0, 100).map(edgeCard).join("")}</div>` : ""}` : ""}`; })()}`;
+        ${F.showMuted ? `<div class="grid tight" style="margin-top:10px;opacity:.75">${muted.slice(0, 100).map(edgeCard).join("")}</div>` : ""}` : ""}
+      ${ruled.length ? `<div class="sec-title">Off by rule (${ruled.length})<span class="line"></span></div>
+        <p class="note">Kept off the list, alerts and picks by the Nov 20 rules: nothing under 3%; 3-5% only for props the model backs and pick'em lines; no alt lines priced by our model, alternate game lines or one-sided fairs; no taking at Fliff, FanDuel Predicts or ProphetX; NCAAF main game lines only. Still graded, so the record can bring a rule back. Here now: ${esc(rules.join(", "))}.</p>
+        <button class="btn sm ghost" id="ed-ruled">${F.showRuled ? "Hide them" : "Show them"}</button>
+        ${F.showRuled ? `<div class="grid tight" style="margin-top:10px;opacity:.7">${ruled.slice(0, 100).map(edgeCard).join("")}</div>` : ""}` : ""}`; })()}`;
   $$("[data-tab]", el).forEach((b) => b.onclick = () => { F.tab = b.dataset.tab; renderEdges(el); });
   $$("[data-f]", el).forEach((b) => b.onclick = () => { F[b.dataset.f] = b.dataset.v; renderEdges(el); });
   $$("[data-min]", el).forEach((b) => b.onclick = () => { F.min = +b.dataset.min; renderEdges(el); });
+  const rb = el.querySelector("#ed-ruled"); if (rb) rb.onclick = () => { F.showRuled = !F.showRuled; renderEdges(el); };
   const lb = el.querySelector("#ed-live"); if (lb) lb.onclick = () => { F.liveAll = !F.liveAll; renderEdges(el); };
   const mb = el.querySelector("#ed-muted"); if (mb) mb.onclick = () => { F.showMuted = !F.showMuted; renderEdges(el); };
   const sb = el.querySelector("#ed-skip"); if (sb) sb.onclick = () => { F.showSkip = !F.showSkip; renderEdges(el); };

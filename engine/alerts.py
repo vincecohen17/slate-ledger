@@ -96,7 +96,10 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
         if not _quiet(cfg, now):
             good = []
             for e in edges:
-                if e.get("live") or e.get("est") or e.get("muted") or e.get("logic") != "agrees" or e.get("supBand") in ("below", "beyond") or e.get("avoid") or (e.get("score") or 0) < cfg.get("minScore", 0.04) \
+                import policy
+                strong = policy.core(e) and (e.get("pickem") or (e.get("edge") or 0) >= policy.CORE or policy.backed(e)) \
+                    and (not e.get("player") or e.get("logic") == "agrees")       # game lines: no model vote (policy.py)
+                if e.get("live") or e.get("est") or not strong or e.get("supBand") in ("below", "beyond") or e.get("avoid") or (e.get("score") or 0) < cfg.get("minScore", 0.04) \
                         or (e.get("avail") is not None and e["avail"] < THIN):   # an exchange price with only a few dollars behind it
                     continue
                 tr = e.get("track") or {}
@@ -110,7 +113,7 @@ def send(data_dir, now, edges=(), opps=(), graded=(), log=print):
                 body = "\n".join(f"{e['label']} {'pickem' if e.get('pickem') else _am(e.get('am'))} @ {e['bookName']} · edge {e['edge'] * 100:.1f}% · {e['league']}"
                                  + (f"\n  {e['why']['t']}" if (e.get('why') or {}).get('k') in ('lag', 'move') else "")
                                  for k, e in good[:6])
-                _post(cfg, f"{len(good)} new edge{'s' if len(good) > 1 else ''} (model agrees)", body, tags="chart_with_upwards_trend", click=click + "/#/edges")
+                _post(cfg, f"{len(good)} new edge{'s' if len(good) > 1 else ''}", body, tags="chart_with_upwards_trend", click=click + "/#/edges")
                 for k, e in good[:6]:
                     st["sent"][k] = t
                 n += 1

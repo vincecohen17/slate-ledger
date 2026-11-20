@@ -147,6 +147,8 @@ def update(data_dir, now, log=print, days=None):
                 docs[gid] = doc
             doc["commence"] = g.get("commence_time") or doc["commence"]
             start = _tmin(doc["commence"])
+            if pull_t is not None and start and pull_t < start and any(bk.get("key") in SHARP for bk in g.get("bookmakers") or []):
+                doc["lp"] = max(doc.get("lp") or 0, pull_t)     # our last pre-game pull that carried a sharp book
             for bk in g.get("bookmakers") or []:
                 if bk.get("key") not in KEEP:
                     continue
@@ -695,7 +697,10 @@ def grade(data_dir, fin_by_gid, log=print):
                     continue        # pushes, near-certain sides, 3-way moneylines
                 sg = side_signals(summ, spl, mk, side)
                 start = _tmin(doc.get("commence") or "")
-                rows.append({"d": (f.get("date") or f.get("commence", "")[:10]), "gid": gid, "ca": (start - r["now"]["t"]) if start else None, "sport": doc.get("sport"), "league": doc.get("league"),
+                # close age = minutes from our last pre-game pull carrying a sharp book to the start (Nov 20). It was the
+                # time since the sharp price last CHANGED, so a quiet line read as a stale close (half of all sides)
+                seen_t = max(r["now"]["t"], doc.get("lp") or 0)
+                rows.append({"d": (f.get("date") or f.get("commence", "")[:10]), "gid": gid, "ca": (start - seen_t) if start else None, "sport": doc.get("sport"), "league": doc.get("league"),
                              "mk": mk, "side": side, "pt": spt, "close": round(p, 4), "y": y, "pnl": round(y / p - 1, 4),
                              **{k: sg[k] for k in ("mv", "sl", "rlm", "div", "h", "b", "pub") if k in sg}})
         for fn in (os.path.join(gd, f"{gid}.json"), os.path.join(data_dir, "track", "market", "s", f"{gid}.json")):

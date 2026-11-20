@@ -62,7 +62,7 @@ function makerSection(Mk, Cn) {
       ${td(sg(c.clv), c.clv)}${td(sg(c.perOrder), c.perOrder)}</tr>`);
     paper = `<div class="kpis or-k">
         <div class="kpi"><div class="k">Orders decided</div><div class="v num">${a.decided ?? a.done}</div><div class="s">filled, cancelled or expired · ${a.resting} resting</div></div>
-        <div class="kpi"><div class="k">Fill rate</div><div class="v num">${pc(a.fillRate, 0)}</div><div class="s">we estimated ${pc(a.predicted, 0)} · ${a.locked} locked as arbs</div></div>
+        <div class="kpi"><div class="k">Possible fill rate</div><div class="v num">${pc(a.fillRate, 0)}</div><div class="s">we estimated ${pc(a.predicted, 0)} · ${a.locked} locked as arbs</div></div>
         <div class="kpi"><div class="k">Filled and graded</div><div class="v num">${a.graded}</div><div class="s" style="margin-bottom:-2px">${a.pending} waiting on their games</div><div class="s">ROI <b class="${a.roi > 0 ? "pos" : a.roi < 0 ? "neg" : ""}">${sg(a.roi)}</b>${a.roiT != null ? ` · t ${a.roiT}` : ""}</div></div>
         <div class="kpi"><div class="k">Per order posted</div><div class="v num ${a.perOrder > 0 ? "pos" : a.perOrder < 0 ? "neg" : ""}">${sg(a.perOrder)}</div><div class="s">what posting one returned, fills or not</div></div>
       </div>
@@ -87,7 +87,7 @@ function makerSection(Mk, Cn) {
       ${sortTable(["Where", "10%+ unbeaten a day", "10%+ a day", "Games", "Median edge", "Best", "Sits"], rows)}
       <details style="margin-top:8px"><summary class="small">Day by day</summary>${sortTable(["Day", "10%+ unbeaten", "10%+", "Games", "Best"], days)}</details>`;
   }
-  return `<div class="card"><div class="small"><b>On paper:</b> every suggestion followed as if posted. Filled when the order behind ours gets taken or pulled (the pessimistic read), graded at our price.</div>
+  return `<div class="card"><div class="small"><b>On paper:</b> every suggestion followed as if posted. A possible fill when the order behind ours gets taken or pulled, graded at our price. Real fills will be fewer.</div>
     ${paper}${census}
     <p class="tiny muted" style="margin-top:6px">Early = 36+ hours out (the scan pulls alternates that far out every 4 hours). Fringe = sports off the board that the scan picks up hourly. ROI is clustered by game; Per order = profit over every order that finished, filled or not. The fill read is noisy until real orders run: a level that vanishes from the feed counts as taken, and on thin books makers pull orders too.</p></div>`;
 }

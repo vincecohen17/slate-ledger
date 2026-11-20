@@ -346,6 +346,23 @@ def clus(g, base="close"):
             "roiT": round(roi * n / vp ** 0.5, 2) if vp > 0 else None, "roiSE": round(vp ** 0.5 / n, 4) if vp > 0 else None}
 
 
+HOLD_DAYS = 7
+
+
+def _hold(rows, hcut):
+    """ROI t (clustered by game) before the holdout days, and the plain ROI and game count inside them"""
+    if not hcut:
+        return {}
+    g = [r for r in rows if r.get("y") is not None and r.get("pnl") is not None]
+    pre = [r for r in g if r["d"] < hcut]
+    hold = [r for r in g if r["d"] >= hcut]
+    c = clus(pre, base="fair") if pre else {}
+    return {"preN": len(pre), "preGames": c.get("games"), "preT": c.get("roiT"),
+            "preRoi": round(sum(r["pnl"] for r in pre) / len(pre), 4) if pre else None,
+            "holdN": len(hold), "holdGames": len({_ckey(r) for r in hold}),
+            "holdRoi": round(sum(r["pnl"] for r in hold) / len(hold), 4) if hold else None}
+
+
 def _agg(rows):
     n = len(rows)
     g = [r for r in rows if r["y"] is not None]
@@ -392,11 +409,16 @@ def summarize(data_dir, days=120, now=None):
     out = {"updated": _iso(now), "n": len(rows), "since": min((r["d"] for r in rows), default=None), "recentHL": RECENT_HL}
     if rows:
         out["all"] = _agg(rows)
+        # holdout (Nov 20): each cell's record before the last HOLD_DAYS graded days and on those days apart, so the
+        # playbook can lean only on cells that were significant before and still paid after (not one hot week)
+        last = _REF["d"]
+        hcut = (datetime.fromisoformat(last) - timedelta(days=HOLD_DAYS - 1)).strftime("%Y-%m-%d") if last else None
+        out["holdFrom"] = hcut
         for dim, f in DIMS.items():
             by = {}
             for r in rows:
                 by.setdefault(f(r), []).append(r)
-            out[dim] = sorted(({"k": k, **_agg(v)} for k, v in by.items() if len(v) >= 3 and k is not None), key=lambda x: -x["n"])[:150 if dim in ("supLeague", "logicSize") else 60]
+            out[dim] = sorted(({"k": k, **_agg(v), **_hold(v, hcut)} for k, v in by.items() if len(v) >= 3 and k is not None), key=lambda x: -x["n"])[:150 if dim in ("supLeague", "logicSize") else 60]
         # the last 30 days by day, for a trend line
         by = {}
         for r in rows:
@@ -451,14 +473,17 @@ def rerank(edges, card, prior=150):
         # precedence when the edge has a model number; a 5%+ edge whose model sits between price and fair comes back when
         # that league's cell has held its fair, one whose model is under the price or far past the fair is muted when its
         # cell has lost
-        c = sl.get(_sup_size(e.get("league"), e.get("support"), e.get("edge"))) if e.get("supBand") else None
+        if not e.get("player") and not e.get("pickem"):
+            c = None        # game lines: the model gets no vote (Nov 20), so no logic or support override either
+        else:
+            c = sl.get(_sup_size(e.get("league"), e.get("support"), e.get("edge"))) if e.get("supBand") else None
         if (e.get("edge") or 0) >= 0.05 and c and (c.get("graded") or 0) >= MUTE_N:
             if e["supBand"] in ("between", "near") and (c.get("gap") or 0) >= 0:
                 e.pop("muted", None)
                 e["supportBacked"] = True
             elif e["supBand"] in ("below", "beyond") and c.get("zRes") is not None and c["zRes"] <= MUTE_Z:
                 e["muted"] = c["k"]
-        elif (e.get("edge") or 0) >= 0.05 and e.get("logic") in ("agrees", "disagrees"):
+        elif (e.get("edge") or 0) >= 0.05 and e.get("logic") in ("agrees", "disagrees") and (e.get("player") or e.get("pickem")):
             c = ls.get(_logic_size(e.get("league"), e.get("logic"), e.get("edge")))
             if c and (c.get("graded") or 0) >= MUTE_N:
                 if e["logic"] == "agrees" and (c.get("gap") or 0) >= 0:

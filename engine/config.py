@@ -180,19 +180,19 @@ EXTENDED_SLOWER = 3      # alternates, quarters/periods/innings and specials ref
 # Hot games: on an open pick, one of Vince's pending bets, a live arb/middle, or a real edge (2%+, not muted / skip /
 # estimated). Their prices refresh on this tighter clock whether or not the site is open (paid plan): (hours to start, minutes)
 HOT_STALE = [(1, 4), (3, 6), (12, 12), (36, 30), (9999, 90)]
-HOT_EDGE_MIN = 0.02
+HOT_EDGE_MIN = 0.03
 HOT_MAX = 60             # at most this many hot games (picks and bets first, then arbs, then the biggest edges)
 HOT_DAY_SHARE = 0.85     # hot pulls with the site closed stop once the day has used this share of its paced cap
 HOT_ASK_MIN = 5
 # Steam scanner (engine/steam.py, run by the watcher): main lines from the sharp books + Vince's venues every
 # STEAM_EVERY_MIN for sports with a game starting within STEAM_AHEAD_H; a sharp move of STEAM_MOVE+ with a venue still
 # at the old price worth STEAM_EDGE+ against the new fair is listed (site "Just moved") and alerted. 6 credits a sport a scan.
-STEAM_EVERY_MIN = 2
+STEAM_EVERY_MIN = 5            # Nov 20: was 2 (up to 9.5k credits a day for ~5 windows a day; lag edges -16% on 65)
 STEAM_AHEAD_H = 6
 STEAM_WINDOW_MIN = 20
 STEAM_MOVE = 0.02
 STEAM_EDGE = 0.015
-STEAM_DAY_MAX = 12000          # the watcher asks for an auto run this often while hot games are on the board
+STEAM_DAY_MAX = 5000          # the watcher asks for an auto run this often while hot games are on the board
 # Maker scan (engine/makerscan.py, from auto runs): early markets and fringe sports for the maker-order board. Main lines
 # from sharp books + exchanges + Vince's books hourly (6 credits a sport; board sports only when their lines are 45+ min
 # old; fringe sports with no exchange quotes skipped for a day), early alternates for NFL / NCAAF / NBA / NHL games

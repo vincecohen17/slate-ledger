@@ -10,8 +10,11 @@ DIMS = {"kind": "Line type", "venueKind": "Venue x type", "venue": "Venue", "tim
         "supportSize": "Model support", "logicSize": "Logic", "league": "Sport", "market": "Market", "fairShift": "Fair",
         "venueLeague": "Venue x sport", "mktMove": "Line movement", "mktSplits": "Betting splits", "why": "Market reason"}
 MIN_N = 150
-MIN_GAMES = 20          # a cell needs this many separate games before its clustered t means anything
-LEAN_T, AVOID_Z = 1.5, -2.0    # game-clustered: flat ROI t to lean on a cell, results-vs-close z to avoid one
+MIN_GAMES = 20          # a cell needs this many separate games before its clustered t means anything (avoid)
+LEAN_T, AVOID_Z = 2.5, -2.0    # game-clustered: flat ROI t to lean on a cell, results-vs-close z to avoid one
+LEAN_GAMES = 30         # Nov 20: a lean needs 30+ games and t 2.5 BEFORE the last 7 days (edgecard HOLD_DAYS), then a
+HOLD_MIN_GAMES = 10     # positive ROI over 10+ games inside them. With a few hundred cells tested, t 1.5 let through
+                        # about 1 noise cell in 15 (e.g. "Public side (70%+ bets)" +40% on 161 games)
 
 
 def _load(path):
@@ -42,12 +45,15 @@ def build(data_dir, card, params=None):
                     continue
                 cand.append({"dim": dim, "dimName": label, "k": r["k"], "n": n, "roi": r["roi"], "roiR": r.get("roiR"),
                              "gap": r.get("gap"), "gapR": r.get("gapR"), "z": r.get("zG"), "roiT": r.get("roiT"), "games": r.get("games"),
+                             "preT": r.get("preT"), "preGames": r.get("preGames"), "holdRoi": r.get("holdRoi"), "holdGames": r.get("holdGames"),
                              "score": round(_score(r), 4)})
         for c in sorted(cand, key=lambda c: -c["score"]):
             if c["score"] <= 0.005 or (c["roiR"] is not None and c["roiR"] <= 0) or (c["gap"] or 0) < -0.02:
                 continue
             # significance clustered by game (edgecard.clus): five venues' copies of one prop are one bet, not five
-            if (c["games"] or 0) < MIN_GAMES or c["roiT"] is None or c["roiT"] < LEAN_T:
+            if (c["preGames"] or 0) < LEAN_GAMES or c["preT"] is None or c["preT"] < LEAN_T:
+                continue
+            if (c["holdGames"] or 0) < HOLD_MIN_GAMES or (c["holdRoi"] or 0) <= 0:
                 continue
             # the same edges under two names (pick6 the venue and pick6 · Pick'em) count once
             if (c["dim"], c["k"]) in seen or (c["n"], c["roi"]) in seen:

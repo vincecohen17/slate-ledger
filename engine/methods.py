@@ -80,8 +80,9 @@ METHODS = [
      lambda s: (s.get("mv") or 0) >= 0.03),
     ("fade_move", "Fade the move", "The side the line moved 3+ points away from.", "market",
      lambda s: (s.get("mv") or 0) <= -0.03),
-    ("maker", "Maker orders", "A limit order on an exchange 2%+ better than the sharp fair, one tick ahead of the best price, "
-     "on games within 6 hours (engine/makers.py). Counted when it would have filled; graded at our price.", "paper", None),
+    ("maker", "Maker orders", "A limit order on an exchange 5%+ better than the sharp fair, one tick ahead of the best price "
+     "(engine/makers.py). Paper only: counted as a possible fill when the order behind ours went, graded at our price; judged "
+     "on one-sided fills (locked pairs shown apart) and never adopted on paper.", "paper", None),
 ]
 BY_KEY = {m[0]: m for m in METHODS}
 
@@ -323,8 +324,16 @@ def summarize(data_dir, now, log=print):
     for key, name, blurb, src, rule in METHODS:
         m = {"key": key, "name": name, "blurb": blurb, "src": src}
         if src == "paper":            # its own paper record (track/methods/graded.jsonl, m = key) plus how often they fill
-            m["live"] = _stats([r for r in paper if r.get("m") == key], now)
-            m["status"] = _status(m["live"])
+            rows = [r for r in paper if r.get("m") == key]
+            # Nov 20: judged on one-sided fills only. A locked pair (our paper fill plus the other side taken elsewhere)
+            # wins ~98% by construction, so 13k of them carried the t-stat while the fills behind them were never real.
+            # Locks are reported apart, and a paper record can reach "promising" at most: it is adopted only once real
+            # orders run (fills on a thin exchange feed are a guess: a level that vanished may be a maker pulling out).
+            m["live"] = _stats([r for r in rows if not r.get("locked")], now)
+            m["locks"] = _stats([r for r in rows if r.get("locked")], now)
+            st_ = _status(m["live"])
+            m["status"] = "promising" if st_ == "adopted" else st_
+            m["paperOnly"] = True
             try:
                 import makers
                 m["fill"] = makers.fill_summary(data_dir)

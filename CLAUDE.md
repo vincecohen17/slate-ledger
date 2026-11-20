@@ -24,15 +24,15 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   used by Claude's pick runs), mock, rebuild (raw cache in latest/raw), stats, probe. Event pulls request the full
   market catalog (config.event_markets) and remember markets the API rejects (refresh_state badMarkets).
 - Hot games (run._hot -> latest/hot.json, each auto run): open picks, Vince's pending bets (Firestore, read at most every
-  15 min, cached in refresh_state hotBets), arbs/middles (latest/opps.json, not suspect) and real edges (2%+, not muted /
+  15 min, cached in refresh_state hotBets), arbs/middles (latest/opps.json, not suspect) and real edges (3%+, not muted /
   avoid / est / model, under 25%), up to HOT_MAX 60 (picks and bets first). Their sport's lines and their event markets
   refresh on config.HOT_STALE (4 min inside 1 h ... 90 min past 36 h; extended markets at 2x when something on the game
   sits there) whether or not the site is open, until the day has used HOT_DAY_SHARE of its paced cap; hot events go
   first in the queue. The watcher dispatches an auto run every HOT_ASK_MIN (5) min while hot games start within 18 h
   (and stays up for them); an auto run that finds everything fresh spends no credits.
-- Steam scanner (`engine/steam.py`, run by the watcher every STEAM_EVERY_MIN = 2 min for sports with a board game within
+- Steam scanner (`engine/steam.py`, run by the watcher every STEAM_EVERY_MIN = 5 min for sports with a board game within
   STEAM_AHEAD_H = 6 h): one odds call per sport for h2h/spreads/totals from the sharp books + Vince's sportsbooks/exchanges
-  (13 books = 2 units, 6 credits a sport; STEAM_DAY_MAX 12k credits/day in latest/steam_state.json). Sharp consensus per
+  (13 books = 2 units, 6 credits a sport; STEAM_DAY_MAX 5k credits/day in latest/steam_state.json; every 5 min since Nov 20). Sharp consensus per
   game/market kept 20 min (re-based across point moves on market.SLOPE); a move of STEAM_MOVE (2 pts of chance) within that
   window, backed by a sharp update in the last 12 min, lists every venue quote on the side it moved toward that is at the
   SAME price and line as before the move and beats the new fair by STEAM_EDGE (1.5%, all-in) -> RTDB live/steam (site
@@ -79,7 +79,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   1u at the best venue price (Vince's non-DFS venues, fair 0.2-0.8) in the last FLAG_MIN 90 minutes (observe after
   market.run -> track/methods/open.json; grade with ledger.grade_leg + closemkt.leg_close -> track/methods/graded.jsonl,
   backfilled Nov 4-17 from the board history); their earlier record is the market card's sides at the no-vig close.
-  Stats clustered by game: ROI, SE, t, CLV (market methods), last 14 days, leagues, daily. Status: adopted (100+ games and ROI
+  Stats clustered by game: ROI, SE, t, CLV (market methods), last 14 days, leagues, daily. Maker orders (Nov 20) are
+  judged on one-sided possible fills only (locked pairs reported apart as m.locks) and capped at promising (m.paperOnly)
+  until real orders run; the site calls paper fills "possible fills". Status: adopted (100+ games and ROI
   t >= 2, or market CLV t >= 2 with ROI >= 0), dropped (t <= -2), promising (30+ games, t >= 1.5), testing; a market method
   with under 30 paper games is dropped / promising on its close record (100+ games, |t| >= 2). Runbook 3a: bet and floor
   picks need an adopted method (evidence.methods); dropped methods are never a reason. Recomputed when anything grades or
@@ -122,6 +124,18 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   unbeaten a day by early/fringe/board, venue, venue x type, kind, lead, sport, hour. maker_record: the paper record
   (track/makers/log.jsonl + open filled/locked) by the same cuts plus edge band, competitive, hour posted: fill rate vs
   estimate, ROI (clustered by game), CLV, profit per order posted. Recomputed hourly or when an arb closes / an order grades.
+- Edge policy (`engine/policy.py`, Nov 20, Vince approved from the deep dive): fixed rules applied after rerank and
+  playbook.tag (run.py): e.muted = the reason and e.policy = True for edges under 3%; 3-5% unless a prop the model backs
+  (supBand between/near) or a pick'em line; pick'em overs under 5% (overs priced off the main line run high: 3-5% -3.9%,
+  unders win at every size); alt lines priced from the main line (e.model), alternate game lines, one-sided estimated
+  fairs; taking at Fliff, FanDuel Predicts, ProphetX (ProphetX maker orders stay); NCAAF outside main game lines.
+  Everything is still logged and graded by the edge card. Site Edges "Off by rule" section; alerts/hot/Lab/picks skip
+  muted. Game lines get no model vote: build.edges ranks them on edge alone, rerank skips the logic/support overrides
+  for them, edge alerts don't need "logic agrees" on game lines (its side won 4-6 pts under the market at 5+ pts of
+  disagreement). Replay on Oct 28-Nov 20 graded edges (in-sample): kept 12k of 152k, +8.7% ROI (t 5.1) vs -2.4%.
+  Nov 20 fair studies (not shipped, both below 2 SE out of sample): refitting the consensus book weights on closing
+  prices vs results (45k props, 2.6k lines, Nov 15-20 holdout) gained nothing (props +0.04 mnats, t 0.2); an over
+  shift on main-line-derived fairs (alts -0.14, pick'em -0.06 logit) gained 2.6 / 0.4 mnats out of sample (t 1.6 / 0.8).
 - Self-correcting fair (`engine/fairadj.py` -> calib/fairadj.json, applied in build._finish_line via build.FAIR_SHIFT, pre-game
   modes only): a logit shift for the tracked side (Over/Yes/home) per sport|kind and market, recency weighted (half-life 14 d,
   backtest rows a 0.15-weight prior), live only for sport|kinds whose walk-forward gain vs the raw fair is 2+ SE with 200+ scored rows that carried a shift (NBA props:
@@ -129,7 +143,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   (fits stay on raw) plus fa; ledger CLV uses fa. Refit when graded rows change. Edge card dim fairShift.
 - Recency: edgecard _agg adds gapR / roiR / nR (half-life 5 days); rerank leans half on gapR. Playbook (`engine/playbook.py` ->
   stats/playbook.json, Reports data "playbook"): lean (cells with 150+ graded, positive long-run and recent ROI) and avoid
-  (z <= -2.5, losing) across kind, venue x type, venue, timing, edge size, support, logic, sport, market, fair, venue x sport,
+  (z <= -2.5, losing) across kind, venue x type, venue, timing, edge size, support, logic, sport, market, fair, venue x sport
+  (Nov 20: a lean needs 30+ games and clustered ROI t >= 2.5 before the last 7 graded days, then positive ROI over 10+ games
+  inside them: edgecard cells carry preT / preGames / holdRoi / holdGames, HOLD_DAYS 7),
   plus plain rules (support, logic by sport, fair correction, model trust, picks). playbook.tag stamps e.lean / e.avoid on
   edges (rank x1.1 per lean up to 1.3, x0.8 per avoid down to 0.5; alerts skip avoid). Edges page: "What's working now" card,
   On the playbook / Model backs it filters, "The record says skip" section. The pick prompts read the playbook first.
@@ -153,7 +169,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   mktSplits, also playbook dims) and latest/market.json (the pick runs read it); RTDB pre/mkt (site S.mkt). Grading
   (market.grade on finals): every main-market side with its fresh close (last sharp quote <= 30 min before the start;
   older closes are counted as staleClose and left out, since a line that kept moving after our last pull looks like
-  momentum) -> track/market/graded/<league>.jsonl, stats/marketcard.json (buckets clustered by game), Reports > Market
+  momentum; Nov 20: close age is measured from our last pre-game pull carrying a sharp book, doc.lp, not from the sharp price's
+  last change, which made every quiet line read stale) -> track/market/graded/<league>.jsonl, stats/marketcard.json (buckets clustered by game), Reports > Market
   signals. Graded games' files are pruned. Mode marketbackfill rebuilds from all saved pulls; splitsprobe saves raw pages.
   Nov 5 first read (88 games with fresh closes): moves are priced in by the close; the value is a venue that hasn't followed.
   Site: game page Market tab (views/market.js: sharp path chart, first movers, venues still at the old number, DK splits),

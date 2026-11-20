@@ -819,7 +819,9 @@ def edges(game_docs, prop_docs, min_edge=C.EDGE_LEAN, min_weight=2.0):
     # rank: model-derived fairs (alt lines, pick'em lines) count half until backtests earn them more trust
     for x in out:
         w = 0.5 if x.get("model") or x.get("pickem") or x.get("est") else 1.0
-        if x.get("supBand"):
+        if not x.get("player") and not x.get("pickem"):
+            pass        # game lines: the model's side has done worse than the market when it disagrees (Nov 20): no vote
+        elif x.get("supBand"):
             w *= {"below": 0.4, "between": 1.5, "near": 1.2, "beyond": 0.6}[x["supBand"]]
         else:
             w *= {"agrees": 1.5, "disagrees": 0.4}.get(x.get("logic"), 1.0)
