@@ -989,6 +989,23 @@ def _age_min(ts):
     return (NOW - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 60
 
 
+def _debug_bets_due(every_min=30):
+    """latest/ledger_debug.json is rewritten at most every 30 minutes (stamp in latest/ledger_debug_state.json; file
+    times can't say, a checkout resets them)"""
+    fn = os.path.join(DATA_DIR, "latest", "ledger_debug_state.json")
+    try:
+        at = json.load(open(fn)).get("at")
+    except Exception:
+        at = None
+    if at and _age_min(at) < every_min:
+        return False
+    try:
+        json.dump({"at": NOW.strftime("%Y-%m-%dT%H:%M:%SZ")}, open(fn, "w"))
+    except OSError:
+        pass
+    return True
+
+
 def _limit(table, hours_to_start):
     for h, m in table:
         if hours_to_start <= h:
@@ -1577,15 +1594,22 @@ def publish(game_docs, prop_docs, status, stamp):
         try:        # the ledger: grade Vince's pending bets and our picks (result + closing line value)
             import ledger
             fin_by = {d["gameId"]: d for d in fin.values() if d.get("gameId")}
-            if firestore_db():
-                ledger.apply_fixes(firestore_db(), DATA_DIR, log=log)
-                ledger.apply_inbox(firestore_db(), DATA_DIR, log=log)
+            # our picks live in the data repo: grade them first, so a Firestore failure (Nov 19: the daily read quota ran
+            # out at 9 PM PT and every later Firestore call raised) never holds them up
             n_p = ledger.grade_picks(DATA_DIR, fin_by, log=log)
-            n_b = ledger.grade_bets(firestore_db() if os.environ.get("FIREBASE_SERVICE_ACCOUNT") else None, DATA_DIR, fin_by, log=log)
-            if firestore_db():
-                ledger.debug_bets(firestore_db(), DATA_DIR, fin_by)
-                ledger.backfill_leagues(firestore_db(), DATA_DIR, NOW, log=log)
-                ledger.backfill_settled(firestore_db(), DATA_DIR, fin_by, NOW, log=log)
+            n_b = 0
+            try:
+                if firestore_db():
+                    ledger.apply_fixes(firestore_db(), DATA_DIR, log=log)
+                    ledger.apply_inbox(firestore_db(), DATA_DIR, log=log)
+                n_b = ledger.grade_bets(firestore_db() if os.environ.get("FIREBASE_SERVICE_ACCOUNT") else None, DATA_DIR, fin_by, log=log)
+                if firestore_db():
+                    if _debug_bets_due():       # a checking file only: at most every 30 minutes (each call reads 3 days of bets)
+                        ledger.debug_bets(firestore_db(), DATA_DIR, fin_by)
+                    ledger.backfill_leagues(firestore_db(), DATA_DIR, NOW, log=log)
+                    ledger.backfill_settled(firestore_db(), DATA_DIR, fin_by, NOW, log=log)
+            except Exception as e:
+                log(f"ledger: bets not graded ({type(e).__name__}: {str(e)[:100]}); picks graded: {n_p}")
             if n_p or n_b:
                 log(f"ledger: {n_p} picks and {n_b} bets graded")
         except Exception as e:
