@@ -13,20 +13,31 @@ let oppTotal = 100;
 let OPPS = [];
 const availPill = (l, stake) => l.avail == null ? (l.exch ? ` <span class="pill" title="an exchange: the price shown is the best one on offer, often only for a small amount. A bigger stake can fill at worse prices; check the price for your size before placing">price moves with size</span>` : "")
   : ` <span style="text-transform:none" class="pill ${stake != null && stake > l.avail ? "neg" : l.avail < 25 ? "warn" : ""}" title="what the exchange has on offer at this exact price right now; past it you fill at worse prices">${kUsd(l.avail)} at this price</span>`;
+// a leg's age now: its age at publish (l.age) plus the time since the board was published (o.at)
+const legAge = (o, l) => (l.age || 0) + (o.at ? Math.max(0, (Date.now() - Date.parse(o.at)) / 60000) : 0);
+const ageTxt = (a) => a == null ? "" : a < 1 ? "just pulled" : a < 60 ? `${Math.round(a)} min old` : `${(a / 60).toFixed(1)} h old`;
+setInterval(() => {
+  for (const el of document.querySelectorAll(".op-age[data-at]")) {
+    if (!el.dataset.at) continue;
+    const a = legAge({ at: el.dataset.at }, { age: +el.dataset.a });
+    el.textContent = ageTxt(a);
+    el.classList.toggle("neg", a > 5);
+  }
+}, 30000);
 function oppCard(o) {
   OPPS.push(o);
   const tot = oppTotal, st = o.stakes.map((x) => x * tot);
   const ret = o.legs.map((l, i) => st[i] * l.dec);
   const head = (o.live ? `<span class="pill neg">LIVE</span> ` : "") + (o.kind === "arb" ? `<span class="pill pos">arb +${(o.profit * 100).toFixed(2)}%</span>`
     : o.free ? `<span class="pill pos">no-risk middle · +${(o.worst * 100).toFixed(1)}% either way</span>` : `<span class="pill s">middle · EV ${pct(o.ev)}</span>`);
-  const ageTxt = (a) => a == null ? "" : a < 1 ? "just pulled" : a < 60 ? `${Math.round(a)} min old` : `${(a / 60).toFixed(1)} h old`;
   return `<div class="card op-card ${o.suspect ? "op-sus" : ""}">
     <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">${head}<span class="tiny muted">${esc(o.league)} · ${esc(o.matchup)} · ${fmtTime(o.commence)}</span></div>
     ${o.suspect ? `<div class="tiny neg" style="margin-top:4px">Too good to be true? A leg is far from the sharp fair: check the venue's rules (void on DNP, overtime) and that the price is live before placing either side.</div>` : ""}
-    <div class="col" style="gap:6px;margin-top:8px">${o.legs.map((l, i) => `<div class="op-leg">${bookLogo(l.book, l.name, 22)}<span class="col" style="gap:0;min-width:0"><b class="op-lab">${esc(l.label)}</b><span class="tiny muted">${esc(l.name)}${l.fair != null ? ` · fair ${prob(l.fair)}` : ""}${l.age != null ? ` · <span class="${l.age > 10 ? "neg" : ""}" title="how long ago we pulled this price">${ageTxt(l.age)}</span>` : ""}</span>
+    <div class="col" style="gap:6px;margin-top:8px">${o.legs.map((l, i) => `<div class="op-leg">${bookLogo(l.book, l.name, 22)}<span class="col" style="gap:0;min-width:0"><b class="op-lab">${esc(l.label)}</b><span class="tiny muted">${esc(l.name)}${l.fair != null ? ` · fair ${prob(l.fair)}` : ""}${l.age != null ? ` · <span class="op-age ${legAge(o, l) > 5 ? "neg" : ""}" data-a="${l.age}" data-at="${esc(o.at || "")}" title="how long ago we pulled this price (keeps counting while the page is open)">${ageTxt(legAge(o, l))}</span>` : ""}</span>
         <span class="tiny op-hold">${l.holdTo != null ? `works to <b class="num">${odds(l.holdTo)}</b>${centsTag(l.holdTo, l.book) ? ` (${centsTag(l.holdTo, l.book)})` : ""}` : ""}${availPill(l, st[i])}</span></span>
       <span class="col" style="align-items:flex-end;gap:0"><b class="num">${odds(l.am)}</b>${centsTag(l.am, l.book) ? `<span class="tiny muted">${centsTag(l.am, l.book)} in app</span>` : ""}</span><span class="num op-stake">${money(st[i])}</span></div>`).join("")}</div>
-    ${o.legs.some((l) => l.age > 10) ? `<div class="tiny neg" style="margin-top:6px">Some prices here are over 10 minutes old: refresh, and check the line is still up before placing either leg.</div>` : ""}
+    ${o.moving ? `<div class="tiny neg" style="margin-top:6px"><b>Market on the move:</b> ${esc(o.moving)} in the last 45 min. Gaps like this usually close within minutes (one venue catches up or its order gets taken): check both prices in the apps before placing either leg.</div>`
+      : o.legs.some((l) => legAge(o, l) > 5) ? `<div class="tiny neg" style="margin-top:6px">Some prices here are over 5 minutes old: check both legs are still up at these prices before placing either one.</div>` : ""}
     <div class="tiny" style="margin-top:8px">${o.kind === "arb"
       ? `Either way you get back about <b>${money(Math.min(...ret))}</b> on ${money(tot)}: <b class="pos">${money(Math.min(...ret) - tot)}</b> locked.`
       : `If one side wins: ${money(Math.min(...ret) - tot)}. If the result lands ${o.window[0]} to ${o.window[1]} (about ${prob(o.pMiddle)}): <b class="pos">${money(ret[0] + ret[1] - tot)}</b>. Expected <b class="${o.ev >= 0 ? "pos" : "neg"}">${money(o.ev * tot * o.stakes[0] * o.legs[0].dec)}</b>.`}</div>

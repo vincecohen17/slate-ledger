@@ -91,6 +91,8 @@ def arb_ent(o, prev, ent, now):
         "lead": p.get("lead") if p.get("lead") is not None else (
             round((_iso(o["commence"]) - now).total_seconds() / 3600, 2) if o.get("commence") else None),
         "susp": bool(o.get("suspect")) and p.get("susp", True),
+        "moving": bool(o.get("moving")) or p.get("moving", False),
+        "off": max(p.get("off") or 0, max((l.get("off") or 0) for l in o.get("legs") or [{}])),
     })
     return ent
 

@@ -328,8 +328,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   key, pulls / seenMin (latest/opps_seen.json, consecutive pulls), legs carry bookAge (the book's own last update) and proxy
   (DK Predictions / FanDuel Predicts prices borrowed from their sportsbooks); Vince's check-ins (Firestore oppcheck/{id}:
   verdict real / fake, badLegs) pool into a real rate per venue x prop/line. confirmed = 2+ pulls, no proxy leg, book prices
-  under 30 min old, not suspect or thin, no venue-kind with 3+ checks under 35% real; o.why lists what failed. Only confirmed
-  opps rank first and alert; the Arbs tab shows the rest under "Unverified" with check-in buttons. `site/js/arbs.js`: "Log both legs" (or Ledger >
+  under 10 min old and our pulls under 10 min (Nov 20, were 30 / 45), not moving (opps._moves: the sharp market changed its main
+  number or moved 3+ pts in the last 45 min per track/fairhist.json; o.moving, logged on the arb record), not suspect or thin, no venue-kind with 3+ checks under 35% real; o.why lists what failed. Only confirmed
+  opps rank first and alert (o.at = publish time: the site ticks leg ages forward, red past 5 min); the Arbs tab shows the rest under "Unverified" with check-in buttons. `site/js/arbs.js`: "Log both legs" (or Ledger >
   Log arb / middle, or pairing two bets in a bet's Edit sheet) saves both legs as normal bets sharing `group` {id, kind, i,
   window?, pMiddle?}; `unify()` folds each pair into one row (net profit, total stake, expected profit from the legs' fairs)
   for every ledger stat and the Analysis tab, so the losing leg never counts as a lost bet or skews venues, CLV or Kelly.

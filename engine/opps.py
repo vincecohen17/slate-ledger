@@ -294,9 +294,44 @@ def checks(db):
     return out
 
 
+MOVE_WIN, MOVE_PTS = 45, 0.03     # the sharp market moved this much (or changed its main number) in this many minutes
+BOOK_FRESH, PULL_FRESH = 10, 10   # minutes: a sportsbook leg's own last update, and our pull of every leg (were 30 / 45)
+
+
+def _moves(data_dir, now):
+    """(gameId, market, player) -> how the sharp market moved in the last MOVE_WIN minutes, from track/fairhist.json
+    (the edge card keeps 90 minutes of sharp fair for every main line and main prop row)"""
+    import json
+    import os
+    try:
+        hist = json.load(open(os.path.join(data_dir, "track", "fairhist.json")))
+    except Exception:
+        return {}
+    m = int(now.timestamp() // 60)
+    by = {}
+    for k, v in hist.items():
+        gid, mk, side, pt, player, team = (k.split("|") + [""] * 6)[:6]
+        pts = [x for x in v if m - x[0] <= MOVE_WIN]
+        if not pts:
+            continue
+        g = by.setdefault((gid, mk, player), {})
+        g.setdefault(side, []).append((pt, pts))
+    out = {}
+    for key, sides in by.items():
+        side = "Over" if "Over" in sides else sorted(sides)[0]      # one side is enough: the other mirrors it
+        rows = sides[side]
+        pts_seen = {pt for pt, _ in rows}
+        swing = max((max(x[1] for x in p) - min(x[1] for x in p)) for _, p in rows)
+        if len(pts_seen) >= 2 or swing >= MOVE_PTS:
+            out[key] = (f"main number moved ({' / '.join(sorted(pts_seen))})" if len(pts_seen) >= 2
+                        else f"sharp fair moved {round(swing * 100)} pts")
+    return out
+
+
 def annotate(opps, data_dir, now, db=None, log=print):
     import json
     import os
+    moves = _moves(data_dir, now)
     fn = os.path.join(data_dir, "latest", "opps_seen.json")
     try:
         seen = json.load(open(fn))
@@ -319,9 +354,19 @@ def annotate(opps, data_dir, now, db=None, log=print):
         prox = [l["name"] for l in o["legs"] if l.get("proxy")]
         if prox:
             why.append(f"{', '.join(prox)} price is borrowed from its sportsbook: check the app lists it")
-        old = [l["name"] for l in o["legs"] if not l.get("exch") and (l.get("bookAge") or 0) > 30]
+        old = [l["name"] for l in o["legs"] if not l.get("exch") and (l.get("bookAge") or 0) > BOOK_FRESH]
         if old:
             why.append(f"{', '.join(old)} hasn't updated this price in {max(l.get('bookAge') or 0 for l in o['legs'] if not l.get('exch')):.0f} min")
+        late = max((l.get("age") or 0) for l in o["legs"])
+        if late > PULL_FRESH:
+            why.append(f"our prices are {late:.0f} min old")
+        # Nov 20: Vince checked fresh arbs and both legs had moved. They come from a market on the move (news, a late
+        # scratch): one venue hasn't followed yet, and within minutes it does or its order gets taken. Not confirmed
+        # while the sharp market is still moving; the record keeps the flag (oppreport) so its real life can be measured.
+        mv = moves.get((o.get("gameId") or "", o.get("market") or "", o.get("player") or ""))
+        if mv:
+            o["moving"] = mv
+            why.append(f"market on the move ({mv} in the last {MOVE_WIN} min): prices likely changed")
         if o.get("suspect"):
             why.append("too good to be true (8%+, or a leg 12+ pts off fair)")
         if o.get("thin"):
