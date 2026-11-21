@@ -979,6 +979,17 @@ def apply_fixes(db, data_dir, log=print):
         done = set()
     n = 0
     for f in fixes:
+        if f.get("group"):      # pair a bet already logged with its other leg (an arb / middle): {id, group: {id, kind, n, at, i}}
+            key = f"{f['id']}|group|{f['group'].get('id')}"
+            if key in done:
+                continue
+            ref = db.document(f"bets/{f['id']}")
+            b = ref.get().to_dict() or {}
+            done.add(key)
+            if b and not b.get("group"):
+                ref.update({"group": f["group"]})
+                n += 1
+            continue
         if f.get("add"):        # a leg left out when the bet was logged: {id, add: {label, gameId, market, side, point, player, ...}}
             key = f"{f['id']}|add|{f['add'].get('label')}"
             if key in done:
