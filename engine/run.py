@@ -1199,6 +1199,21 @@ def auto():
             continue
         if evs:
             soon[s] = sorted(evs, key=lambda e: e["commence_time"])
+    # close safety net (Nov 21 audit): a game in our cached lines that starts inside the close window while its sport
+    # came back with no events (or not listed active) still gets its close pulled. An ATP Finals match (Nov 20, 13:00Z)
+    # was skipped by every run that morning, forced ones too, so its pick's close was 17 hours old.
+    import glob as _glob
+    for fn in _glob.glob(RAW("lines_*.json")):
+        s = os.path.basename(fn)[6:-5]
+        if s in soon or not C.wanted(s) or s.endswith("_winner"):
+            continue
+        try:
+            evs = [ev for ev in json.load(open(fn)) if 0 <= _hrs(ev.get("commence_time") or "1970-01-01T00:00:00Z") * 60 <= C.CLOSE_WINDOW_MIN]
+        except Exception:
+            continue
+        if evs:
+            soon[s] = sorted(evs, key=lambda e: e["commence_time"])
+            log(f"close fallback: {C.label(s)} had no events listed, {len(evs)} cached games start within {C.CLOSE_WINDOW_MIN} min")
     # game lines: one call per sport
     for s, evs in soon.items():
         hrs = (datetime.fromisoformat(evs[0]["commence_time"].replace("Z", "+00:00")) - NOW).total_seconds() / 3600
