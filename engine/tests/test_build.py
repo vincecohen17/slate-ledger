@@ -153,7 +153,18 @@ def test_nba_points_shape():
     wide, old = build.p_over("player_points", 20, 26.5, "basketball_nba"), build.p_over("player_points", 20, 26.5, "basketball_wnba")
     assert wide > old
     assert abs(build.p_over("player_points", 20, 26.5, "basketball_nba", inplay=True) - old) < 1e-12
-    assert abs(build.p_over("player_assists", 8, 9.5, "basketball_nba", inplay=True) - build.p_over("player_assists", 8, 9.5, "basketball_nba")) < 1e-12
+    assert abs(build.p_over("player_steals", 2, 2.5, "basketball_nba", inplay=True) - build.p_over("player_steals", 2, 2.5, "basketball_nba")) < 1e-12
+
+
+def test_nba_assists_market_shape():
+    # Nov 22: NBA assists priced from the main line use k 1.2; the model, in-play and WNBA / NCAAB keep 1.5
+    assert build.DISPERSION["basketball_nba"]["player_assists"] == 1.2
+    assert build.DISPERSION["basketball_wnba"]["player_assists"] == 1.5
+    mkt = build.p_over("player_assists", 5, 8.5, "basketball_nba")
+    old = build.p_over("player_assists", 5, 8.5, "basketball_wnba")
+    assert mkt < old
+    assert abs(build.p_over("player_assists", 5, 8.5, "basketball_nba", model=True) - old) < 1e-12
+    assert abs(build.p_over("player_assists", 5, 8.5, "basketball_nba", inplay=True) - old) < 1e-12
 
 
 def test_nba_rebounds_market_vs_model_shape():

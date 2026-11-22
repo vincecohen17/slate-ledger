@@ -6,8 +6,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - `engine/` Python. `run.py` pulls The Odds API, `build.py` computes sharp no-vig fair per line/prop,
   all-in venue costs (Kalshi/Polymarket fees), edges, stale flags, pick'em line judgments.
   `config.py` holds sports, markets, book weights, venues, budgets. Prop count shapes: build.DISPERSION (variance = k x mean; NBA
-  points 2.8 / PRA 3.2 since Nov 6, rebounds 1.3 since Nov 7, fit on alt-line outcomes; in-play remaining-stat chances, WNBA / NCAAB
-  and double-doubles keep DISPERSION_PREV; our stat model's own mean uses DISPERSION_MODEL where it needs another width, rebounds 1.5,
+  points 2.8 / PRA 3.2 since Nov 6, rebounds 1.3 since Nov 7, assists 1.2 since Nov 22, fit on alt-line outcomes; in-play remaining-stat chances, WNBA / NCAAB
+  and double-doubles keep DISPERSION_PREV; our stat model's own mean uses DISPERSION_MODEL where it needs another width, rebounds / assists 1.5,
   via p_over(..., model=True) in matchup); site/js/dist.js mirrors the market side. Tests: `python engine/tests/test_build.py`.
   Backtests: mode backtest (env BT_SPORTS=comma list reruns only those sports; the rest keep their saved rows); the closing-odds
   history they replay is engine/oddshistory.py (mode history); engine/history.py is the player-history estimate (histFair).

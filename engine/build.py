@@ -368,6 +368,13 @@ DISPERSION["basketball_nba"].update({"player_points": 2.8, "player_points_reboun
 # In-play remaining-stat chances and double-doubles keep 1.5 (DISPERSION_PREV), WNBA / NCAAB keep 1.5.
 DISPERSION["basketball_nba"]["player_rebounds"] = 1.3
 DISPERSION_MODEL = {"basketball_nba": {"player_rebounds": 1.5}}
+# Nov 22 2026 lab: NBA assists priced from the sharp main line spread narrower than k = 1.5. Walk-forward on live 2026-27 pulls
+# (186 games Oct 27 - Nov 21, k refit daily on prior days, fits 1.15-1.25): +3.16 mnats per alt / pick'em row, t 2.99 game-clustered
+# (pre-registered Nov 10 with PR / PA / RA / threes, Bonferroni bar 2.58); k 1.2 vs 1.5 on games after the Nov 10 look +3.25
+# (t 2.80). Market side only: our stat model, in-play remaining-stat chances and double-doubles keep 1.5 until tested.
+DISPERSION["basketball_nba"]["player_assists"] = 1.2
+DISPERSION_MODEL["basketball_nba"]["player_assists"] = 1.5
+DISPERSION_PREV["basketball_nba"]["player_assists"] = 1.5
 DISPERSION["americanfootball_ncaaf"] = DISPERSION["americanfootball_nfl"]
 
 
