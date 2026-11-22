@@ -9,7 +9,7 @@ Each engine run (auto, refresh, rebuild):
              atThread: number of thread messages it answered}
             create: saves promos/{promo.id} and marks the request done; question: asks; failed: says why.
             Applied once, then moved to promodesk/done/.
-Firestore stays light: one query per run, a write only when the desk answered.
+Firestore stays light: one query per run (waiting requests only) plus a read per answer, a write only when the desk answered.
 """
 import glob
 import json
@@ -29,9 +29,20 @@ def sync(db, data_dir, log=print):
     os.makedirs(os.path.join(d, "outbox"), exist_ok=True)
     os.makedirs(os.path.join(d, "done"), exist_ok=True)
     reqs = {}
+    # only what the desk needs: the waiting requests (one read when none wait), and each answered request by id (Nov 22:
+    # reading every request on every run helped spend the free plan's 50k daily reads)
     try:
-        for snap in db.collection("promoreq").stream():
+        for snap in db.collection("promoreq").where("status", "==", "waiting").stream():
             reqs[snap.id] = snap.to_dict() or {}
+        for fn in sorted(glob.glob(os.path.join(d, "outbox", "*.json"))):
+            try:
+                rid = json.load(open(fn)).get("reqId")
+            except Exception:
+                continue
+            if rid and rid not in reqs:
+                s = db.document(f"promoreq/{rid}").get()
+                if s.exists:
+                    reqs[rid] = s.to_dict() or {}
     except Exception as e:
         log(f"promodesk: requests not read ({type(e).__name__})")
         return 0

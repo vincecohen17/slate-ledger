@@ -1162,9 +1162,16 @@ def auto():
     if not (active or force or paid):
         log("site closed: nothing to do")
         return
+    # Nov 22 audit: on Saturday Nov 21 the 150k day cap was spent by 3 PM PT and every evening game (NBA, NCAAF) closed on
+    # a price 1-4 hours old. Past the cap, close capture alone goes on, up to CLOSE_OVERRUN more credits a day.
+    close_only = False
     if room <= 0:
-        log("daily credit ceiling reached")
-        return
+        close_room = max(0, _paced_cap(P, st, plan_key) + C.CLOSE_OVERRUN - st.get("usedToday", 0)) if paid else 0
+        if close_room <= 0:
+            log("daily credit ceiling reached")
+            return
+        close_only, room, active, force = True, close_room, False, False
+        log(f"daily credit ceiling reached: closes only ({close_room} credits left for them today)")
     api = OddsAPI(key, max_credits=min(P["run_cap"], room))
     act = {s["key"] for s in api.sports() if s.get("active")}
     if C.PLAN == "auto" and api.remaining is not None and api.used_total is not None:
@@ -1175,14 +1182,14 @@ def auto():
             st["plan"] = detected
     if api.remaining is not None:
         st["remaining"] = api.remaining
-        room = max(0, _paced_cap(P, st, plan_key) - st.get("usedToday", 0))
+        room = max(0, _paced_cap(P, st, plan_key) + (C.CLOSE_OVERRUN if close_only else 0) - st.get("usedToday", 0))
         api.max_credits = min(P["run_cap"], room)
         st["dayCap"] = _paced_cap(P, st, plan_key)
     sports = [s for s in C.SPORTS if s in act] + sorted(s for s in act if s.startswith("tennis_") and C.wanted(s))
     errors, pulled = [], []
     horizon = iso(NOW + timedelta(days=7))
     # hot games (picks, open bets, arbs, edges) keep fresh prices with the site closed too, within the day's budget
-    hot = _hot(st, C.core_markets) if paid else {}
+    hot = _hot(st, C.core_markets) if paid and not close_only else {}
     hot_ok = paid and (active or force or st.get("usedToday", 0) < C.HOT_DAY_SHARE * _paced_cap(P, st, plan_key))
     def _hrs(t):
         return (datetime.fromisoformat(t.replace("Z", "+00:00")) - NOW).total_seconds() / 3600
@@ -1295,7 +1302,7 @@ def auto():
             n_hot += is_hot
         pulled.append(f"{n_events} events" + (f" ({n_hot} hot)" if n_hot else ""))
     ms_used = 0
-    if paid and room - api.used_run > 500:
+    if paid and not close_only and room - api.used_run > 500:
         try:        # maker scan: early markets and fringe sports for the maker-order board, hourly, its own day cap
             import makerscan
             if makerscan.due(DATA_DIR, NOW):
@@ -2018,6 +2025,18 @@ def write_firestore(game_docs, prop_docs, edge_list, status, rep=None, picks=(),
                 new.pop(f"{col}/{snap.id}", None)
                 inb.append(None)
                 n += 1
+        # previews: the site needs the last few days only, and it reads every doc in the collection on each open (they were
+        # never removed: 1.5k by Nov 22, when the free plan's 50k daily reads ran out at 5 PM PT); keep four days
+        pv_cut = (NOW - timedelta(hours=7) - timedelta(days=4)).strftime("%Y-%m-%d")
+        for snap in db.collection("previews").where("date", "<", pv_cut).limit(400).stream():
+            batch.delete(snap.reference)
+            new.pop(f"previews/{snap.id}", None)
+            inb.append(None)
+            n += 1
+            if len(inb) >= 400:
+                batch.commit()
+                done += len(inb)
+                batch, size, inb = db.batch(), 0, []
         if fin is not None:     # finals: keep three days
             cut = (NOW - timedelta(hours=7) - timedelta(days=2)).strftime("%Y-%m-%d")
             for snap in db.collection("finals").where("date", "<", cut).stream():

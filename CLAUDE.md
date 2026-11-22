@@ -20,7 +20,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   ESPN tennis; `stats_mlb.py` collects Baseball Savant (custom/expected leaderboards, splits, arsenals, park factors)
   and MLB StatsAPI (schedule with lineups/probables/weather, rosters, handedness, game logs).
 - `run.py` modes: auto (every 5 min, app-driven: presence/owner heartbeat from the site, staleness tiers, close
-  capture on the paid plan; config.PLAN = auto reads the plan from the Odds API quota), refresh (a forced auto pull,
+  capture on the paid plan; config.PLAN = auto reads the plan from the Odds API quota; past the day's paced cap only close
+  captures run, up to config.CLOSE_OVERRUN more credits a day, Nov 22), refresh (a forced auto pull,
   used by Claude's pick runs), mock, rebuild (raw cache in latest/raw), stats, probe. Event pulls request the full
   market catalog (config.event_markets) and remember markets the API rejects (refresh_state badMarkets).
 - Hot games (run._hot -> latest/hot.json, each auto run): open picks, Vince's pending bets (Firestore, read at most every
@@ -462,6 +463,9 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - This repo is PUBLIC. Never commit keys, odds data, picks, bets or the owner's email. Logs print counts only.
 - Keys live in GitHub secrets: ODDS_API_KEY, FIREBASE_SERVICE_ACCOUNT, DATA_REPO_TOKEN.
 - Firestore docs store their body as a JSON string in `payload`; writes are skipped when the hash is unchanged.
+- Firestore reads: 50k a day on Spark (ran out at 9 PM PT Nov 19 and 5 PM PT Nov 21, holding bet grading until midnight PT).
+  The site watches previews from the last 4 days only and the engine deletes older ones; oppcheck is cached 30 min
+  (latest/oppcheck_cache.json); the promo desk reads waiting requests only. Keep per-run reads to queries that return few docs.
 - Firebase is on the free Spark plan. Firestore allows 20k writes a day: keep its writes low (one doc per game, one per
   game+prop market; far-off prop docs at most every 30 min). Anything that changes every minute goes to the Realtime Database.
 - Kalshi/Polymarket prices are always shown all-in (ask + fee).

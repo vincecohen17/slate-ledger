@@ -270,14 +270,41 @@ def _kind_of(o):
     return "prop" if o.get("player") else "line"
 
 
-def checks(db):
-    """{(book, kind): [real, fake]} from Vince's reports"""
+CHECKS_EVERY_MIN = 30     # Vince's check-ins are re-read at most this often (each read costs one per doc, every run)
+
+
+def checks(db, data_dir=None, now=None):
+    """{(book, kind): [real, fake]} from Vince's reports. The docs are cached in latest/oppcheck_cache.json and re-read
+    from Firestore at most every CHECKS_EVERY_MIN minutes (Nov 22: the free plan's 50k daily reads ran out by 5 PM PT)."""
+    import json
+    import os
+    from datetime import datetime, timezone
     out = {}
-    if db is None:
-        return out
+    docs, fn = None, os.path.join(data_dir, "latest", "oppcheck_cache.json") if data_dir else None
+    now = now or datetime.now(timezone.utc)
+    if fn:
+        try:
+            c = json.load(open(fn))
+            if (now - datetime.fromisoformat(c["at"])).total_seconds() < CHECKS_EVERY_MIN * 60:
+                docs = c.get("docs") or []
+        except Exception:
+            docs = None
+    if docs is None:
+        if db is None:
+            return out
+        try:
+            docs = [{k: (d.to_dict() or {}).get(k) for k in ("verdict", "badLegs", "legs", "kind")}
+                    for d in db.collection("oppcheck").stream()]
+        except Exception:
+            return out
+        if fn:
+            try:
+                json.dump({"at": now.isoformat(), "docs": docs}, open(fn, "w"), default=str)
+            except Exception:
+                pass
     try:
-        for d in db.collection("oppcheck").stream():
-            x = d.to_dict() or {}
+        for x in docs:
+            x = x or {}
             v = x.get("verdict")
             if v not in ("real", "fake"):
                 continue
@@ -337,7 +364,7 @@ def annotate(opps, data_dir, now, db=None, log=print):
         seen = json.load(open(fn))
     except Exception:
         seen = {}
-    rep = checks(db)
+    rep = checks(db, data_dir, now)
     t = now.isoformat()
     cur = {}
     for o in opps:

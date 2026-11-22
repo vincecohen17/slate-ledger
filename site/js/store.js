@@ -21,8 +21,8 @@ const changed = () => { clearTimeout(timer); timer = setTimeout(() => listeners.
 const parse = (d) => { const x = d.data(); return x.payload ? JSON.parse(x.payload) : x; };
 function onErr(e) { if (/permission.denied/i.test(e?.code || e?.message || "")) { S.denied = true; changed(); } else console.error(e); }
 
-function watchCol(name, map, mapFn = parse, after = changed) {
-  subs.push(onSnapshot(collection(db, name), (qs) => {
+function watchCol(name, map, mapFn = parse, after = changed, q = null) {
+  subs.push(onSnapshot(q || collection(db, name), (qs) => {
     qs.docChanges().forEach((c) => c.type === "removed" ? map.delete(c.doc.id) : map.set(c.doc.id, { id: c.doc.id, ...mapFn(c.doc) }));
     after();
   }, onErr));
@@ -164,7 +164,9 @@ export function start() {
   watchLive();
   // Firestore: what Vince writes (bets, promos) and our picks and previews
   watchCol("picks", S.picks);
-  watchCol("previews", S.previews);
+  // previews: the last few days only (each doc read counts against the free plan's 50k a day, on every open)
+  const pvCut = new Date(Date.now() - 4 * 864e5).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  watchCol("previews", S.previews, parse, changed, query(collection(db, "previews"), where("date", ">=", pvCut)));
   watchCol("bets", S.bets, (d) => d.data());
   watchCol("promos", S.promos, (d) => d.data());
   watchCol("promoreq", S.promoreq, (d) => d.data());       // promos described in words for Claude's promo desk

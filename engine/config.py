@@ -176,6 +176,7 @@ LINES_STALE = [(3, 5), (12, 15), (36, 60), (9999, 240)]
 PROPS_STALE = [(3, 10), (12, 30), (36, 180)]          # no props beyond 36h
 CLOSE_WINDOW_MIN = 25    # always capture prices for games starting this soon (CLV / grading)
 CLOSE_STALE_MIN = 8
+CLOSE_OVERRUN = 40_000   # past the day's credit cap, close captures (games inside CLOSE_WINDOW_MIN) may spend this much more
 EXTENDED_SLOWER = 3      # alternates, quarters/periods/innings and specials refresh 3x less often than core markets
 # Hot games: on an open pick, one of Vince's pending bets, a live arb/middle, or a real edge (2%+, not muted / skip /
 # estimated). Their prices refresh on this tighter clock whether or not the site is open (paid plan): (hours to start, minutes)
