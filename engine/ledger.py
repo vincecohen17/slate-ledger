@@ -628,6 +628,19 @@ def is_live(b, data_dir, legs=None):
     return not starts or made >= min(starts) - timedelta(minutes=2)
 
 
+def flex_result(flex, graded):
+    """(result, payout multiple) for a flex entry, or None when a leg is void / pushed (the app re-tables it)"""
+    try:
+        tab = {int(k): float(v) for k, v in (flex or {}).items()}
+    except (TypeError, ValueError):
+        return None
+    if not tab or any(g.get("y") is None for g in graded):
+        return None
+    hits = sum(1 for g in graded if g["y"] == 1)
+    x = tab.get(hits, 0.0)
+    return ("won" if x > 0 else "lost"), round(x, 4)
+
+
 def grade_bets(db, data_dir, fin_by_gid, log=print):
     """pending bets on Firestore: write `auto` (the site settles them with the promo math)"""
     if not db:
@@ -669,12 +682,19 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
                 if done and done != (b.get("legsDone") or {}):
                     snap.reference.update({"legsDone": done})
             continue
+        if b.get("flex"):
+            # a flex pick'em entry (DK Pick6 / PrizePicks flex): pays by how many picks hit, from the table Vince logged
+            # (bet.flex {"6": 24.6, "5": 1.4}). A void leg re-tables the entry by the app's own rule: Vince settles those.
+            fx = flex_result(b.get("flex"), g["legs"])
+            if fx is None:
+                continue
+            g["result"], g["payX"] = fx
         if is_live(b, data_dir, legs):          # a live bet's yardstick is the live fair minutes later, not the pre-game close
             lc = b.get("liveCheck") or {}
             g["clv"], g["closeFair"] = lc.get("clv"), lc.get("fair")
             g["clvCal"], g["closeAge"] = None, None     # closecal is fit on pre-game closes: it says nothing about a live fair
         up = {"auto": {"result": g["result"], "clv": g["clv"], "closeFair": g["closeFair"], "closeAge": g.get("closeAge"), "clvCal": g.get("clvCal"),
-                       "legs": leg_results(legs, g["legs"]), "closeEst": g.get("est") or None,
+                       "legs": leg_results(legs, g["legs"]), "closeEst": g.get("est") or None, "payX": g.get("payX"),
                        "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}}
         if not is_live(b, data_dir, legs):        # measured against the closing market consensus: no re-measure later
             up.update({"closeSrc": "market", "clvMktV": CMK.VERSION, "clvImp": g.get("clvImp"), "closeImp": g.get("closeImp"),

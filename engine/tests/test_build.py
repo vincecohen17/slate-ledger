@@ -330,6 +330,16 @@ def test_live_tennis_games():
     assert 0 < tt["Over"] < 1 and f({"market": "h2h"})["Al Pha"] > 0.6
 
 
+def test_flex_entry_pays_by_hits():
+    import ledger as LG
+    fx = {"6": 24.6, "5": 1.4}
+    g = lambda ys: [{"y": y} for y in ys]
+    assert LG.flex_result(fx, g([1] * 6)) == ("won", 24.6)
+    assert LG.flex_result(fx, g([1] * 5 + [0])) == ("won", 1.4)
+    assert LG.flex_result(fx, g([1] * 4 + [0, 0])) == ("lost", 0.0)
+    assert LG.flex_result(fx, g([1] * 5 + [None])) is None      # a void leg re-tables the entry: left for Vince
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

@@ -19,7 +19,8 @@ let tab = "mine", filter = "pending", groupBy = "type";
 const inflight = new Set();
 
 const decA = (a) => a > 0 ? 1 + a / 100 : 1 + 100 / -a;
-const profitFor = (b, status) => settleProfit(b, b.promoId ? S.promos.get(b.promoId) : null, status);
+// a flex entry pays by how many picks hit: the engine sends the multiple it paid (auto.payX, from bet.flex)
+const profitFor = (b, status) => settleProfit(b.auto?.payX && b.flex ? { ...b, dec: b.auto.payX } : b, b.promoId ? S.promos.get(b.promoId) : null, status);
 
 // the engine grades pending bets (bets/{id}.auto); apply it here, where the promo math lives
 export function autoSettle() {
