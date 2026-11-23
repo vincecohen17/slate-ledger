@@ -998,7 +998,18 @@ def apply_fixes(db, data_dir, log=print):
     except Exception:
         done = set()
     n = 0
+    SETTABLE = {"venue", "venueName", "note"}
     for f in fixes:
+        if f.get("set"):        # a field logged wrong (the venue, say): {id, set: {venue, venueName}}; any status
+            key = f"{f['id']}|set|" + "|".join(f"{k}={v}" for k, v in sorted(f["set"].items()))
+            if key in done:
+                continue
+            ref = db.document(f"bets/{f['id']}")
+            if (ref.get().to_dict() or {}):
+                ref.update({k: v for k, v in f["set"].items() if k in SETTABLE})
+                n += 1
+            done.add(key)
+            continue
         if f.get("group"):      # pair a bet already logged with its other leg (an arb / middle): {id, group: {id, kind, n, at, i}}
             key = f"{f['id']}|group|{f['group'].get('id')}"
             if key in done:
