@@ -30,7 +30,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   refresh on config.HOT_STALE (4 min inside 1 h ... 90 min past 36 h; extended markets at 2x when something on the game
   sits there) whether or not the site is open, until the day has used HOT_DAY_SHARE of its paced cap; hot events go
   first in the queue. The watcher dispatches an auto run every HOT_ASK_MIN (5) min while hot games start within 18 h
-  (and stays up for them); an auto run that finds everything fresh spends no credits.
+  (and stays up for them); an auto run that finds everything fresh spends no credits. _dispatch never queues over a waiting requested run in the main lane (GitHub keeps one waiting run per lane and cancels the older; Nov 24): it asks again on a later pass.
 - Steam scanner (`engine/steam.py`, run by the watcher every STEAM_EVERY_MIN = 5 min for sports with a board game within
   STEAM_AHEAD_H = 6 h): one odds call per sport for h2h/spreads/totals from the sharp books + Vince's sportsbooks/exchanges
   (13 books = 2 units, 6 credits a sport; STEAM_DAY_MAX 5k credits/day in latest/steam_state.json; every 5 min since Nov 20). Sharp consensus per
@@ -103,7 +103,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   LOCK_MIN 3%+ (Vince's arb bar), else hold. Paper record track/makers/open.json: filled when the level behind ours is
   eaten or vanishes (pessimistic), cancelled when the fair drops the edge under 0.5%, expired at the start, locked when
   the other side can be taken at the bar; graded into track/methods/graded.jsonl (m maker; locked rows = the pair) and
-  track/makers/log.jsonl (fill rate vs predicted). Suggestions only until the exchange APIs are linked (planned).
+  track/makers/log/<day>.jsonl (fill rate vs predicted). Suggestions only until the exchange APIs are linked (planned).
   Maker scan (`engine/makerscan.py`, Nov 17, from auto runs on the paid plan when due): early markets and fringe sports for
   the maker board. Hourly, main lines (h2h/spreads/totals) from the sharp books + Betfair/Matchbook + Vince's exchanges and
   books (15 books, 6 credits a sport): board sports only when their line pull is 45+ min old (no snapshot), every other
@@ -123,7 +123,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   middles. Makers: maker_census (each makers.run) records every 5%+ suggestion once a Pacific day in
   track/makers/census/<day>.json (45 days; past days' counts cached in stats/maker_census_days.json): 10%+ and 10%+
   unbeaten a day by early/fringe/board, venue, venue x type, kind, lead, sport, hour. maker_record: the paper record
-  (track/makers/log.jsonl + open filled/locked) by the same cuts plus edge band, competitive, hour posted: fill rate vs
+  (track/makers/log/<day>.jsonl + open filled/locked) by the same cuts plus edge band, competitive, hour posted: fill rate vs
   estimate, ROI (clustered by game), CLV, profit per order posted. Recomputed hourly or when an arb closes / an order grades.
 - Edge policy (`engine/policy.py`, Nov 20, Vince approved from the deep dive): fixed rules applied after rerank and
   playbook.tag (run.py): e.muted = the reason and e.policy = True for edges under 3%; 3-5% unless a prop the model backs
