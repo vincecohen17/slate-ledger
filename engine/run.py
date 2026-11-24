@@ -878,10 +878,21 @@ def _dispatch(mode, why=""):
     h = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}", "Accept": "application/vnd.github+json"}
     base = "https://api.github.com/repos/vincecohen17/slate-ledger/actions/workflows/pull.yml"
     try:
+        waiting = set()
         for stt in ("queued", "pending", "waiting"):
             runs = json.load(urllib.request.urlopen(urllib.request.Request(f"{base}/runs?status={stt}&per_page=20", headers=h), timeout=20))
-            if any((r.get("display_title") or "") == mode for r in runs.get("workflow_runs") or []):
-                return True            # one is already on its way
+            waiting |= {(r.get("display_title") or "") for r in runs.get("workflow_runs") or []}
+        if mode in waiting:
+            return True                # one is already on its way
+        # GitHub keeps one waiting run per concurrency group and cancels it when another is queued (Nov 24 audit: the
+        # watcher's 5-minute hot refreshes cancelled pick runs' refresh / audit / rebuild requests, 3 of 12 pushes and 13
+        # of 17 rebuilds in a day). Never replace a waiting run in our lane that does what we want or that we can't redo.
+        lane = waiting - {"watch", "live", "history", "backtest"}
+        if mode == "rebuild" and lane & {"auto", "schedule"}:
+            return True                # an auto run grades finals too
+        if lane & {"push", "refresh", "audit", "stats"}:
+            log(f"watch: a requested run is waiting; {mode} ({why}) asked again later")
+            return False               # callers ask again on a later pass, once it has started
         urllib.request.urlopen(urllib.request.Request(f"{base}/dispatches", data=json.dumps({"ref": "main", "inputs": {"mode": mode}}).encode(),
                                                       method="POST", headers=h), timeout=20)
         log(f"watch: started a {mode} run ({why})")
