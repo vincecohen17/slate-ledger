@@ -1690,7 +1690,7 @@ def publish(game_docs, prop_docs, status, stamp):
                     pass
             try:        # the self-correcting fair: what's live, and the walk-forward test behind it
                 fa = json.load(open(os.path.join(DATA_DIR, "calib", "fairadj.json")))
-                mstats["fairadj"] = {k: fa.get(k) for k in ("at", "halfLife", "shifts", "eval")}
+                mstats["fairadj"] = {k: fa.get(k) for k in ("at", "halfLife", "shifts", "eval", "evalMarket")}
             except Exception:
                 pass
         except Exception as e:

@@ -21,6 +21,11 @@ from collections import defaultdict
 HALF_LIFE, BT_W, ALT_W = 14.0, 0.15, 0.4
 LAM = (400.0, 800.0)          # shrink (in units of Fisher information) for the sport|kind level and the market level
 GATE_T, MIN_SHIFTED = 2.0, 200
+# Nov 24 2026 lab: a single market can earn its shift on its own when its sport|kind can't (NBA double-doubles: the de-vigged
+# Yes fair ran 15.2% vs 12.3% hit, walk-forward gain t 3.5 while NBA props as a whole sat at t 1.3). One sport|kind gate is one
+# test; the market gate scans every market, so its bar is Bonferroni over ~55 market groups (one-sided 0.05 -> t 3.3), with
+# 100+ games behind it. Re-tested on every refit like the sport gate, so a market that stops earning it turns itself off.
+MARKET_T, MARKET_MIN_CLUS = 3.3, 100
 
 
 def _lg(p):
@@ -127,6 +132,7 @@ def compute(data_dir, log=print):
     for r in live:
         by_day[r["d"]].append(r)
     gains = defaultdict(lambda: ([], []))
+    mgains = defaultdict(lambda: ([], []))
     shifted = defaultdict(int)
     for d in days[1:]:
         sh = fit(live, btS, d)
@@ -138,6 +144,9 @@ def compute(data_dir, log=print):
             gains[k][0].append(gain)
             gains[k][1].append(r.get("gid") or r["d"])
             shifted[k] += bool(s)
+            mgains[g][0].append(gain)
+            mgains[g][1].append(r.get("gid") or r["d"])
+            shifted[g] += bool(s)
     ev, on = {}, set()
     for k, (vals, cl) in gains.items():
         m, se = _cluster_t(vals, cl)
@@ -152,13 +161,29 @@ def compute(data_dir, log=print):
                  "on": bool(t is not None and t >= GATE_T and m > 0 and shifted[k] >= MIN_SHIFTED)}
         if ev[k]["on"]:
             on.add(k)
+    evm, mon = {}, set()
+    for g, (vals, cl) in mgains.items():
+        if _top(g) in on:
+            continue
+        m, se = _cluster_t(vals, cl)
+        if m is None or not se:
+            continue
+        nc = len(set(cl))
+        t = m / se
+        e = {"n": len(vals), "games": nc, "shifted": shifted[g], "gain": round(m, 6), "se": round(se, 6), "t": round(t, 2),
+             "on": bool(t >= MARKET_T and m > 0 and nc >= MARKET_MIN_CLUS and shifted[g] >= MIN_SHIFTED)}
+        if e["on"] or len(vals) >= 300:
+            evm[g] = e
+        if e["on"]:
+            mon.add(g)
     today = (dt.datetime.utcnow() + dt.timedelta(days=1)).date().isoformat()
     full = fit(live, btS, today)
-    applied = {k: v for k, v in full.items() if _top(k) in on}
-    res = {"at": dt.datetime.utcnow().isoformat() + "Z", "halfLife": HALF_LIFE, "shifts": applied, "fitted": full, "eval": ev}
+    applied = {k: v for k, v in full.items() if _top(k) in on or k in mon}
+    res = {"at": dt.datetime.utcnow().isoformat() + "Z", "halfLife": HALF_LIFE, "shifts": applied, "fitted": full, "eval": ev,
+           "evalMarket": evm}
     os.makedirs(os.path.join(data_dir, "calib"), exist_ok=True)
     json.dump(res, open(os.path.join(data_dir, "calib", "fairadj.json"), "w"), indent=0)
-    log(f"fairadj: {len(applied)} shifts live in {len(on)} sport groups of {len(ev)} tested")
+    log(f"fairadj: {len(applied)} shifts live in {len(on)} sport groups of {len(ev)} tested, {len(mon)} single markets")
     return res
 
 

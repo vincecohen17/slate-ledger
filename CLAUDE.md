@@ -140,7 +140,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - Self-correcting fair (`engine/fairadj.py` -> calib/fairadj.json, applied in build._finish_line via build.FAIR_SHIFT, pre-game
   modes only): a logit shift for the tracked side (Over/Yes/home) per sport|kind and market, recency weighted (half-life 14 d,
   backtest rows a 0.15-weight prior), live only for sport|kinds whose walk-forward gain vs the raw fair is 2+ SE with 200+ scored rows that carried a shift (NBA props:
-  overs win less than the even-margin de-vig says). Lines keep fairRaw / fairShift; tracker snapshots keep the raw fair as f
+  overs win less than the even-margin de-vig says), or for a single market whose own walk-forward gain is t >= MARKET_T 3.3 (Bonferroni
+  over the ~55 markets scanned) on 100+ games (Nov 24: NBA double-doubles / triple-doubles, Yes overpriced; eval in evalMarket). Lines keep fairRaw / fairShift; tracker snapshots keep the raw fair as f
   (fits stay on raw) plus fa; ledger CLV uses fa. Refit when graded rows change. Edge card dim fairShift.
 - Recency: edgecard _agg adds gapR / roiR / nR (half-life 5 days); rerank leans half on gapR. Playbook (`engine/playbook.py` ->
   stats/playbook.json, Reports data "playbook"): lean (cells with 150+ graded, positive long-run and recent ROI) and avoid

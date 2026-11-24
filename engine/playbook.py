@@ -93,9 +93,11 @@ def build(data_dir, card, params=None):
         pb["rules"].append({"id": "logicMatched", "text": f"Across all edges, model-agrees beat model-disagrees by {lg['matched']['diff'] * 100:+.1f} pts (z {lg['matched']['z']}) inside the same sport, line type and size."})
     fa = _load(os.path.join(data_dir, "calib", "fairadj.json")) or {}
     on = [k.replace("|*", "").replace("|", " ") for k, v in (fa.get("eval") or {}).items() if v.get("on")]
+    on += [k.replace("|", " ") for k, v in (fa.get("evalMarket") or {}).items() if v.get("on")]
     if on:
-        sh = {k: v for k, v in (fa.get("shifts") or {}).items() if k.endswith("|*")}
-        txt = "; ".join(f"{k.replace('|*', '').replace('|', ' ')} {'overs' if v < 0 else 'unders'} shaded {abs(v) * 25:.1f} pts at even odds" for k, v in sh.items())
+        mk_on = {k for k, v in (fa.get("evalMarket") or {}).items() if v.get("on")}
+        sh = {k: v for k, v in (fa.get("shifts") or {}).items() if k.endswith("|*") or k in mk_on}
+        txt = "; ".join(f"{k.replace('|*', '').replace('|', ' ')} {('Yes' if 'double' in k or 'anytime' in k else 'overs') if v < 0 else ('No' if 'double' in k or 'anytime' in k else 'unders')} shaded {abs(v) * 25:.1f} pts at even odds" for k, v in sh.items())
         pb["rules"].append({"id": "fairadj", "text": f"Self-correcting fair is live for {', '.join(on)} ({txt}). The fair shown already includes it (fairRaw is the old even-margin fair); never price a pick off fairRaw."})
     w_on = sorted(k for k, v in (params or {}).items() if isinstance(v, dict) and (v.get("w") or 0) > 0)
     pb["rules"].append({"id": "model", "text": ("The model earns a say (w > 0) only in: " + ", ".join(w_on) + ". Everywhere else fair = market and checks.model is null.") if w_on

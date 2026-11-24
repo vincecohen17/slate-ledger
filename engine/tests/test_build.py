@@ -193,6 +193,26 @@ def test_fairadj_gate_needs_applied_shifts():
     assert not res["shifts"] and not any(e["on"] for e in res["eval"].values())
 
 
+def test_fairadj_market_gate():
+    # Nov 24: one market can turn its shift on alone (t >= MARKET_T, 100+ games) while its sport|kind stays off
+    import fairadj, tempfile, json, random
+    rnd = random.Random(7)
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "track", "graded"))
+    with open(os.path.join(d, "track", "graded", "basketball_x.jsonl"), "w") as fh:
+        for day in range(1, 21):
+            for gm in range(8):
+                gid = f"g{day}-{gm}"
+                for j in range(4):      # Yes priced at 0.20, hits 0.12
+                    fh.write(json.dumps({"d": f"2026-11-{day:02d}", "g": "basketball_x|prop|player_dd", "f": 0.2, "y": float(rnd.random() < 0.12), "gid": gid}) + "\n")
+                for j in range(4):      # a fair market next to it
+                    fh.write(json.dumps({"d": f"2026-11-{day:02d}", "g": "basketball_x|prop|player_pts", "f": 0.5, "y": float(rnd.random() < 0.5), "gid": gid}) + "\n")
+    res = fairadj.compute(d, log=lambda *a: None)
+    assert res["evalMarket"]["basketball_x|prop|player_dd"]["on"]
+    assert "basketball_x|prop|player_dd" in res["shifts"] and res["shifts"]["basketball_x|prop|player_dd"] < 0
+    assert "basketball_x|prop|player_pts" not in res["shifts"] and "basketball_x|prop|*" not in res["shifts"]
+
+
 def test_suspended_tennis_is_not_final():
     import finals, json, tempfile
     from datetime import datetime, timezone
