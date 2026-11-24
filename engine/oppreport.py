@@ -10,7 +10,7 @@ out) it is written to track/arbs/<Pacific day first seen>.jsonl. Its life is fir
 
 Maker orders: maker_census records every suggestion at 5%+ per Pacific day (track/makers/census/<day>.json: first and
 last seen, best EV, venue, kind, league, fringe, hours to start, competitive), so the report can count how many 10%+
-orders each venue / kind / lead time / sport / hour carries a day. The paper record (track/makers/log.jsonl: posted ->
+orders each venue / kind / lead time / sport / hour carries a day. The paper record (track/makers/log/<day>.jsonl: posted ->
 filled / locked / cancelled / expired, then graded) gives fill rates and profit per order by the same cuts.
 
 summarize() -> stats/opps_report.json (rep.oppreport, Reports > Where the money is). Rerun hourly or when something
@@ -300,7 +300,8 @@ def _clus(rows):
 
 
 def maker_record(data_dir):
-    rows = _jsonl(os.path.join(data_dir, "track", "makers", "log.jsonl"))
+    import makers
+    rows = makers.log_rows(data_dir)
     op = _load(os.path.join(data_dir, "track", "makers", "open.json"), {})
     if not rows and not op:
         return None

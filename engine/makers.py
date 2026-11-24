@@ -31,7 +31,7 @@ can't do better anywhere; when a sportsbook is cheaper, only takers who don't sh
 Paper record: each suggestion is followed as if posted (track/makers/open.json). Filled when the level behind ours is
 eaten or vanishes; cancelled when the fair moves the edge under CANCEL_EDGE; expired at the start; locked when the other
 side can be taken at the arb bar. Graded into the Methods board (track/methods/graded.jsonl, m maker) and the fill log
-(track/makers/log.jsonl, with each order's edge so the fill rate can be read by band).
+(track/makers/log/<day>.jsonl, with each order's edge so the fill rate can be read by band).
 
 Policy (Vince, Nov 17), the same one the automation will follow: an arb is always locked; otherwise a leg is only ever
 bet when it is +EV on its own. Post one side, or both sides when both clear the bar (if both fill, that's an arb). A
@@ -401,22 +401,48 @@ def grade(data_dir, fin_by_gid, now, log=print):
             for r in rows:
                 f.write(json.dumps(r, separators=(",", ":")) + "\n")
     if logs:
-        with open(_p(data_dir, "log.jsonl"), "a") as f:
-            for r in logs:
-                f.write(json.dumps(r, separators=(",", ":")) + "\n")
+        write_log(data_dir, logs)
     json.dump(op, open(_p(data_dir, "open.json"), "w"), separators=(",", ":"))
     if rows:
         log(f"makers: {len(rows)} filled paper orders graded")
     return len(rows)
 
 
-def fill_summary(data_dir):
+def write_log(data_dir, logs):
+    """the paper record, one file per Pacific day (track/makers/log/<d>.jsonl). Nov 24 audit: the single log.jsonl reached
+    GitHub's 100 MB file limit and every main-lane snapshot push was refused from 7 PM PT on, grading included."""
+    by = {}
+    for r in logs:
+        by.setdefault(str(r.get("d") or "undated"), []).append(r)
+    os.makedirs(_p(data_dir, "log"), exist_ok=True)
+    for d, rs in by.items():
+        with open(_p(data_dir, "log", f"{d}.jsonl"), "a") as f:
+            for r in rs:
+                f.write(json.dumps(r, separators=(",", ":")) + "\n")
+
+
+def log_rows(data_dir):
+    """every logged order: the day files, plus a legacy log.jsonl if one is still there"""
+    import glob
+    fns = sorted(glob.glob(_p(data_dir, "log", "*.jsonl")))
+    if os.path.exists(_p(data_dir, "log.jsonl")):
+        fns = [_p(data_dir, "log.jsonl")] + fns
     rows = []
-    try:
-        for line in open(_p(data_dir, "log.jsonl")):
-            rows.append(json.loads(line))
-    except Exception:
-        pass
+    for fn in fns:
+        try:
+            with open(fn) as f:
+                for line in f:
+                    try:
+                        rows.append(json.loads(line))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    return rows
+
+
+def fill_summary(data_dir):
+    rows = log_rows(data_dir)
     op = _load(_p(data_dir, "open.json"), {})
 
     def summ(rs, opn):
