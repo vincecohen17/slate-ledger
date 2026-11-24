@@ -1,6 +1,7 @@
 // The wallet: what's really in each app, and what you've really made there.
 // Entries (Firestore wallet/{id}): {id, venue, type: "balance" | "deposit" | "withdrawal" | "bonus", cash?, bonus?,
-// amount?, asCash?, at, note?}. A bonus with asCash landed in the cash balance (DK Predictions Dollars, say): it is spent
+// amount?, asCash?, all?, at, note?}. A withdrawal with all and no amount is "withdrew everything": it takes the cash
+// the replay says the app held at that moment. A bonus with asCash landed in the cash balance (DK Predictions Dollars, say): it is spent
 // and withdrawn like cash, and counts as profit when credited. A balance check-in is what the app shows right now (cash and bonus). From the latest check-in the
 // wallet replays everything since: deposits and withdrawals, bonus credits, every bet placed (cash bets take cash,
 // bonus-funded bets take bonus) and every bet settled (a cash bet returns stake + profit; a bonus bet's winnings come back
@@ -69,6 +70,13 @@ export function venueState(venue0, now = Date.now()) {
         continue;
       }
       if (e.type === "deposit") { cash += +e.amount || 0; if (opening != null) dep += +e.amount || 0; }
+      // all: true = "withdrew everything" (amount not given): takes the cash the replay says the app holds then
+      if (e.type === "withdrawal" && e.all && !(+e.amount)) {
+        const amt = Math.max(0, Math.round(cash * 100) / 100);
+        cash -= amt; if (opening != null) wd += amt;
+        log.push({ ...e, amount: amt, est: true });
+        continue;
+      }
       if (e.type === "withdrawal") { cash -= +e.amount || 0; if (opening != null) wd += +e.amount || 0; }
       if (e.type === "bonus" && e.asCash) { cash += +e.amount || 0; if (opening != null) bonusCashIn += +e.amount || 0; }
       else if (e.type === "bonus") { bonus += +e.amount || 0; bonusAll += +e.amount || 0; if (opening != null) bonusIn += +e.amount || 0; }

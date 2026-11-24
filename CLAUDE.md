@@ -391,7 +391,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   log loss, Brier, logistic calibration fit, p-values). Days are the Pacific date of the bet's last game. ROI is on money
   risked (bonus bets and free entries count in profit, not the ratio). Reports > Models in depth is `views/models.js`.
 - Wallet (Ledger > Wallet, `site/js/wallet.js` + `views/wallet.js`): Firestore `wallet/{id}` entries {venue, type: balance |
-  deposit | withdrawal | bonus, cash/bonus or amount, at, note}. From each balance check-in it replays deposits, withdrawals,
+  deposit | withdrawal | bonus, cash/bonus or amount, at, note}; a withdrawal {all: true} with no amount = "withdrew everything", taken as the cash the replay says the app held then (Nov 23). From each balance check-in it replays deposits, withdrawals,
   bonus credits and every bet placed/settled at that venue (bonus-funded = promo kind bonus_bet/free_entry: stake from bonus,
   winnings to cash) to know what each app should hold; later check-ins that differ are "unaccounted". Money in = the first
   check-in (its cash, open cash stakes, and bonus where it counts) + deposits; profit = withdrawals + value now - money in,

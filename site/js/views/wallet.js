@@ -16,7 +16,7 @@ const sgn = (v) => `${v > 0.005 ? "+" : ""}${money(v)}`;
 
 function entryLine(e) {
   const lab = e.type === "balance" ? `Check-in: ${money(+e.cash || 0)} cash${+e.bonus ? `, ${money(+e.bonus)} bonus` : ""}${e.first ? " (tracking starts)" : ""}`
-    : e.type === "deposit" ? `Deposit ${money(+e.amount)}` : e.type === "withdrawal" ? `Withdrawal ${money(+e.amount)}` : `Bonus received ${money(+e.amount)}${e.asCash ? " (as cash)" : ""}`;
+    : e.type === "deposit" ? `Deposit ${money(+e.amount)}` : e.type === "withdrawal" ? `Withdrawal ${money(+e.amount)}${e.est ? " (everything; amount from the ledger, add a check-in to correct)" : ""}` : `Bonus received ${money(+e.amount)}${e.asCash ? " (as cash)" : ""}`;
   const off = e.type === "balance" && !e.first && (Math.abs(e.diffCash) > 0.009 || Math.abs(e.diffBonus) > 0.009)
     ? ` <span class="tiny ${cls(e.diffCash)}">expected ${money(e.expCash)}${Math.abs(e.diffBonus) > 0.009 ? ` / ${money(e.expBonus)} bonus` : ""}: off ${sgn(e.diffCash)}${Math.abs(e.diffBonus) > 0.009 ? ` cash, ${sgn(e.diffBonus)} bonus` : ""}</span>`
     : e.type === "balance" && !e.first ? ` <span class="tiny pos">matches the ledger</span>` : "";
