@@ -998,7 +998,7 @@ def apply_fixes(db, data_dir, log=print):
     except Exception:
         done = set()
     n = 0
-    SETTABLE = {"venue", "venueName", "note"}
+    SETTABLE = {"venue", "venueName", "note", "label", "legs", "gameId", "commence", "matchup", "league", "leagues", "manual"}
     for f in fixes:
         if f.get("set"):        # a field logged wrong (the venue, say): {id, set: {venue, venueName}}; any status
             key = f"{f['id']}|set|" + "|".join(f"{k}={v}" for k, v in sorted(f["set"].items()))
