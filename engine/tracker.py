@@ -303,7 +303,16 @@ def stat(sport, market, p):
                 else _v(p, "defensive.totalTackles") - (_v(p, "defensive.soloTackles") or 0),
                 "player_solo_tackles": lambda: _v(p, "defensive.soloTackles"), "player_kicking_points": lambda: _v(p, "kicking.totalKickingPoints"),
                 "player_field_goals": lambda: _v(p, "kicking.fieldGoalsMade/fieldGoalAttempts", 0),
-                "player_pats": lambda: _v(p, "kicking.extraPointsMade/extraPointAttempts", 0)}.get(m, lambda: None)()
+                "player_pats": lambda: _v(p, "kicking.extraPointsMade/extraPointAttempts", 0),
+                # pick'em fantasy score (PrizePicks scoring, also used for Polymarket's fantasy markets): 0.04 a passing yard,
+                # 4 a passing TD, -1 an interception, 0.1 a rushing / receiving yard, 1 a catch, 6 a rushing / receiving TD,
+                # -1 a fumble lost
+                "player_fantasy_points": lambda: None if all(_v(p, k) is None for k in (
+                    "passing.passingYards", "rushing.rushingYards", "receiving.receptions")) else round(
+                    0.04 * (_v(p, "passing.passingYards") or 0) + 4 * (_v(p, "passing.passingTouchdowns") or 0)
+                    - (_v(p, "passing.interceptions") or 0) + 0.1 * (_v(p, "rushing.rushingYards") or 0)
+                    + 0.1 * (_v(p, "receiving.receivingYards") or 0) + (_v(p, "receiving.receptions") or 0)
+                    + 6 * (tds() or 0) - (_v(p, "fumbles.fumblesLost") or 0), 2)}.get(m, lambda: None)()
     if sport == "baseball_mlb":
         if m.startswith("batter_"):
             k = {"hits": "h", "total_bases": "tb", "home_runs": "hr", "rbis": "rbi", "runs_scored": "r", "hits_runs_rbis": "hrr", "singles": "s1",
