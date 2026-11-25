@@ -890,7 +890,7 @@ def _dispatch(mode, why=""):
         lane = waiting - {"watch", "live", "history", "backtest"}
         if mode == "rebuild" and lane & {"auto", "schedule"}:
             return True                # an auto run grades finals too
-        if lane & {"push", "refresh", "audit", "stats"}:
+        if lane & {"push", "refresh", "audit", "stats", "rebuild"}:   # rebuild: Nov 25, autos kept cancelling the inbox rebuilds
             log(f"watch: a requested run is waiting; {mode} ({why}) asked again later")
             return False               # callers ask again on a later pass, once it has started
         urllib.request.urlopen(urllib.request.Request(f"{base}/dispatches", data=json.dumps({"ref": "main", "inputs": {"mode": mode}}).encode(),

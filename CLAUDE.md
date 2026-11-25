@@ -30,7 +30,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   refresh on config.HOT_STALE (4 min inside 1 h ... 90 min past 36 h; extended markets at 2x when something on the game
   sits there) whether or not the site is open, until the day has used HOT_DAY_SHARE of its paced cap; hot events go
   first in the queue. The watcher dispatches an auto run every HOT_ASK_MIN (5) min while hot games start within 18 h
-  (and stays up for them); an auto run that finds everything fresh spends no credits. _dispatch never queues over a waiting requested run in the main lane (GitHub keeps one waiting run per lane and cancels the older; Nov 24): it asks again on a later pass.
+  (and stays up for them); an auto run that finds everything fresh spends no credits. _dispatch never queues over a waiting requested run (push / refresh / audit / stats / rebuild) in the main lane (GitHub keeps one waiting run per lane and cancels the older; Nov 24): it asks again on a later pass.
 - Steam scanner (`engine/steam.py`, run by the watcher every STEAM_EVERY_MIN = 5 min for sports with a board game within
   STEAM_AHEAD_H = 6 h): one odds call per sport for h2h/spreads/totals from the sharp books + Vince's sportsbooks/exchanges
   (13 books = 2 units, 6 credits a sport; STEAM_DAY_MAX 5k credits/day in latest/steam_state.json; every 5 min since Nov 20). Sharp consensus per
