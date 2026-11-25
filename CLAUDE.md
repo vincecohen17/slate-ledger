@@ -279,7 +279,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   open bets' projected profit (≈). Clock: ESPN's displayClock without a colon is seconds (live._clock_min); reading "45.3"
   as minutes made every projection spike in the last minute of each period. NHL power-play points aren't in the box score:
   stats.add_pp_points counts them from the summary's power-play scoring plays (live box and daily stats); also mapped:
-  NBA field goals and free throws, NHL time on ice.
+  NBA field goals and free throws, NHL time on ice, NFL pick'em fantasy score (player_fantasy_points, PrizePicks scoring: 0.04 pass yd,
+  4 pass TD, -1 INT, 0.1 rush/rec yd, 1 catch, 6 rush/rec TD, -1 fumble lost; Nov 25).
 - Watcher (`run.py watch()`, mode watch, the live lane, up to 50 min a job): every minute until Vince's open bets and prop
   picks are done, app open or not. Each pass is a full live pull while the site is on a live screen (presence.live within
   3 min; the site dispatches "watch" every minute there) and otherwise free: ESPN only, the bet games' small live/g/<id>/m
