@@ -39,6 +39,7 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           GITHUB_TOKEN: ${{ github.token }}
+          DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
           DATA_DIR: data
           MODE: ${{ github.event.inputs.mode || (github.event_name == 'schedule' && 'auto') || '' }}
         run: python engine/run.py

@@ -1809,6 +1809,11 @@ def publish(game_docs, prop_docs, status, stamp):
                 log("alerts: topic shared with the site")
         except Exception as e:
             log(f"alerts: could not share the topic ({type(e).__name__})")
+        try:
+            if firestore_db() and alerts.share_dispatch(firestore_db(), DATA_DIR):
+                log("dispatch: instant-refresh token updated for the site")
+        except Exception as e:
+            log(f"dispatch: could not update the token ({type(e).__name__})")
         log(f"opportunities: {sum(o['kind'] == 'arb' for o in opp_list)} arbs, {sum(o['kind'] == 'middle' for o in opp_list)} middles; {n_al} alerts sent")
     except Exception as e:
         log(f"opportunities failed: {type(e).__name__}: {str(e)[:120]}")

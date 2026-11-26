@@ -468,7 +468,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 
 ## Rules
 - This repo is PUBLIC. Never commit keys, odds data, picks, bets or the owner's email. Logs print counts only.
-- Keys live in GitHub secrets: ODDS_API_KEY, FIREBASE_SERVICE_ACCOUNT, DATA_REPO_TOKEN.
+- Keys live in GitHub secrets: ODDS_API_KEY, FIREBASE_SERVICE_ACCOUNT, DATA_REPO_TOKEN, DISPATCH_TOKEN (the site's instant-refresh
+  token; alerts.share_dispatch copies it to Firestore private/dispatch when its hash changes, so renewing it is one paste into the secret).
 - Firestore docs store their body as a JSON string in `payload`; writes are skipped when the hash is unchanged.
 - Firestore reads: 50k a day on Spark (ran out at 9 PM PT Nov 19 and 5 PM PT Nov 21, holding bet grading until midnight PT).
   The site watches previews from the last 4 days only and the engine deletes older ones; oppcheck is cached 30 min

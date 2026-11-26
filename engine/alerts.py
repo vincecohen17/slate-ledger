@@ -162,6 +162,26 @@ def share_topic(db, data_dir):
     return True
 
 
+def share_dispatch(db, data_dir):
+    """the site's instant-refresh token (a fine-grained GitHub token that can only run this repo's workflows): kept in the
+    repo secret DISPATCH_TOKEN and copied to Firestore private/dispatch (owner-only) when it changes, so renewing it is one
+    paste into GitHub. Only a hash prefix is kept in state; the token never reaches the logs or either repo."""
+    tok = (os.environ.get("DISPATCH_TOKEN") or "").strip()
+    if not tok or db is None:
+        return False
+    import hashlib
+    h = hashlib.sha256(tok.encode()).hexdigest()[:16]
+    path = os.path.join(data_dir, "latest", "dispatch_state.json")
+    try:
+        if json.load(open(path)).get("h") == h:
+            return False
+    except Exception:
+        pass
+    db.document("private/dispatch").set({"token": tok}, merge=True)
+    json.dump({"h": h}, open(path, "w"))
+    return True
+
+
 def steam(data_dir, now, items, log=print):
     """phone alert for each new steam item (a sharp move with a venue still at the old price): sent at once, any hour,
     because the window is minutes; cfg steamMinEdge (default 2%) sets the bar"""
