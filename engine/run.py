@@ -1615,9 +1615,11 @@ def publish(game_docs, prop_docs, status, stamp):
                     stats.injuries(lg, DATA_DIR)
             stats.mlb(DATA_DIR)
             stats.moneypuck(DATA_DIR)
-            nv = os.path.join(DATA_DIR, "stats", "nfl", "nflverse", "team_week_2026.json")
-            if not os.path.exists(nv) or (NOW.timestamp() - os.path.getmtime(nv)) > 12 * 3600:
-                stats.nflverse(DATA_DIR)
+            # nflverse play-by-play: refetch every 6 h by the saved fetch time (file mtimes are reset by every checkout,
+            # so the old mtime check never fired and the data sat at week 7 from Oct 27 to Nov 25)
+            age = stats.nflverse_age_h(DATA_DIR)
+            if age is None or age > 6:
+                log(f"nflverse: {stats.nflverse(DATA_DIR)}")
         except Exception as e:
             log(f"stats refresh failed: {type(e).__name__}")
     today = (NOW - timedelta(hours=7)).strftime("%Y-%m-%d")

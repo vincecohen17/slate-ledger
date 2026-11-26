@@ -540,7 +540,19 @@ def nflverse(data_dir, seasons=(2024, 2025, 2026)):
                 out[f"pbp_{y}"] = "ok"
             except Exception as e:
                 out[f"pbp_{y}"] = type(e).__name__
+    if out.get(f"pbp_{max(seasons)}") == "ok":
+        # when we last fetched (a checkout gives every file a fresh mtime, so callers can't go by the file's age)
+        json.dump({"at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, open(os.path.join(d, "fetched.json"), "w"))
     return out
+
+
+def nflverse_age_h(data_dir):
+    """hours since the last good nflverse fetch (None: never)"""
+    try:
+        at = json.load(open(os.path.join(data_dir, "stats", "nfl", "nflverse", "fetched.json")))["at"]
+        return (datetime.now(timezone.utc) - datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)).total_seconds() / 3600
+    except Exception:
+        return None
 
 
 def _nfl_team_weeks(csv_text):

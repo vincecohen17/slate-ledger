@@ -17,7 +17,7 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   `matchup.py` builds matchup docs, stamps model probabilities on lines/props (none where the player has no projection for the
   market's stat, e.g. a QB the NFL model doesn't have as the passer: abstain, never read it as 0), calibrates prop levels to market,
   and builds projected lineups. `stats.py` collects ESPN box scores/injuries (NBA, WNBA, NHL, NFL, CFB, nine soccer leagues), MoneyPuck, nflverse,
-  ESPN tennis; `stats_mlb.py` collects Baseball Savant (custom/expected leaderboards, splits, arsenals, park factors)
+  ESPN tennis (nflverse refetched every 6 h by stats/nfl/nflverse/fetched.json, not file mtime: a checkout resets mtimes, which froze it at week 7 Oct 27 - Nov 25); `stats_mlb.py` collects Baseball Savant (custom/expected leaderboards, splits, arsenals, park factors)
   and MLB StatsAPI (schedule with lineups/probables/weather, rosters, handedness, game logs).
 - `run.py` modes: auto (every 5 min, app-driven: presence/owner heartbeat from the site, staleness tiers, close
   capture on the paid plan; config.PLAN = auto reads the plan from the Odds API quota; past the day's paced cap only close
