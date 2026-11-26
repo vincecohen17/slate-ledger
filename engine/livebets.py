@@ -40,6 +40,25 @@ def _index(data_dir):
                     mean = None
             if mean is not None and k not in idx:
                 idx[k] = mean
+    # NFL fantasy score: no book prices it; its mean from the player's other prop means (build.fantasy_mean_nfl)
+    fp = {}
+    for d in docs:
+        if d.get("sport") not in ("americanfootball_nfl", "americanfootball_ncaaf"):
+            continue
+        for r in d.get("rows", []):
+            e = fp.setdefault((d["id"], R.norm(r["player"])), {"means": {}, "yes": None})
+            if d["market"] == "player_anytime_td" and (r.get("fair") or {}).get("Yes") is not None:
+                e["yes"] = r["fair"]["Yes"]
+            elif d["market"] in B.FANTASY_NFL:
+                v = idx.get((d["id"], d["market"], R.norm(r["player"])))
+                if v is not None:
+                    e["means"][d["market"]] = v
+    for (gid, pl), e in fp.items():
+        k = (gid, "player_fantasy_points", pl)
+        if k not in idx:
+            fm = B.fantasy_mean_nfl(e["means"], e["yes"])
+            if fm:
+                idx[k] = fm
     _props_idx.update(key=key, idx=idx, by_game=by_game)
     return idx, by_game
 

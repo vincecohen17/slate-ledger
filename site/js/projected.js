@@ -56,6 +56,28 @@ function propEst(docs, leg) {
   return null;
 }
 
+// NFL pick'em fantasy score (PrizePicks scoring): no book prices it, so its mean is built from the player's sharp prop
+// means (engine build.fantasy_mean_nfl; keep in sync). TDs: player_tds' mean, else -ln(1 - P(anytime TD)).
+const FANTASY_NFL = { player_pass_yds: 0.04, player_pass_tds: 4, player_pass_interceptions: -1, player_rush_yds: 0.1,
+  player_reception_yds: 0.1, player_receptions: 1, player_tds: 6 };
+function fantasyEst(docs, leg) {
+  if (leg.point == null || !["Over", "Under"].includes(leg.side)) return null;
+  const sport = S.games.get(leg.gameId)?.sport || docs.find((d) => d.sport)?.sport || "";
+  if (!/americanfootball/.test(sport)) return null;
+  const m = {}; let yes = null;
+  for (const d of docs) {
+    const r = (d.rows || []).find((x) => N(x.player) === N(leg.player) && (d.market === "player_anytime_td" || x.mean != null));
+    if (!r) continue;
+    if (d.market === "player_anytime_td") yes = r.fair?.Yes ?? null;
+    else if (d.market in FANTASY_NFL && m[d.market] == null) m[d.market] = r.mean;
+  }
+  if (!["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"].some((k) => m[k] != null)) return null;
+  if (m.player_tds == null && yes > 0 && yes < 1) m.player_tds = -Math.log(1 - yes);
+  const mean = Object.entries(FANTASY_NFL).reduce((t, [k, w]) => t + w * (m[k] || 0), 0);
+  const po = pOver("player_fantasy_points", mean, leg.point, sport);
+  return po == null ? null : { p: leg.side === "Over" ? po : 1 - po, mean: Math.round(mean * 10) / 10 };
+}
+
 // result from a final score (game lines only)
 function fromFinal(f, leg) {
   if (!f || f.home?.score == null || leg.player) return null;
@@ -211,6 +233,11 @@ function legRaw(leg) {
     // a line no book prices (a pick'em app's own number): the player's sharp mean from his priced line, at this number
     const e = propEst(docs, leg);
     if (e != null) return { p: e, src: "now" };
+    // NFL fantasy score: built from his sharp yardage / catches / TD prices
+    if ((leg.market || "").replace("_alternate", "") === "player_fantasy_points") {
+      const fe = fantasyEst(docs, leg);
+      if (fe) return { p: fe.p, src: "now", est: true, fantasyMean: fe.mean };
+    }
     // a stat no sportsbook prices at all (faceoffs won, pick'em-only markets): the engine's estimate from his last games
     // (history.py histFair; never a fair, so it never makes an edge), marked as an estimate
     const kh = r && sideKey(r.histFair, leg.side);
@@ -344,7 +371,7 @@ function progress0(leg, r) {
   }
   const d = S.liveGames.get(leg.gameId), st = gameState(leg.gameId);
   const g = S.games.get(leg.gameId);
-  if (!st) return { cls: "muted", icon: "○", text: (g ? `Starts ${fmtTime(g.commence)}` : "Not started") + (r && r.est && r.histN ? ` · no book prices this: est. from his last ${r.histN} games (avg ${r.histMean})` : ""), bar: { cur: 0, line: null, proj: null } };
+  if (!st) return { cls: "muted", icon: "○", text: (g ? `Starts ${fmtTime(g.commence)}` : "Not started") + (r && r.est && r.histN ? ` · no book prices this: est. from his last ${r.histN} games (avg ${r.histMean})` : "") + (r && r.fantasyMean != null ? ` · no book prices fantasy score: ${r.fantasyMean} expected from his yards, catches and TD prices` : ""), bar: { cur: 0, line: null, proj: null } };
   const base = (leg.market || "").replace("alternate_", ""), pt = leg.point, m = d?.model || {};
   const over = leg.side === "Over" || leg.side === "Yes";
   const bar = (cur, target, proj) => {      // how far along: filled to now, tick at the line, dot at the projected finish

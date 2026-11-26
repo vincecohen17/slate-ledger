@@ -349,7 +349,9 @@ DISPERSION = {
                              "player_pass_tds": 1.1, "player_pass_interceptions": 1.05,
                              "player_sacks": 1.2, "player_tackles_assists": 1.3, "player_tds_over": 1.0,
                              "player_rush_tds": 1.0, "player_reception_tds": 1.0, "player_rush_reception_tds": 1.0,
-                             "player_pass_rush_reception_tds": 1.0},
+                             "player_pass_rush_reception_tds": 1.0,
+                             # pick'em fantasy score (no book prices it): var ~ 4 x mean (RB mean 13 -> sd ~7, QB 18 -> sd ~8.5)
+                             "player_fantasy_points": 4.0},
 }
 DISPERSION["basketball_nba"].update({"player_points_q1": 1.6, "player_rebounds_q1": 1.3, "player_assists_q1": 1.3,
                                      "player_fantasy_points": 2.5})
@@ -470,6 +472,23 @@ def p_over(market, mean, line, sport="", inplay=False, model=False):
         push = _nb_cdf_tail(mean, k, int(line)) - over
         return over / max(1e-9, 1 - push)
     return _nb_cdf_tail(mean, k, int(math.floor(line)) + 1)
+
+
+# NFL pick'em fantasy score (PrizePicks scoring, tracker.stat): no book prices it, so its mean is built from the player's
+# sharp prop means. TDs: player_tds' mean (rush + rec TDs), else -ln(1 - P(anytime TD)). Keep site/js/projected.js fantasyMean in sync.
+FANTASY_NFL = {"player_pass_yds": 0.04, "player_pass_tds": 4.0, "player_pass_interceptions": -1.0, "player_rush_yds": 0.1,
+               "player_reception_yds": 0.1, "player_receptions": 1.0, "player_tds": 6.0}
+
+
+def fantasy_mean_nfl(means, anytime_yes=None):
+    """means: {market: sharp mean} for one player; None when no yardage or catches market prices him"""
+    if not any(means.get(m) is not None for m in ("player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions")):
+        return None
+    tds = means.get("player_tds")
+    if tds is None and anytime_yes is not None and 0 < anytime_yes < 1:
+        tds = -math.log(1 - anytime_yes)
+    m = dict(means, player_tds=tds)
+    return round(sum(w * (m.get(k) or 0) for k, w in FANTASY_NFL.items()), 2)
 
 
 def mean_from_line(market, line, fair_over, sport=""):

@@ -7,7 +7,8 @@ const NBA = { player_points: 2.0, player_rebounds: 1.5, player_assists: 1.5, pla
   player_fantasy_points: 2.5 };
 const NFL = { player_receptions: 1.2, player_pass_completions: 1.3, player_pass_attempts: 1.4, player_rush_attempts: 1.3,
   player_pass_tds: 1.1, player_pass_interceptions: 1.05, player_sacks: 1.2, player_tackles_assists: 1.3, player_tds_over: 1.0,
-  player_rush_tds: 1.0, player_reception_tds: 1.0, player_rush_reception_tds: 1.0, player_pass_rush_reception_tds: 1.0 };
+  player_rush_tds: 1.0, player_reception_tds: 1.0, player_rush_reception_tds: 1.0, player_pass_rush_reception_tds: 1.0,
+  player_fantasy_points: 4.0 };
 const DISPERSION = {
   // NBA points / PRA wider since Nov 6 2026, rebounds narrower since Nov 7, assists narrower since Nov 22 (build.py DISPERSION); WNBA / NCAAB keep the old shape
   basketball_nba: { ...NBA, player_points: 2.8, player_points_rebounds_assists: 3.2, player_rebounds: 1.3, player_assists: 1.2 }, basketball_wnba: NBA, basketball_ncaab: NBA,
