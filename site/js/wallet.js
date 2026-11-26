@@ -16,7 +16,8 @@ import { settleProfit, kindOf, normalize, fundsOf } from "./promo.js";
 import { venueName } from "./lab.js";
 
 // apps that share one wallet: DK Pick6 is paid from the DraftKings account (DK Predictions)
-const ACCOUNT = { pick6: "draftkings" };
+// Betr deposits were logged as "betr" while its entries are "betr_us_dfs": one wallet
+const ACCOUNT = { pick6: "draftkings", betr: "betr_us_dfs" };
 export const accountOf = (v) => ACCOUNT[v] || v;
 export const accountName = (a) => (a === "draftkings" ? "DraftKings (Predictions + Pick6)" : venueName(a));
 
