@@ -821,6 +821,10 @@ def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
             except Exception:
                 g = None
             if g:
+                if b.get("flex"):       # a flex entry pays by how many picks hit (grade_bets does the same): not a mismatch
+                    fx = flex_result(b.get("flex"), g["legs"])
+                    if fx:
+                        g["result"] = fx[0]
                 if g["result"] != b.get("status"):
                     mism.append({"id": snap.id, "status": b.get("status"), "engine": g["result"]})
                 if b.get("clv") is None and "clv" not in up:
@@ -1115,8 +1119,16 @@ def backfill_leagues(db, data_dir, now, log=print):
                 return hits.pop()
         return None
 
+    # every bet once it has leaguesAt is done: hourly passes read only the last 3 days of bets, a full pass once a day
+    # (each read counts against the free plan's 50k a day; the quota ran out at 9:30 PM PT Nov 25 again)
+    try:
+        full_at = json.load(open(st_fn)).get("fullAt")
+    except Exception:
+        full_at = None
+    full = not full_at or now - datetime.fromisoformat(full_at) >= timedelta(hours=24)
+    q = db.collection("bets") if full else db.collection("bets").where("createdAt", ">=", (now - timedelta(days=3)).isoformat())
     n = 0
-    for snap in db.collection("bets").stream():
+    for snap in q.stream():
         b = snap.to_dict() or {}
         if b.get("leaguesAt"):
             continue
@@ -1126,7 +1138,7 @@ def backfill_leagues(db, data_dir, now, log=print):
             found = [b["league"]]
         db.document(f"bets/{snap.id}").update({"leagues": found or b.get("leagues") or [], "leaguesAt": now.isoformat()})
         n += 1
-    json.dump({"at": now.isoformat()}, open(st_fn, "w"))
+    json.dump({"at": now.isoformat(), "fullAt": now.isoformat() if full else full_at}, open(st_fn, "w"))
     if n:
         log(f"ledger: sports filled in on {n} bets")
     return n
