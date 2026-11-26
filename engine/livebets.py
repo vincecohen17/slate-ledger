@@ -59,6 +59,17 @@ def _index(data_dir):
             fm = B.fantasy_mean_nfl(e["means"], e["yes"])
             if fm:
                 idx[k] = fm
+    # football first-quarter / first-half props no book prices (1Q rush yards on Underdog, say): the full-game sharp mean x
+    # the period's share (books' 1Q pass-yard means run 19-25% of the game on Nov 26 2026; halves ~52%). A real row wins.
+    for d in docs:
+        if d.get("sport") not in ("americanfootball_nfl", "americanfootball_ncaaf") or d["market"] not in PERIOD_BASE:
+            continue
+        for r in d.get("rows", []):
+            pl = R.norm(r["player"]); v = idx.get((d["id"], d["market"], pl))
+            if v is None:
+                continue
+            for suf, share in PERIOD_SHARE.items():
+                idx.setdefault((d["id"], d["market"] + suf, pl), round(v * share, 2))
     _props_idx.update(key=key, idx=idx, by_game=by_game)
     return idx, by_game
 
@@ -186,6 +197,10 @@ def left_frac(sport, st):
 # (latest/period_locks.json). A lock read during the break (clock 0:00 / "End of 1st") is exact and grades the leg;
 # one read in the last minute of play is close but not exact, so that leg is left for Vince to settle.
 _FIRST = {"_q1": 1, "_p1": 1, "_h1": 2, "_1h": 2}
+# football period props with no book row: share of the full-game mean (see _index)
+PERIOD_SHARE = {"_q1": 0.23, "_1h": 0.52, "_h1": 0.52}
+PERIOD_BASE = ("player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions", "player_rush_attempts",
+               "player_pass_completions", "player_pass_attempts", "player_rush_reception_yds")
 
 
 def first_period(market):

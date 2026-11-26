@@ -78,6 +78,26 @@ function fantasyEst(docs, leg) {
   return po == null ? null : { p: leg.side === "Over" ? po : 1 - po, mean: Math.round(mean * 10) / 10 };
 }
 
+// football first-quarter / first-half props with no book row: full-game sharp mean x the period's share (engine livebets
+// PERIOD_SHARE; keep in sync). Books' 1Q pass-yard means ran 19-25% of the full game on Nov 26 2026.
+const PERIOD_SHARE = { _q1: 0.23, _1h: 0.52, _h1: 0.52 };
+function periodEst(docs, leg) {
+  if (leg.point == null || !["Over", "Under"].includes(leg.side)) return null;
+  const m = /^(.*?)(_q1|_1h|_h1)$/.exec(leg.market || "");
+  if (!m) return null;
+  const sport = S.games.get(leg.gameId)?.sport || docs.find((d) => d.sport)?.sport || "";
+  if (!/americanfootball/.test(sport)) return null;
+  for (const d of docs) {
+    if (d.market !== m[1]) continue;
+    const r = (d.rows || []).find((x) => N(x.player) === N(leg.player) && x.mean != null);
+    if (!r) continue;
+    const mean = r.mean * PERIOD_SHARE[m[2]], po = pOver(leg.market, mean, leg.point, sport);
+    if (po == null) return null;
+    return { p: leg.side === "Over" ? po : 1 - po, mean: Math.round(mean * 10) / 10 };
+  }
+  return null;
+}
+
 // result from a final score (game lines only)
 function fromFinal(f, leg) {
   if (!f || f.home?.score == null || leg.player) return null;
@@ -238,6 +258,9 @@ function legRaw(leg) {
       const fe = fantasyEst(docs, leg);
       if (fe) return { p: fe.p, src: "now", est: true, fantasyMean: fe.mean };
     }
+    // football 1Q / 1H prop no book prices (1Q rush yards): the full-game sharp mean x the period's share
+    const pe = periodEst(docs, leg);
+    if (pe) return { p: pe.p, src: "now", est: true, periodMean: pe.mean };
     // a stat no sportsbook prices at all (faceoffs won, pick'em-only markets): the engine's estimate from his last games
     // (history.py histFair; never a fair, so it never makes an edge), marked as an estimate
     const kh = r && sideKey(r.histFair, leg.side);
@@ -371,7 +394,7 @@ function progress0(leg, r) {
   }
   const d = S.liveGames.get(leg.gameId), st = gameState(leg.gameId);
   const g = S.games.get(leg.gameId);
-  if (!st) return { cls: "muted", icon: "○", text: (g ? `Starts ${fmtTime(g.commence)}` : "Not started") + (r && r.est && r.histN ? ` · no book prices this: est. from his last ${r.histN} games (avg ${r.histMean})` : "") + (r && r.fantasyMean != null ? ` · no book prices fantasy score: ${r.fantasyMean} expected from his yards, catches and TD prices` : ""), bar: { cur: 0, line: null, proj: null } };
+  if (!st) return { cls: "muted", icon: "○", text: (g ? `Starts ${fmtTime(g.commence)}` : "Not started") + (r && r.est && r.histN ? ` · no book prices this: est. from his last ${r.histN} games (avg ${r.histMean})` : "") + (r && r.fantasyMean != null ? ` · no book prices fantasy score: ${r.fantasyMean} expected from his yards, catches and TD prices` : "") + (r && r.periodMean != null ? ` · no book prices this period: ${r.periodMean} expected (his full-game average x the period's usual share)` : ""), bar: { cur: 0, line: null, proj: null } };
   const base = (leg.market || "").replace("alternate_", ""), pt = leg.point, m = d?.model || {};
   const over = leg.side === "Over" || leg.side === "Yes";
   const bar = (cur, target, proj) => {      // how far along: filled to now, tick at the line, dot at the projected finish

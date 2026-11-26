@@ -284,6 +284,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   4 pass TD, -1 INT, 0.1 rush/rec yd, 1 catch, 6 rush/rec TD, -1 fumble lost; Nov 25). No book prices it, so its mean is built from the
   player's sharp prop means (build.fantasy_mean_nfl: yards, catches, pass TDs / INTs, player_tds or -ln(1 - P(anytime TD)); NFL
   DISPERSION 4.0): livebets' index (live chance) and the site's projection (projected.js fantasyEst, est) use it.
+  Football 1Q / 1H props no book prices (1Q rush yards on Underdog): mean = the full-game sharp mean x PERIOD_SHARE (_q1 0.23,
+  halves 0.52; books' 1Q pass-yard means ran 19-25% of the game) in livebets' index and the site (projected.js periodEst, est); a real row wins.
 - Watcher (`run.py watch()`, mode watch, the live lane, up to 50 min a job): every minute until Vince's open bets and prop
   picks are done, app open or not. Each pass is a full live pull while the site is on a live screen (presence.live within
   3 min; the site dispatches "watch" every minute there) and otherwise free: ESPN only, the bet games' small live/g/<id>/m
