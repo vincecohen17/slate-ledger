@@ -45,7 +45,8 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
   (status / minutes / goalie / starter / note entries; schema in the module docstring) plus NFL kickoff weather
   (Open-Meteo); applied to the models before "logic agrees" is decided. NHL back-to-backs and NBA rest are in the models.
 - `engine/tracker.py` model report card: snapshots model vs sharp fair before each game (`track/open/`), grades after
-  (`track/graded/<sport>.jsonl`), fits per-market calibration a, b and model trust weight w (`calib/params.json`), and
+  (`track/graded/<sport>.jsonl`), fits per-market calibration a, b and model trust weight w (`calib/params.json`; (a, b) per stratum of the raw
+  fair: main |f - 0.5| <= 0.1, alt, and alt split into near <= 0.3 / far, Nov 17 / Nov 26), and
   applies the calibration to every model probability on each run. Reports page shows the card.
 - `engine/modelstats.py` deep model statistics from track/graded (live rows and the bt_ backtests, separately): per
   sport|kind|market and pooled groups, log loss/Brier of model vs closing market, skill with cluster-robust SEs (by game id

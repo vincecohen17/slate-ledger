@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 import stats as ST
 
 MIN_GROUP, MIN_POOL = 150, 400
-FIT_VERSION = 2          # bump to refit calib/params.json on the next run (2: main / alt strata, Nov 17)
+FIT_VERSION = 3          # bump to refit calib/params.json on the next run (2: main / alt strata, Nov 17; 3: near / far alt, Nov 26)
 LG = {"basketball_nba": "nba", "basketball_wnba": "wnba", "icehockey_nhl": "nhl", "americanfootball_nfl": "nfl",
       "americanfootball_ncaaf": "cfb", **{v[1]: k for k, v in ST.SOCCER.items()}}
 ALIAS = {"UTAH": "UTA", "GSW": "GS", "NOP": "NO", "SAS": "SA", "NYK": "NY", "WAS": "WSH", "UTH": "UTA"}
@@ -529,8 +529,9 @@ def _fit(data_dir, files):
             best = min(best, (ll, w))
         params[gk] = {"a": round(a, 4), "b": round(b, 4), "w": best[1], "n": len(rs)}
         # main-like vs alt rows get their own (a, b) (Nov 17 lab: one fit is a compromise between bt mains and live ladders)
-        for st in ("main", "alt"):
-            sub = [(x, y) for x, y, f in zip(xs, ys, fs) if _stratum(f) == st]
+        # alt rows split again into near (fair 0.2-0.4 / 0.6-0.8) and far (under 0.2 / over 0.8): Nov 26 lab
+        for st in ("main", "alt", "near", "far"):
+            sub = [(x, y) for x, y, f in zip(xs, ys, fs) if _stratum(f) == st or (st in ("near", "far") and _stratum3(f) == st)]
             if len(sub) >= (MIN_POOL if pooled else MIN_GROUP):
                 sa, sb = _fit_ab([x for x, _ in sub], [y for _, y in sub])
                 params[gk][st] = {"a": round(sa, 4), "b": round(sb, 4), "n": len(sub)}
@@ -558,6 +559,14 @@ def _stratum(f):
     return "main" if abs(f - 0.5) <= 0.1 else "alt"
 
 
+def _stratum3(f):
+    """main / near (0.1 < |f - 0.5| <= 0.3) / far (|f - 0.5| > 0.3); None when there is no fair"""
+    if f is None:
+        return None
+    d = abs(f - 0.5)
+    return "main" if d <= 0.1 else ("near" if d <= 0.3 else "far")
+
+
 def _cal(params, gk, p, f=None):
     """calibrated model chance: the (group, stratum) fit, else the pooled sport|kind|* stratum fit, else the group's
     single fit, else the pooled one. Strata by the raw fair (Nov 17 lab, walk-forward on live rows: +8.7 mnats/row,
@@ -568,6 +577,11 @@ def _cal(params, gk, p, f=None):
         return p
     st = _stratum(f)
     pr = (st and ((g0 or {}).get(st) or (g1 or {}).get(st))) or g0 or g1
+    # alt rows: the near / far fit (group, then pooled) when there is one, else the alt chain above (Nov 26 lab, walk-forward
+    # Nov 18-26 live rows: +1.74 mnats/row, t 4.7 clustered by game; far alts +3.0, near +0.4)
+    s3 = _stratum3(f) if st == "alt" else None
+    if s3:
+        pr = (g0 or {}).get(s3) or (g1 or {}).get(s3) or pr
     if not pr:
         return p
     return _sig(pr["a"] + pr["b"] * _lg(p))

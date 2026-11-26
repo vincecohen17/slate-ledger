@@ -360,6 +360,22 @@ def test_flex_entry_pays_by_hits():
     assert LG.flex_result(fx, g([1] * 5 + [None])) is None      # a void leg re-tables the entry: left for Vince
 
 
+def test_calibration_near_far_alt_strata():
+    """alt rows use the near (fair 0.2-0.4 / 0.6-0.8) or far (< 0.2 / > 0.8) fit when there is one, else the alt chain (Nov 26)"""
+    import tracker as T
+    sig = lambda z: 1 / (1 + 2.718281828459045 ** -z)
+    pr = {"basketball_nba|prop|player_points": {"a": 0, "b": 1, "w": 0, "main": {"a": 0.1, "b": 1},
+                                                  "alt": {"a": 0.2, "b": 1}, "far": {"a": 0.3, "b": 1}},
+          "basketball_nba|prop|*": {"a": 0, "b": 1, "w": 0, "near": {"a": 0.4, "b": 1}}}
+    g = "basketball_nba|prop|player_points"
+    assert abs(T._cal(pr, g, 0.5, 0.55) - sig(0.1)) < 1e-9        # main
+    assert abs(T._cal(pr, g, 0.5, 0.9) - sig(0.3)) < 1e-9         # far: the group's far fit
+    assert abs(T._cal(pr, g, 0.5, 0.3) - sig(0.4)) < 1e-9         # near: no group fit, the pooled near fit
+    pr["basketball_nba|prop|*"].pop("near")
+    assert abs(T._cal(pr, g, 0.5, 0.3) - sig(0.2)) < 1e-9         # no near fit anywhere: the alt fit as before
+    assert [T._stratum3(f) for f in (0.5, 0.65, 0.85, 0.1)] == ["main", "near", "far", "far"]
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):
