@@ -211,6 +211,20 @@ def first_period(market):
     return None
 
 
+# first-period windows about to close: the watcher holds its 50-minute handover while one is in its last minutes, so the
+# break reading isn't lost in the ~2-minute gap between one watcher's exit and the next one's first pass (Nov 26: the
+# Dallas and Kansas City 1Q legs both closed during a handover and locked inexact, leaving an entry for Vince to settle)
+CLOSING = {}            # "gid|market|player" -> time of the last pass that saw that window closing
+CLOSING_MIN = 4.0       # minutes of period clock left that count as closing
+
+
+def window_closing(max_age=150):
+    """a watched first-period window was closing (last CLOSING_MIN minutes, not yet read at the break) on a recent pass"""
+    import time
+    t = time.time()
+    return any(t - v < max_age for v in CLOSING.values())
+
+
 def _locks(data_dir):
     try:
         return json.load(open(os.path.join(data_dir, "latest", "period_locks.json")))
@@ -273,6 +287,11 @@ def compute(data_dir, sport, gid, st, legs, log=print):
                 if not (old and old.get("exact")) or at_break:   # keep the latest in-window reading; an exact one stays
                     locks[lk] = {"v": cur, "exact": bool(at_break)}
                     lock_changed = True
+                if at_break or (old and old.get("exact")):
+                    CLOSING.pop(lk, None)
+                elif (st.get("period") or 1) == end and LV._clock_min(st.get("clock")) <= CLOSING_MIN:
+                    import time
+                    CLOSING[lk] = time.time()
         else:
             cur = stat(sport, leg["market"], p) if p else 0.0
         if cur is None:

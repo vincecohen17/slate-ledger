@@ -376,6 +376,34 @@ def test_calibration_near_far_alt_strata():
     assert [T._stratum3(f) for f in (0.5, 0.65, 0.85, 0.1)] == ["main", "near", "far", "far"]
 
 
+def test_first_period_window_closing_holds_handover():
+    """a 1Q leg in the last minutes of the quarter flags window_closing (the watcher holds its handover); the break
+    reading clears it and locks exact"""
+    import tempfile
+    import livebets as LBm
+    saved = (LBm.LV.box, LBm._index, LBm.R.find_player, LBm.stat, LBm.resolve)
+    d = tempfile.mkdtemp()
+    try:
+        LBm.LV.box = lambda sport, eid: ({"x": 1}, None)
+        LBm._index = lambda data_dir: ({}, None)
+        LBm.R.find_player = lambda bx, name, team=None: {"n": name}
+        LBm.stat = lambda sport, market, p: 30.0
+        LBm.resolve = lambda leg, data_dir: leg
+        LBm.CLOSING.clear()
+        leg = {"k#0": {"gameId": "g1", "market": "player_rush_yds_q1", "side": "Over", "point": 14.5, "player": "A B"}}
+        sp = "americanfootball_nfl"
+        LBm.compute(d, sp, "g1", {"espnId": "1", "period": 1, "clock": "9:12"}, leg)
+        assert not LBm.window_closing()
+        LBm.compute(d, sp, "g1", {"espnId": "1", "period": 1, "clock": "2:40"}, leg)
+        assert LBm.window_closing()
+        LBm.compute(d, sp, "g1", {"espnId": "1", "period": 1, "clock": "0:00", "detail": "End of 1st Quarter"}, leg)
+        assert not LBm.window_closing()
+        assert LBm.period_lock(d, "g1", "player_rush_yds_q1", "A B")["exact"] is True
+    finally:
+        LBm.LV.box, LBm._index, LBm.R.find_player, LBm.stat, LBm.resolve = saved
+        LBm.CLOSING.clear()
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

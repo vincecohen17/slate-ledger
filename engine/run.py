@@ -683,6 +683,7 @@ def watch():
     last_hot = 0.0
     last_steam, steam_api, steam_cr = 0.0, None, 0
     was_live = False
+    held = False
     while True:
         NOW = datetime.now(timezone.utc)
         t1 = time.time()
@@ -743,7 +744,13 @@ def watch():
         if not (r.get("need") or r.get("upcoming") or site_live or board_soon or hot_soon or final_wait):
             log("watch: nothing left in play and no game starting soon")
             break
-        if time.time() - t0 > 50 * 60:
+        # a first-period window in its last minutes: hold the handover (up to 55 min; the job's limit is 60) so its break
+        # reading, which grades the leg, isn't taken in the gap while the next watcher starts
+        if 50 * 60 < time.time() - t0 <= 55 * 60 and LB_closing():
+            if not held:
+                log("watch: a first-period window is closing; holding the handover")
+                held = True
+        elif time.time() - t0 > 50 * 60:
             log("watch: 50 minutes up; starting the next watcher")
             _dispatch_watch(chain=True)
             break
@@ -752,6 +759,14 @@ def watch():
         time.sleep(max(5, 60 - (time.time() - t1)))
     log(f"watch: {passes[True]} full passes, {passes[False]} free passes in {round((time.time() - t0) / 60)} min"
         + (f", steam scans spent {steam_cr} credits" if steam_cr else ""))
+
+
+def LB_closing():
+    try:
+        import livebets
+        return livebets.window_closing()
+    except Exception:
+        return False
 
 
 _STEAM_API = None
