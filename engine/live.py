@@ -116,11 +116,18 @@ def scoreboards(sports, post=None):
                              half="top" if str(state["detail"] or "").lower().startswith(("top", "mid")) else "bottom")
                 if str(state["detail"] or "").lower().startswith(("mid", "end")):
                     state["between"] = True
+            # keyed by abbreviation and by full name: our refs' abbreviation can differ from the scoreboard's (Nov 27:
+            # refs say UTAH, the scoreboard UTA, so Utah Mammoth games never matched and their legs had no live stat)
+            keys = {(sport, R.norm(state["home"]["abbr"]), R.norm(state["away"]["abbr"])),
+                    (sport, R.norm(side["home"]["team"].get("displayName") or ""), R.norm(side["away"]["team"].get("displayName") or ""))}
+            keys = {k for k in keys if k[1] and k[2]}
             if ph == "post":
                 state.update(final=True, detail=(st.get("type") or {}).get("shortDetail") or "Final")
-                post[(sport, R.norm(state["home"]["abbr"]), R.norm(state["away"]["abbr"]))] = state
+                for k in keys:
+                    post[k] = state
                 continue
-            out[(sport, R.norm(state["home"]["abbr"]), R.norm(state["away"]["abbr"]))] = state
+            for k in keys:
+                out[k] = state
     return out
 
 
