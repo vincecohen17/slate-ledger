@@ -827,26 +827,29 @@ def _watch_wanted():
             starts.update({ev["id"]: ev.get("commence_time") for ev in json.load(open(f))})
         except Exception:
             pass
+    # the free checks first: the open-bets read (every pending bet, each a Firestore read on the free plan's 50k a day)
+    # runs only when none of them already wants the watcher (Nov 28: the quota ran out at ~6:20 PM PT three days running,
+    # holding bet grading until midnight; this read ran on every auto run though a board game starting soon decided it)
     want = False
     try:
-        for snap in db.collection("bets").where("status", "==", "pending").stream(timeout=30):
-            b = snap.to_dict() or {}
-            if any(lo <= (x.get("commence") or starts.get(x.get("gameId")) or b.get("commence") or "") <= hi for x in (b.get("legs") or [b])):
-                want = True
-                break
-    except Exception as e:
-        log(f"watch: open bets not read ({type(e).__name__})")
-    if not want:
-        try:
-            want = any(pk.get("status") not in ("void", "won", "lost", "push") and pk.get("tier") != "likely" and pk.get("gameId")
-                       and lo <= (pk.get("commence") or "") <= hi for pk in load_picks(2))
-        except Exception:
-            pass
+        want = any(pk.get("status") not in ("void", "won", "lost", "push") and pk.get("tier") != "likely" and pk.get("gameId")
+                   and lo <= (pk.get("commence") or "") <= hi for pk in load_picks(2))
+    except Exception:
+        pass
     if not want:            # hot games (picks, bets, arbs, edges) in the next 18 h keep their prices fresh through the watcher
         want = _hot_soon() > 0
     if not want:            # no open bet soon: still keep the watcher up for close capture when any game starts soon
         hz = iso(NOW + timedelta(hours=WATCH_AHEAD_H))
         want = any(iso(NOW) < (v or "") <= hz for v in starts.values())
+    if not want:
+        try:
+            for snap in db.collection("bets").where("status", "==", "pending").stream(timeout=30):
+                b = snap.to_dict() or {}
+                if any(lo <= (x.get("commence") or starts.get(x.get("gameId")) or b.get("commence") or "") <= hi for x in (b.get("legs") or [b])):
+                    want = True
+                    break
+        except Exception as e:
+            log(f"watch: open bets not read ({type(e).__name__})")
     if not want:
         return False
     return _dispatch_watch()
@@ -1023,8 +1026,8 @@ def _age_min(ts):
     return (NOW - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 60
 
 
-def _debug_bets_due(every_min=30):
-    """latest/ledger_debug.json is rewritten at most every 30 minutes (stamp in latest/ledger_debug_state.json; file
+def _debug_bets_due(every_min=120):
+    """latest/ledger_debug.json is rewritten at most every 2 hours (each pass reads the pending bets and 3 days of bets) (stamp in latest/ledger_debug_state.json; file
     times can't say, a checkout resets them)"""
     fn = os.path.join(DATA_DIR, "latest", "ledger_debug_state.json")
     try:
@@ -1191,7 +1194,10 @@ def auto():
     # Nov 22 audit: on Saturday Nov 21 the 150k day cap was spent by 3 PM PT and every evening game (NBA, NCAAF) closed on
     # a price 1-4 hours old. Past the cap, close capture alone goes on, up to CLOSE_OVERRUN more credits a day.
     close_only = False
-    if room <= 0:
+    # Nov 28 audit: on Nov 27 the paced cap left 6 credits (56,422 of 56,428) at 11:36 AM PT; room was not 0, so closes-only
+    # never started, while every pull was refused by the run cap: no line or prop was pulled for an hour and Broncos @
+    # Steelers (noon PT) closed on props 71 minutes old. A room smaller than a pull counts as the ceiling.
+    if room <= 0 or (paid and room < C.ROOM_MIN):
         close_room = max(0, _paced_cap(P, st, plan_key) + C.CLOSE_OVERRUN - st.get("usedToday", 0)) if paid else 0
         if close_room <= 0:
             log("daily credit ceiling reached")
@@ -1209,6 +1215,10 @@ def auto():
     if api.remaining is not None:
         st["remaining"] = api.remaining
         room = max(0, _paced_cap(P, st, plan_key) + (C.CLOSE_OVERRUN if close_only else 0) - st.get("usedToday", 0))
+        if paid and not close_only and room < C.ROOM_MIN:      # the fresh quota says the day is spent: closes only
+            close_only, active, force = True, False, False
+            room = max(0, _paced_cap(P, st, plan_key) + C.CLOSE_OVERRUN - st.get("usedToday", 0))
+            log(f"daily credit ceiling reached: closes only ({room} credits left for them today)")
         api.max_credits = min(P["run_cap"], room)
         st["dayCap"] = _paced_cap(P, st, plan_key)
     sports = [s for s in C.SPORTS if s in act] + sorted(s for s in act if s.startswith("tennis_") and C.wanted(s))
@@ -1644,7 +1654,10 @@ def publish(game_docs, prop_docs, status, stamp):
         n_graded = 0
         try:        # before grading: finals read the pre-game snapshots that grading clears
             import finals
-            fin = finals.collect(DATA_DIR, sorted({g["sport"] for g in game_docs}), game_docs, NOW, log=log)
+            # a rebuild is how the watcher asks for a game that just ended to be graded: the 10-minute finals throttle
+            # (set by an auto run that read the scoreboard just before the end) held the Kings @ Ducks bets ~28 min (Nov 27)
+            fin = finals.collect(DATA_DIR, sorted({g["sport"] for g in game_docs}), game_docs, NOW,
+                                 every_min=2 if MODE == "rebuild" else 10, log=log)
         except Exception as e:
             log(f"finals failed: {type(e).__name__}: {str(e)[:100]}")
             fin = {}
@@ -1662,7 +1675,7 @@ def publish(game_docs, prop_docs, status, stamp):
                     ledger.apply_inbox(firestore_db(), DATA_DIR, log=log)
                 n_b = ledger.grade_bets(firestore_db() if os.environ.get("FIREBASE_SERVICE_ACCOUNT") else None, DATA_DIR, fin_by, log=log)
                 if firestore_db():
-                    if _debug_bets_due():       # a checking file only: at most every 30 minutes (each call reads 3 days of bets)
+                    if _debug_bets_due():       # a checking file only: at most every 2 hours (each call reads 3 days of bets)
                         ledger.debug_bets(firestore_db(), DATA_DIR, fin_by)
                     ledger.backfill_leagues(firestore_db(), DATA_DIR, NOW, log=log)
                     ledger.backfill_settled(firestore_db(), DATA_DIR, fin_by, NOW, log=log)

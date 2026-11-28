@@ -474,6 +474,10 @@ Owner: Vince (Burbank, CA). Goal: beat the books with sharp-market pricing, spor
 - Firestore reads: 50k a day on Spark (ran out at 9 PM PT Nov 19 and 5 PM PT Nov 21, holding bet grading until midnight PT).
   The site watches previews from the last 4 days only and the engine deletes older ones; oppcheck is cached 30 min
   (latest/oppcheck_cache.json); the promo desk reads waiting requests only. Keep per-run reads to queries that return few docs.
+  Nov 28 (quota out ~6:20 PM PT Nov 25-27): ledger.grade_bets reads the pending bets only every 20 min or when a game one waits
+  on gets a final (latest/grade_bets_state.json); _watch_wanted reads them only when no free check already wants the watcher;
+  backfill_settled every 6 h, debug_bets every 2 h. A paid day's room under config.ROOM_MIN (300) counts as the ceiling
+  (closes only): 6 credits of room once blocked every pull for an hour. Rebuilds refresh finals on a 2-minute throttle.
 - Firebase is on the free Spark plan. Firestore allows 20k writes a day: keep its writes low (one doc per game, one per
   game+prop market; far-off prop docs at most every 30 min). Anything that changes every minute goes to the Realtime Database.
 - Kalshi/Polymarket prices are always shown all-in (ask + fee).

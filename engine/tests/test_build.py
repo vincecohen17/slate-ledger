@@ -404,6 +404,20 @@ def test_first_period_window_closing_holds_handover():
         LBm.CLOSING.clear()
 
 
+def test_grade_bets_reads_only_when_due():
+    import ledger, tempfile
+    from datetime import datetime, timedelta, timezone
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "latest"))
+    t0 = datetime(2026, 11, 28, 2, 0, tzinfo=timezone.utc)
+    assert ledger._grade_due(d, {}, t0)                                   # no state yet: read
+    ledger._grade_mark(d, {"g1": True, "g2": True}, {"g2": {}}, t0)       # g2 was final at the read (a stuck leg)
+    assert not ledger._grade_due(d, {"g2": {}}, t0 + timedelta(minutes=5))
+    assert ledger._grade_due(d, {"g1": {}, "g2": {}}, t0 + timedelta(minutes=5))   # g1 just went final
+    assert not ledger._grade_due(d, {"g9": {}}, t0 + timedelta(minutes=5))         # no pending bet on g9
+    assert ledger._grade_due(d, {}, t0 + timedelta(minutes=ledger.GRADE_EVERY_MIN))
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

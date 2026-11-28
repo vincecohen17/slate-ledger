@@ -645,11 +645,18 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
     """pending bets on Firestore: write `auto` (the site settles them with the promo math)"""
     if not db:
         return 0
-    n = 0
+    if not _grade_due(data_dir, fin_by_gid):
+        return 0
+    n, watch = 0, {}
     for snap in db.collection("bets").where("status", "==", "pending").stream():
         b = snap.to_dict() or {}
         if (b.get("auto") or {}).get("result") or b.get("manual"):
             continue        # manual: logged by hand (non-sports promos, markets we don't price); Vince settles those
+        done0 = (b.get("legsDone") or {})
+        for i, x in enumerate(b.get("legs") or [b]):
+            gid = x.get("gameId") or (b.get("gameId") if len(b.get("legs") or [b]) == 1 else None)
+            if gid and str(i) not in done0:
+                watch[gid] = True
         legs = [x for x in (b.get("legs") or []) if x.get("gameId")]
         legs = [LB.resolve(x, data_dir) for x in legs]
         if any(x is None for x in legs):            # a leg we can't identify: leave the bet for Vince to settle
@@ -704,7 +711,42 @@ def grade_bets(db, data_dir, fin_by_gid, log=print):
             up["lastGame"] = lg
         snap.reference.update(up)
         n += 1
+    _grade_mark(data_dir, watch, fin_by_gid)
     return n
+
+
+GRADE_EVERY_MIN = 20        # pending bets are read at least this often (new bets, legs graded elsewhere) ...
+
+
+def _grade_state_fn(data_dir):
+    return os.path.join(data_dir, "latest", "grade_bets_state.json")
+
+
+def _grade_due(data_dir, fin_by_gid, now=None):
+    """... and right away when a game one of them waits on has a final it hadn't at the last read. Every pending bet is
+    a Firestore read on the free plan's 50k a day; reading them on every 5-minute run ran the quota out by ~6:20 PM PT
+    (Nov 25-27), which held bet grading until midnight. A game that is final but still can't grade a bet (a stat we
+    can't read) waits for the 20-minute read instead of costing a read every run."""
+    now = now or datetime.now(timezone.utc)
+    try:
+        st = json.load(open(_grade_state_fn(data_dir)))
+        at = datetime.fromisoformat(st["at"].replace("Z", "+00:00"))
+    except Exception:
+        return True
+    if now - at >= timedelta(minutes=GRADE_EVERY_MIN) or now < at:
+        return True
+    seen = set(st.get("final") or [])
+    return any(g in fin_by_gid and g not in seen for g in st.get("games") or [])
+
+
+def _grade_mark(data_dir, watch, fin_by_gid, now=None):
+    now = now or datetime.now(timezone.utc)
+    games = sorted(watch)
+    try:
+        json.dump({"at": now.isoformat().replace("+00:00", "Z"), "games": games, "final": [g for g in games if g in fin_by_gid]},
+                  open(_grade_state_fn(data_dir), "w"))
+    except OSError:
+        pass
 
 
 def last_game(data_dir, legs):
@@ -763,17 +805,21 @@ def live_fair_at_log(b, live, g):
     return (g or {}).get("closeFair")
 
 
+BACKFILL_EVERY_H = 6
+
+
 def backfill_settled(db, data_dir, fin_by_gid, now, log=print):
     """settled bets that never got the engine's numbers (settled by hand before grading, or graded before these fields
     existed): closing line value, each leg's result and close, the legs' structured fields and start times, and an
     estimated fair when none was logged (the close, marked fairAtLogSrc "close"). Never changes a result or a profit.
-    Runs hourly (latest/backfill_state.json); our pick files get their structured fields filled the same way."""
+    Runs every BACKFILL_EVERY_H hours (latest/backfill_state.json); our pick files get their structured fields filled the same way."""
     st_fn = os.path.join(data_dir, "latest", "backfill_state.json")
     try:
         last = json.load(open(st_fn)).get("at")
     except Exception:
         last = None
-    if last and now - datetime.fromisoformat(last) < timedelta(hours=1):
+    # every 6 hours (was hourly): each pass reads every settled bet, a Firestore read apiece on the free plan's 50k a day
+    if last and now - datetime.fromisoformat(last) < timedelta(hours=BACKFILL_EVERY_H):
         return 0
     n, mism = 0, []
     for snap in db.collection("bets").where("status", "in", ["won", "lost", "push"]).stream():
